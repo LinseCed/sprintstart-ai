@@ -1,0 +1,7 @@
+[project]
+name = "sprintstart-ai"
+version = "0.1.0"
+description = "SprintStart is an AI-powered onboarding and training platform designed to support software teams by transforming scattered project artifacts into actionable, personalized project knowledge. "
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
