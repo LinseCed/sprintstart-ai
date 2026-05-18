@@ -13,9 +13,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
-[tool.mypy]
-python_version = "3.12"
-strict = true
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -26,7 +28,7 @@ source = ["src"]
 [dependency-groups]
 dev = [
     "ruff",
-    "mypy",
+    "pyright",
     "pytest",
     "pytest-cov",
 ]

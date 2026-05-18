@@ -32,8 +32,8 @@ jobs:
       - name: Ruff – format check
         run: uv run ruff format --check .
 
-      - name: mypy – type check
-        run: uv run mypy src/
+      - name: pyright – type check
+        run: uv run pyright src/
 
   test:
     name: Tests & Coverage
