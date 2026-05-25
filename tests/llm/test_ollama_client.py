@@ -1,10 +1,12 @@
 import os
 
 import httpx
+import ollama
 import pytest
 from unittest.mock import patch, MagicMock
 
-from src.llm.ollama_client import OllamaClient
+from llm.ollama_client import OllamaClient
+from llm.errors import LLMUnavailableError
 
 backend = os.environ.get("LLM_BACKEND")
 
@@ -50,7 +52,6 @@ class TestGenerateHappyPath:
                 messages=[{"role": "user", "content": "Say hello"}],
             )
 
-
 @ollama_required
 class TestGenerateIntegration:
     def test_returns_a_string(self) -> None:
@@ -69,3 +70,55 @@ class TestEmbedHappyPath:
             result = client.embed("Say hello")
             assert result == fake_vector
             mock_chat.assert_called_once_with(model=_EMBED_MODEL, prompt="Say hello")
+
+
+@ollama_required
+class TestEmbedIntegration:
+    def test_returns_a_float_vector(self) -> None:
+        client = _make_client()
+        result = client.embed("Hello world")
+        assert isinstance(result, list)
+        assert len(result) > 0
+        assert all(isinstance(v, float) for v in result)
+
+
+class TestLLMUnavailableError:
+    def test_generate_raises_on_connection_error(self) -> None:
+        client = _make_client(host="http://localhost:1")
+        with patch.object(
+            client._client,
+            "chat",
+            side_effect=ConnectionError("refused"),
+        ):
+            with pytest.raises(LLMUnavailableError):
+                client.generate("hello")
+
+    def test_embed_raises_on_connection_error(self) -> None:
+        client = _make_client(host="http://localhost:1")
+        with patch.object(
+            client._client,
+            "embeddings",
+            side_effect=ConnectionError("refused"),
+        ):
+            with pytest.raises(LLMUnavailableError):
+                client.embed("hello")
+
+    def test_generate_raises_on_ollama_response_error(self) -> None:
+        client = _make_client()
+        with patch.object(
+            client._client,
+            "chat",
+            side_effect=ollama.ResponseError("model not found"),
+        ):
+            with pytest.raises(LLMUnavailableError):
+                client.generate("hello")
+
+    def test_embed_raises_on_ollama_response_error(self) -> None:
+        client = _make_client()
+        with patch.object(
+            client._client,
+            "embeddings",
+            side_effect=ollama.ResponseError("model not found"),
+        ):
+            with pytest.raises(LLMUnavailableError):
+                client.embed("hello")
