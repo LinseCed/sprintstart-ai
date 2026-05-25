@@ -1,13 +1,20 @@
+import os
+
 import httpx
 import pytest
 from unittest.mock import patch, MagicMock
 
 from src.llm.ollama_client import OllamaClient
 
-_LOCAL_HOST = "http://localhost:11434"
-_TEST_MODEL = "llama3.2:1b"
-_EMBED_MODEL = "nomic-embed-text"
+backend = os.environ.get("LLM_BACKEND")
 
+match backend:
+    case "ollama":
+        _LOCAL_HOST = os.environ.get("OLLAMA_HOST")
+        _TEST_MODEL = os.environ.get("OLLAMA_MODEL")
+        _EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL")
+    case _:
+        raise ValueError(f"Unknown LLM_BACKEND {backend!r}")
 
 def _ollama_is_reachable() -> bool:
     try:
@@ -51,3 +58,14 @@ class TestGenerateIntegration:
         result = client.generate("Reply with one word: hello")
         assert isinstance(result, str)
         assert len(result) > 0
+
+class TestEmbedHappyPath:
+    def test_returns_vector(self) -> None:
+        client = _make_client()
+        fake_vector = [0.1, 0.2, 0.3]
+        mock_response = MagicMock()
+        mock_response.embedding = fake_vector
+        with patch.object(client._client, "embeddings", return_value=mock_response) as mock_chat:
+            result = client.embed("Say hello")
+            assert result == fake_vector
+            mock_chat.assert_called_once_with(model=_EMBED_MODEL, prompt="Say hello")

@@ -1,5 +1,7 @@
 import ollama
 
+from llm.errors import LLMUnavailableError
+
 
 class OllamaClient:
     def __init__(
@@ -22,13 +24,13 @@ class OllamaClient:
             response = self._client.chat(model=self._model, messages=messages)
             return response.message.content or ""
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
-            raise exc
+            raise LLMUnavailableError(self._host, cause=exc) from exc
 
     def embed(self, text: str) -> list[float]:
         if self._embed_model is None:
             raise ValueError("No embed model specified")
         try:
             response = self._client.embeddings(model=self._embed_model, prompt=text)
-            return response["embedding"]
+            return response.embedding or []
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
-            raise exc
+            raise LLMUnavailableError(self._host, cause=exc) from exc
