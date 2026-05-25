@@ -32,7 +32,8 @@ class OllamaClient:
         self._model = model
         self._embed_model = embed_model
         self._client: OllamaBackend = (
-            client if client is not None
+            client
+            if client is not None
             else cast(OllamaBackend, ollama.Client(host=host))
         )
 

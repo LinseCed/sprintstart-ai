@@ -10,7 +10,6 @@ _NO_POSITION: int = -1
 
 
 class ChromaVectorStore:
-
     def __init__(
         self,
         collection_name: str = "chunks",
