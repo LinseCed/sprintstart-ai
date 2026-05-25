@@ -1,26 +1,22 @@
 import os
+from collections.abc import Mapping, Sequence
 
 import httpx
 import ollama
 import pytest
-from unittest.mock import patch, MagicMock
 
-from llm.ollama_client import OllamaClient
 from llm.errors import LLMUnavailableError
+from llm.ollama_client import OllamaBackend, OllamaClient
 
-backend = os.environ.get("LLM_BACKEND")
+_LOCAL_HOST = os.environ.get("OLLAMA_HOST")
+_TEST_MODEL = os.environ.get("OLLAMA_MODEL")
+_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL")
+_OLLAMA_BASE = _LOCAL_HOST or "http://localhost:11434"
 
-match backend:
-    case "ollama":
-        _LOCAL_HOST = os.environ.get("OLLAMA_HOST")
-        _TEST_MODEL = os.environ.get("OLLAMA_MODEL")
-        _EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL")
-    case _:
-        raise ValueError(f"Unknown LLM_BACKEND {backend!r}")
 
 def _ollama_is_reachable() -> bool:
     try:
-        httpx.get("http://localhost:11434", timeout=2)
+        httpx.get(_OLLAMA_BASE, timeout=2)
         return True
     except httpx.ConnectError:
         return False
@@ -31,26 +27,70 @@ ollama_required = pytest.mark.skipif(
 )
 
 
+class _FakeOllamaClient:
+    def __init__(
+        self,
+        chat_content: str = "",
+        embed_vector: list[float] | None = None,
+        chat_error: Exception | None = None,
+        embed_error: Exception | None = None,
+    ) -> None:
+        self._chat_content = chat_content
+        self._embed_vector = embed_vector or []
+        self._chat_error = chat_error
+        self._embed_error = embed_error
+        self.last_chat_model: str | None = None
+        self.last_chat_messages: list[Mapping[str, str]] | None = None
+        self.last_embed_model: str | None = None
+        self.last_embed_prompt: str | None = None
+
+    def chat(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, str]] | None = None,
+    ) -> ollama.ChatResponse:
+        self.last_chat_model = model
+        self.last_chat_messages = list(messages) if messages is not None else None
+        if self._chat_error is not None:
+            raise self._chat_error
+        return ollama.ChatResponse(
+            message=ollama.Message(role="assistant", content=self._chat_content)
+        )
+
+    def embeddings(
+        self,
+        model: str = "",
+        prompt: str = "",
+    ) -> ollama.EmbeddingsResponse:
+        self.last_embed_model = model
+        self.last_embed_prompt = prompt
+        if self._embed_error is not None:
+            raise self._embed_error
+        return ollama.EmbeddingsResponse(embedding=self._embed_vector)
+
+
 def _make_client(
-    host: str = _LOCAL_HOST, model: str = _TEST_MODEL, embed_model: str = _EMBED_MODEL
+    host: str | None = _LOCAL_HOST,
+    model: str | None = _TEST_MODEL,
+    embed_model: str | None = _EMBED_MODEL,
+    inner_client: OllamaBackend | None = None,
 ) -> OllamaClient:
-    return OllamaClient(host=host, model=model, embed_model=embed_model)
+    return OllamaClient(
+        host=host, model=model, embed_model=embed_model, client=inner_client
+    )
 
 
 class TestGenerateHappyPath:
     def test_returns_assistant_content(self) -> None:
-        client = _make_client()
-        mock_response = MagicMock()
-        mock_response.message.content = "Hello there!"
-        with patch.object(
-            client._client, "chat", return_value=mock_response
-        ) as mock_chat:
-            result = client.generate("Say hello")
-            assert result == "Hello there!"
-            mock_chat.assert_called_once_with(
-                model=_TEST_MODEL,
-                messages=[{"role": "user", "content": "Say hello"}],
-            )
+        fake = _FakeOllamaClient(chat_content="Hello there!")
+        client = _make_client(inner_client=fake)
+
+        result = client.generate("Say hello")
+
+        assert result == "Hello there!"
+        assert fake.last_chat_model == _TEST_MODEL
+        assert fake.last_chat_messages == [{"role": "user", "content": "Say hello"}]
+
 
 @ollama_required
 class TestGenerateIntegration:
@@ -60,16 +100,18 @@ class TestGenerateIntegration:
         assert isinstance(result, str)
         assert len(result) > 0
 
+
 class TestEmbedHappyPath:
     def test_returns_vector(self) -> None:
-        client = _make_client()
         fake_vector = [0.1, 0.2, 0.3]
-        mock_response = MagicMock()
-        mock_response.embedding = fake_vector
-        with patch.object(client._client, "embeddings", return_value=mock_response) as mock_chat:
-            result = client.embed("Say hello")
-            assert result == fake_vector
-            mock_chat.assert_called_once_with(model=_EMBED_MODEL, prompt="Say hello")
+        fake = _FakeOllamaClient(embed_vector=fake_vector)
+        client = _make_client(inner_client=fake)
+
+        result = client.embed("Say hello")
+
+        assert result == fake_vector
+        assert fake.last_embed_model == _EMBED_MODEL
+        assert fake.last_embed_prompt == "Say hello"
 
 
 @ollama_required
@@ -84,41 +126,25 @@ class TestEmbedIntegration:
 
 class TestLLMUnavailableError:
     def test_generate_raises_on_connection_error(self) -> None:
-        client = _make_client(host="http://localhost:1")
-        with patch.object(
-            client._client,
-            "chat",
-            side_effect=ConnectionError("refused"),
-        ):
-            with pytest.raises(LLMUnavailableError):
-                client.generate("hello")
+        fake = _FakeOllamaClient(chat_error=ConnectionError("refused"))
+        client = _make_client(host="http://localhost:1", inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.generate("hello")
 
     def test_embed_raises_on_connection_error(self) -> None:
-        client = _make_client(host="http://localhost:1")
-        with patch.object(
-            client._client,
-            "embeddings",
-            side_effect=ConnectionError("refused"),
-        ):
-            with pytest.raises(LLMUnavailableError):
-                client.embed("hello")
+        fake = _FakeOllamaClient(embed_error=ConnectionError("refused"))
+        client = _make_client(host="http://localhost:1", inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.embed("hello")
 
     def test_generate_raises_on_ollama_response_error(self) -> None:
-        client = _make_client()
-        with patch.object(
-            client._client,
-            "chat",
-            side_effect=ollama.ResponseError("model not found"),
-        ):
-            with pytest.raises(LLMUnavailableError):
-                client.generate("hello")
+        fake = _FakeOllamaClient(chat_error=ollama.ResponseError("model not found"))
+        client = _make_client(inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.generate("hello")
 
     def test_embed_raises_on_ollama_response_error(self) -> None:
-        client = _make_client()
-        with patch.object(
-            client._client,
-            "embeddings",
-            side_effect=ollama.ResponseError("model not found"),
-        ):
-            with pytest.raises(LLMUnavailableError):
-                client.embed("hello")
+        fake = _FakeOllamaClient(embed_error=ollama.ResponseError("model not found"))
+        client = _make_client(inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.embed("hello")

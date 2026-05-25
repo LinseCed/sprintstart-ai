@@ -1,16 +1,20 @@
 from typing import Protocol
 
-from src.rag.types import Chunk
+from rag.types import Chunk, ScoredChunk
 
 
 class VectorStore(Protocol):
-    def add(self, chunks: list[Chunk]) -> None: ...
+
+    def add(self, chunks: list[Chunk]) -> None:
+        ...
 
     def query(
         self,
         embedding: list[float],
         top_k: int,
         min_score: float,
-    ) -> list[Chunk]: ...
+    ) -> list[ScoredChunk]:
+        ...
 
-    def delete(self, artifact_id: str) -> None: ...
+    def delete(self, artifact_id: str) -> None:
+        ...

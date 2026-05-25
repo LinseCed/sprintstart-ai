@@ -1,7 +1,7 @@
-from src.rag.types import Chunk, Citation
+from rag.types import Citation, ScoredChunk
 
 
-def build_citations(chunks: list[Chunk]) -> list[Citation]:
+def build_citations(chunks: list[ScoredChunk]) -> list[Citation]:
     return [
         Citation(
             filename=chunk.filename,

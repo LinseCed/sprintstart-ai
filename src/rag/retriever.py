@@ -1,6 +1,6 @@
-from src.llm.base import LLMClient
-from src.rag.types import Chunk
-from src.store.base import VectorStore
+from llm.base import LLMClient
+from rag.types import ScoredChunk
+from store.base import VectorStore
 
 
 def retrieve(
@@ -9,7 +9,7 @@ def retrieve(
     store: VectorStore,
     top_k: int,
     min_score: float,
-) -> list[Chunk]:
+) -> list[ScoredChunk]:
     embedding = llm.embed(question)
 
     return store.query(
