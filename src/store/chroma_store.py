@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import chromadb
 
@@ -50,16 +50,22 @@ class ChromaVectorStore:
         top_k: int,
         min_score: float,
     ) -> list[Chunk]:
-        result = self.collection.query(
-            query_embeddings=[embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
+        raw_result = cast(
+            dict[str, Any],
+            self.collection.query(
+                query_embeddings=[embedding],
+                n_results=top_k,
+                include=["documents", "metadatas", "distances"],
+            ),
         )
 
-        ids = result.get("ids", [[]])[0]
-        documents = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        distances = result.get("distances", [[]])[0]
+        ids = cast(list[list[str]], raw_result.get("ids") or [[]])[0]
+        documents = cast(list[list[str]], raw_result.get("documents") or [[]])[0]
+        metadatas = cast(
+            list[list[dict[str, Any]]],
+            raw_result.get("metadatas") or [[]],
+        )[0]
+        distances = cast(list[list[float]], raw_result.get("distances") or [[]])[0]
 
         chunks: list[Chunk] = []
 
@@ -69,23 +75,28 @@ class ChromaVectorStore:
             metadatas,
             distances,
         ):
-            score = 1 - distance
+            score = 1.0 - distance
 
             if score < min_score:
                 continue
 
+            raw_heading_path = metadata.get("heading_path")
+            heading_path = str(raw_heading_path) if raw_heading_path else None
+
             raw_position = metadata.get("position")
-            position = None if raw_position == -1 else raw_position
+            position = None if raw_position in (None, -1) else int(raw_position)
+
+            raw_kind = metadata.get("kind", "text")
 
             chunks.append(
                 Chunk(
-                    id=chunk_id,
-                    artifact_id=metadata["artifact_id"],
-                    filename=metadata["filename"],
-                    heading_path=metadata.get("heading_path") or None,
+                    id=str(chunk_id),
+                    artifact_id=str(metadata["artifact_id"]),
+                    filename=str(metadata["filename"]),
+                    heading_path=heading_path,
                     position=position,
-                    kind=metadata.get("kind", "text"),
-                    text=text,
+                    kind=str(raw_kind),
+                    text=str(text),
                     embedding=[],
                     score=score,
                 )
@@ -95,12 +106,15 @@ class ChromaVectorStore:
         return chunks
 
     def delete(self, artifact_id: str) -> None:
-        result = self.collection.get(
-            where={"artifact_id": artifact_id},
-            include=[],
+        raw_result = cast(
+            dict[str, Any],
+            self.collection.get(
+                where={"artifact_id": artifact_id},
+                include=[],
+            ),
         )
 
-        ids = result.get("ids", [])
+        ids = cast(list[str], raw_result.get("ids") or [])
 
         if ids:
             self.collection.delete(ids=ids)
