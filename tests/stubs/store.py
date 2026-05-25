@@ -52,6 +52,5 @@ class StubVectorStore:
 
     def delete(self, artifact_id: str) -> None:
         self.chunks = [
-            chunk for chunk in self.chunks
-            if chunk.artifact_id != artifact_id
+            chunk for chunk in self.chunks if chunk.artifact_id != artifact_id
         ]
