@@ -9,8 +9,8 @@ from llm.errors import LLMUnavailableError
 from llm.ollama_client import OllamaBackend, OllamaClient
 
 _LOCAL_HOST = os.environ.get("OLLAMA_HOST")
-_TEST_MODEL = os.environ.get("OLLAMA_MODEL")
-_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL")
+_TEST_MODEL = os.environ.get("OLLAMA_MODEL", "test-model")
+_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "test-embed-model")
 _OLLAMA_BASE = _LOCAL_HOST or "http://localhost:11434"
 
 
