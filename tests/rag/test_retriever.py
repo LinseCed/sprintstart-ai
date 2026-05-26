@@ -1,5 +1,5 @@
-from src.rag.retriever import retrieve
-from src.rag.types import Chunk
+from rag.retriever import retrieve
+from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

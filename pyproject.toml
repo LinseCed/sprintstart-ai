@@ -5,6 +5,8 @@ description = "SprintStart is an AI-powered onboarding and training platform des
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "ollama>=0.6.2",
+    "python-dotenv>=1.2.2",
     "chromadb>=1.5.9",
 ]
 
@@ -13,16 +15,18 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
+extraPaths = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.coverage.run]
 source = ["src"]
