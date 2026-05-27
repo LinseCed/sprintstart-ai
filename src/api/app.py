@@ -24,7 +24,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
-app = FastAPI(title="sprintstart-ai", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="SprintStart AI Service",
+    version="0.1.0",
+    description=(
+        "RAG-based AI service. Exposes document ingestion and streaming chat. "
+        "All streaming responses use Server-Sent Events (SSE)."
+    ),
+    lifespan=lifespan,
+)
 
 
 @app.exception_handler(Exception)

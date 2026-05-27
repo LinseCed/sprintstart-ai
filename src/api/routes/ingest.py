@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_llm, get_store
-from api.schemas import IngestRequest, IngestResponse
+from api.schemas import IngestRequest, IngestResponse, ValidationErrorResponse
 from ingestion.mapper import to_chunk
 from ingestion.parser import parse
 from llm.base import LLMClient
@@ -11,7 +11,32 @@ from store.base import VectorStore
 router = APIRouter()
 
 
-@router.post("/ingest")
+@router.post(
+    "/ingest",
+    summary="Ingest a document",
+    description=(
+        "Parses, chunks, and embeds a document, then stores it in the vector store. "
+        "Re-ingesting the same artifact_id replaces the existing chunks."
+    ),
+    responses={
+        422: {
+            "model": ValidationErrorResponse,
+            "content": {
+                "application/json": {"example": {"detail": "'question' is required"}}
+            },
+        },
+        503: {
+            "model": ValidationErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "LLM backend unreachable at 'http://localhost:11434'"
+                    }
+                }
+            },
+        },
+    },
+)
 def ingest(
     body: IngestRequest,
     llm: LLMClient = Depends(get_llm),

@@ -18,10 +18,43 @@ class IngestRequest(BaseModel):
         description="Full plain-text or Markdown content of the document."
     )
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "artifact_id": "sprint-42-retro",
+                "filename": "retro.md",
+                "content": "# Retro\n## What went well\nGood collaboration...",
+            }
+        }
+    }
+
 
 class IngestResponse(BaseModel):
     artifact_id: str
     chunk_count: int = Field(description="Number of chunks stored.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "artifact_id": "sprint-42-retro",
+                "chunk_count": 4,
+            }
+        }
+    }
+
+
+class HistoryEntry(BaseModel):
+    role: Literal["user", "assistant"] = Field(description="Who produced this message.")
+    content: str = Field(description="Text content of the message.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "role": "user",
+                "content": "What were the main blockers in sprint 42?",
+            }
+        }
+    }
 
 
 class ChatRequest(BaseModel):
@@ -35,6 +68,35 @@ class ChatRequest(BaseModel):
         le=1.0,
         description="Minimum cosine similarity score for a chunk to be included.",
     )
+    history: list[HistoryEntry] = Field(
+        default_factory=list,
+        description=(
+            "Ordered conversation history for multi-turn context. "
+            "Entries are chronological (oldest first) and should alternate "
+            "between 'user' and 'assistant' roles. "
+            "May be omitted or empty for single-turn requests."
+        ),
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "question": "Can you summarize that?",
+                "top_k": 5,
+                "min_score": 0.7,
+                "history": [
+                    {
+                        "role": "user",
+                        "content": "What were the main blockers in sprint 42?",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "The main blockers were missing designs and a flaky CI pipeline.",
+                    },
+                ],
+            }
+        }
+    }
 
 
 class HealthResponse(BaseModel):
@@ -62,7 +124,7 @@ class CitationEvent(BaseModel):
         description=(
             'Heading breadcrumb, e.g. "Retro > Blockers". '
             "Null if not available."
-        )
+        ),
     )
 
 
