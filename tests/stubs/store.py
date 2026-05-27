@@ -1,8 +1,8 @@
-from src.rag.types import Chunk
+from rag.types import Chunk, ScoredChunk
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(y * y for y in b) ** 0.5
 
@@ -13,20 +13,20 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 class StubVectorStore:
-    def __init__(self):
+    def __init__(self) -> None:
         self.chunks: list[Chunk] = []
 
     def add(self, chunks: list[Chunk]) -> None:
-        self.chunks.extend(chunks)
+        self.chunks = self.chunks + chunks
 
     def query(
         self,
         embedding: list[float],
         top_k: int,
         min_score: float,
-    ) -> list[Chunk]:
+    ) -> list[ScoredChunk]:
         scored = [
-            Chunk(
+            ScoredChunk(
                 id=chunk.id,
                 artifact_id=chunk.artifact_id,
                 filename=chunk.filename,
@@ -34,7 +34,6 @@ class StubVectorStore:
                 position=chunk.position,
                 kind=chunk.kind,
                 text=chunk.text,
-                embedding=chunk.embedding,
                 score=cosine_similarity(embedding, chunk.embedding),
             )
             for chunk in self.chunks
@@ -44,10 +43,10 @@ class StubVectorStore:
             chunk
             for chunk in sorted(
                 scored,
-                key=lambda item: item.score or 0.0,
+                key=lambda item: item.score,
                 reverse=True,
             )[:top_k]
-            if (chunk.score or 0.0) >= min_score
+            if chunk.score >= min_score
         ]
 
     def delete(self, artifact_id: str) -> None:
