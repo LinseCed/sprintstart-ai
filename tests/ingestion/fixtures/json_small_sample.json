@@ -1,0 +1,6 @@
+{
+  "project": "Ingestion System",
+  "version": "1.0",
+  "description": "Sample dataset for testing JSON parsing in ingestion pipeline"
+  
+}

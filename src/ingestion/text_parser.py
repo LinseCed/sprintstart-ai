@@ -1,7 +1,6 @@
-from pathlib import Path
 
+from ingestion.chunker import chunk_text
 from ingestion.models import ParsedChunk
-from ingestion.utils import build_metadata
 
 
 def parse_text(filename: str, content: bytes) -> list[ParsedChunk]:
@@ -16,10 +15,4 @@ def parse_text(filename: str, content: bytes) -> list[ParsedChunk]:
     """
     text = content.decode(encoding = "utf-8", errors = "replace")
 
-    return [
-        ParsedChunk(
-            content = text,
-            kind = "text",
-            metadata = build_metadata(Path(filename)),
-        )
-    ]
+    return chunk_text(filename, text)

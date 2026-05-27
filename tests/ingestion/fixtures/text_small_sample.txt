@@ -1,0 +1,8 @@
+Ingestion System Test File
+
+This is a simple text file used for testing the text parser component.
+
+Purpose:
+- Verify that plain text files are correctly decoded
+- Ensure metadata extraction works properly
+- Validate single-chunk parsing behavior when less than 513  chars
