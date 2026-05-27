@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 
-@dataclass(slots = True)
+@dataclass(slots=True)
 class ParsedChunk:
     """
     Represents a processed text chunk produced by a file parser.

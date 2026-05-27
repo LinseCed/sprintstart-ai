@@ -1,13 +1,12 @@
 import logging
 from pathlib import Path
 
-from ingestion.code_parser import parse_code
 from ingestion.models import ParsedChunk
-from ingestion.pdf_parser import parse_pdf
 from ingestion.text_parser import parse_text
 
 logger = logging.getLogger(__name__)
 
+# TODO: discuss what to add
 CODE_EXTENSIONS = {
     ".py",
     ".js",
@@ -24,9 +23,8 @@ TEXT_EXTENSIONS = {
     ".toml",
 }
 
-PDF_EXTENSION = {
-    ".pdf"
-}
+PDF_EXTENSION = {".pdf"}
+
 
 def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     """Parse a file into structured chunks based on its file extension.
@@ -50,24 +48,21 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
         list[ParsedChunk]: A list of ParsedChunk objects extracted from the file.
                            Returns an empty list if the file type is unsupported.
     """
-    
+
     # dispatcher organizes wich parser to use
 
     file_suffix = Path(filename).suffix
 
     if file_suffix in CODE_EXTENSIONS:
-        return parse_code(filename, content)
+        raise NotImplementedError
 
     elif file_suffix in TEXT_EXTENSIONS:
         return parse_text(filename, content)
 
-    elif file_suffix in PDF_EXTENSION: 
-        return parse_pdf(filename, content)
+    elif file_suffix in PDF_EXTENSION:
+        raise NotImplementedError
 
-    else: 
+    else:
         # unsupported file type
         logger.warning(f"Unsupported file type was given: {filename}")
         return []
-
-
-
