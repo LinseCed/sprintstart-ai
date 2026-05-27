@@ -125,7 +125,7 @@ def test_parse_large_markdown_as_multiple_chunks(markdown_large_file_content: by
 
 
 def test_parse_large_json_as_multiple_chunks(json_large_file_content: bytes):
-    filename = "markdown_large_sample.md"
+    filename = "json_large_sample.json"
     result = parse(filename, json_large_file_content)
 
     assert len(result) > 1
@@ -145,12 +145,12 @@ def test_parse_large_json_as_multiple_chunks(json_large_file_content: bytes):
     for chunk in result:
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
-        assert chunk.metadata["type"] == ".md"
+        assert chunk.metadata["type"] == ".json"
         assert chunk.metadata["source"].endswith(filename)
 
 
 def test_parse_large_txt_as_multiple_chunks(text_large_file_content: bytes):
-    filename = "markdown_large_sample.md"
+    filename = "text_large_sample.txt"
     result = parse(filename, text_large_file_content)
 
     assert len(result) > 1
@@ -170,5 +170,5 @@ def test_parse_large_txt_as_multiple_chunks(text_large_file_content: bytes):
     for chunk in result:
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
-        assert chunk.metadata["type"] == ".md"
+        assert chunk.metadata["type"] == ".txt"
         assert chunk.metadata["source"].endswith(filename)
