@@ -125,8 +125,7 @@ class CitationEvent(BaseModel):
     section_path: str | None = Field(
         default=None,
         description=(
-            'Heading breadcrumb, e.g. "Retro > Blockers". '
-            "Null if not available."
+            'Heading breadcrumb, e.g. "Retro > Blockers". Null if not available.'
         ),
     )
 

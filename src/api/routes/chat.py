@@ -102,11 +102,11 @@ def chat(
 
             for citation in build_citations(chunks):
                 payload = {
-                        "type": "citation",
-                        "chunk_id": citation.chunk_id,
-                        "filename": citation.filename,
-                        "section_path": citation.section_path,
-                    }
+                    "type": "citation",
+                    "chunk_id": citation.chunk_id,
+                    "filename": citation.filename,
+                    "section_path": citation.section_path,
+                }
                 yield f"data: {json.dumps(payload)}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
