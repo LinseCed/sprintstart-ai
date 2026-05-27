@@ -8,6 +8,8 @@ dependencies = [
     "ollama>=0.6.2",
     "python-dotenv>=1.2.2",
     "chromadb>=1.5.9",
+    "fastapi>=0.136.3",
+    "uvicorn>=0.48.0",
 ]
 
 [tool.ruff]
@@ -37,4 +39,5 @@ dev = [
     "pyright",
     "pytest",
     "pytest-cov",
+    "httpx>=0.28.1",
 ]

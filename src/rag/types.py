@@ -1,5 +1,11 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import TypeGuard
+
+from ingestion.models import ChunkKind
+
+
+def is_chunk_kind(value: str) -> TypeGuard[ChunkKind]:
+    return value in ("text", "code", "pdf")
 
 
 @dataclass(frozen=True)
@@ -11,7 +17,7 @@ class Chunk:
     embedding: list[float]
     heading_path: str | None = None
     position: int | None = None
-    kind: Literal["text"] = "text"
+    kind: ChunkKind = "text"
 
 
 @dataclass(frozen=True)
@@ -23,7 +29,7 @@ class ScoredChunk:
     score: float
     heading_path: str | None = None
     position: int | None = None
-    kind: Literal["text"] = "text"
+    kind: ChunkKind = "text"
 
 
 @dataclass(frozen=True)
