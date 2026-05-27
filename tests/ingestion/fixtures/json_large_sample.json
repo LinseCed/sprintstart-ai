@@ -1,0 +1,20 @@
+{
+  "project": "Ingestion System",
+  "version": "1.0",
+  "description": "Sample dataset for testing JSON parsing in ingestion pipeline. This file is intentionally large to exceed the 512 character threshold and to test multi-chunk splitting behavior in downstream processing systems.",
+  "config": {
+    "enabled": true,
+    "features": ["parsing", "chunking", "metadata-extraction", "validation", "error-handling"],
+    "limits": {
+      "max_chunk_size": 512,
+      "encoding": "utf-8",
+      "strict_mode": false
+    }
+  },
+  "data": [
+    {"id": 1, "text": "This is a long sample entry used to increase file size and simulate real-world payloads in ingestion pipelines."},
+    {"id": 2, "text": "Another extended text block to ensure the JSON file exceeds the required threshold for testing purposes."},
+    {"id": 3, "text": "Additional filler content to guarantee that the parser handles larger JSON structures correctly."}
+  ],
+  "notes": "The purpose of this file is purely for testing. It should be parsed as a single text chunk if under threshold logic is bypassed, or split depending on implementation."
+}

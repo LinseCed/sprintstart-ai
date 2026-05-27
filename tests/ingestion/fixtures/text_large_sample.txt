@@ -1,0 +1,16 @@
+Ingestion System Test File
+
+This is a simple text file used for testing the text parser component in a multi-format ingestion pipeline.
+
+Purpose:
+- Verify that plain text files are correctly decoded into UTF-8 strings
+- Ensure metadata extraction works properly across different file types
+- Validate single-chunk parsing behavior and multi-chunk splitting logic
+- Simulate realistic input data that may come from logs, notes, or documentation
+
+Additional Information:
+This file has been intentionally extended with multiple sentences and repeated patterns to exceed the 512 character threshold required for testing.
+
+The ingestion system should correctly handle larger files without truncation or data loss, and it should maintain consistent metadata across parsed chunks.
+
+More filler text is added here to ensure that the byte length of this file clearly exceeds the limit and triggers the intended parsing behavior in the system under test.
