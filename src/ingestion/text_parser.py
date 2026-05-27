@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ingestion.models import ParsedChunk
-from ingestion.parser import _meta
+from ingestion.utils import build_metadata
 
 
 def parse_text(filename: str, content: bytes) -> list[ParsedChunk]:
@@ -20,6 +20,6 @@ def parse_text(filename: str, content: bytes) -> list[ParsedChunk]:
         ParsedChunk(
             content = text,
             kind = "text",
-            metadata = _meta(Path(filename)),
+            metadata = build_metadata(Path(filename)),
         )
     ]
