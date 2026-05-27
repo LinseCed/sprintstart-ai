@@ -37,7 +37,7 @@ router = APIRouter()
                     "schema": {
                         "type": "string",
                         "description": (
-                            "Newline-delimited SSE stream. Each event is a JSON object. "
+                            "Newline-delimited SSE stream. Each event is a JSON object. "  # noqa: E501
                             "See TokenEvent, CitationEvent, DoneEvent, ErrorEvent schemas."  # noqa: E501
                         ),
                     },
@@ -48,9 +48,9 @@ router = APIRouter()
                         },
                         "citation": {
                             "summary": "Citation event",
-                            "value": (  # noqa: E501
+                            "value": (
                                 'data: {"type": "citation", "chunk_id": "chunk-1",'
-                                ' "filename": "retro.md", "section_path": "Retro > Blockers"}\n\n'
+                                ' "filename": "retro.md", "section_path": "Retro > Blockers"}\n\n'  # noqa: E501
                             ),
                         },
                         "done": {
