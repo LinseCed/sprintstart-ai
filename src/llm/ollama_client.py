@@ -1,8 +1,9 @@
-from collections.abc import Mapping, Sequence
-from typing import Protocol, cast
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Protocol
 
 import ollama
 
+from llm.base import Message
 from llm.errors import LLMUnavailableError
 
 
@@ -13,11 +14,47 @@ class OllamaBackend(Protocol):
         messages: Sequence[Mapping[str, str]] | None = None,
     ) -> ollama.ChatResponse: ...
 
+    def chat_stream(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, str]] | None = None,
+    ) -> Iterator[ollama.ChatResponse]: ...
+
     def embeddings(
         self,
         model: str = "",
         prompt: str = "",
     ) -> ollama.EmbeddingsResponse: ...
+
+
+class _OllamaAdapter:
+    """Wraps ollama.Client to satisfy the OllamaBackend protocol."""
+
+    def __init__(self, host: str | None) -> None:
+        self._client = ollama.Client(host=host)
+
+    def chat(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, str]] | None = None,
+    ) -> ollama.ChatResponse:
+        return self._client.chat(model=model, messages=list(messages or []))
+
+    def chat_stream(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, str]] | None = None,
+    ) -> Iterator[ollama.ChatResponse]:
+        return self._client.chat(  # type: ignore[return-value]
+            model=model, messages=list(messages or []), stream=True
+        )
+
+    def embeddings(
+        self,
+        model: str = "",
+        prompt: str = "",
+    ) -> ollama.EmbeddingsResponse:
+        return self._client.embeddings(model=model, prompt=prompt)
 
 
 class OllamaClient:
@@ -32,19 +69,24 @@ class OllamaClient:
         self._model = model
         self._embed_model = embed_model
         self._client: OllamaBackend = (
-            client
-            if client is not None
-            else cast(OllamaBackend, ollama.Client(host=host))
+            client if client is not None else _OllamaAdapter(host=host)
         )
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, messages: list[Message]) -> str:
         if self._model is None:
             raise ValueError("No model specified")
-
-        messages = [{"role": "user", "content": prompt}]
         try:
             response = self._client.chat(model=self._model, messages=messages)
             return response.message.content or ""
+        except (ollama.ResponseError, ConnectionError, OSError) as exc:
+            raise LLMUnavailableError(self._host, cause=exc) from exc
+
+    def stream(self, messages: list[Message]) -> Iterator[str]:
+        if self._model is None:
+            raise ValueError("No model specified")
+        try:
+            for chunk in self._client.chat_stream(model=self._model, messages=messages):
+                yield chunk.message.content or ""
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc
 
