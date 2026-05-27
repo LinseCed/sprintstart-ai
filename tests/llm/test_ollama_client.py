@@ -114,7 +114,9 @@ class TestGenerateHappyPath:
 class TestGenerateIntegration:
     def test_returns_a_string(self) -> None:
         client = _make_client()
-        result = client.generate([Message(role="user", content="Reply with one word: hello")])
+        result = client.generate(
+            [Message(role="user", content="Reply with one word: hello")]
+        )
         assert isinstance(result, str)
         assert len(result) > 0
 
@@ -143,7 +145,9 @@ class TestStreamHappyPath:
 class TestStreamIntegration:
     def test_yields_strings(self) -> None:
         client = _make_client()
-        tokens = list(client.stream([Message(role="user", content="Reply with one word: hello")]))
+        tokens = list(
+            client.stream([Message(role="user", content="Reply with one word: hello")])
+        )
         assert len(tokens) > 0
         assert all(isinstance(t, str) for t in tokens)
 

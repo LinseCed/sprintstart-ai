@@ -1,6 +1,6 @@
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Request
@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse
 
 load_dotenv()
 
-from api.dependencies import get_llm
-from api.routes import chat, health, ingest
-from llm.errors import LLMUnavailableError
+from api.dependencies import get_llm  # noqa: E402
+from api.routes import chat, health, ingest  # noqa: E402
+from llm.errors import LLMUnavailableError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

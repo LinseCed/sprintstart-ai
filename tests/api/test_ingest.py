@@ -1,5 +1,6 @@
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,7 +42,11 @@ def test_ingest_small_markdown_returns_single_chunk(
 
     response = http_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "small-doc", "filename": "markdown_small_sample.md", "content": content},
+        json={
+            "artifact_id": "small-doc",
+            "filename": "markdown_small_sample.md",
+            "content": content,
+        },
     )
 
     assert response.status_code == 200
@@ -58,7 +63,11 @@ def test_ingest_large_markdown_returns_multiple_chunks(
 
     response = http_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "large-doc", "filename": "markdown_large_sample.md", "content": content},
+        json={
+            "artifact_id": "large-doc",
+            "filename": "markdown_large_sample.md",
+            "content": content,
+        },
     )
 
     assert response.status_code == 200
@@ -75,11 +84,19 @@ def test_reingest_replaces_existing_chunks(
 
     http_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "doc-1", "filename": "markdown_small_sample.md", "content": content},
+        json={
+            "artifact_id": "doc-1",
+            "filename": "markdown_small_sample.md",
+            "content": content,
+        },
     )
     response = http_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "doc-1", "filename": "markdown_small_sample.md", "content": content},
+        json={
+            "artifact_id": "doc-1",
+            "filename": "markdown_small_sample.md",
+            "content": content,
+        },
     )
 
     assert response.status_code == 200
@@ -93,7 +110,11 @@ def test_ingest_unsupported_file_type_returns_422(
 
     response = http_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "doc-1", "filename": "file.cpp", "content": "int main() {}"},
+        json={
+            "artifact_id": "doc-1",
+            "filename": "file.cpp",
+            "content": "int main() {}",
+        },
     )
 
     assert response.status_code == 422
@@ -116,7 +137,11 @@ def test_ingest_llm_unavailable_returns_503(
 
     response = http_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "doc-1", "filename": "markdown_small_sample.md", "content": content},
+        json={
+            "artifact_id": "doc-1",
+            "filename": "markdown_small_sample.md",
+            "content": content,
+        },
     )
 
     assert response.status_code == 503
@@ -128,7 +153,11 @@ def test_ingest_small_markdown_with_real_ollama(real_client: TestClient) -> None
 
     response = real_client.post(
         "/api/v1/ingest",
-        json={"artifact_id": "small-doc", "filename": "markdown_small_sample.md", "content": content},
+        json={
+            "artifact_id": "small-doc",
+            "filename": "markdown_small_sample.md",
+            "content": content,
+        },
     )
 
     assert response.status_code == 200

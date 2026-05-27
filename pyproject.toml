@@ -18,6 +18,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "B008",  # Depends() in default args is standard FastAPI pattern
+]
 
 [tool.pyright]
 pythonVersion = "3.12"

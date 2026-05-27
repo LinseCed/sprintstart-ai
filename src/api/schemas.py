@@ -91,7 +91,10 @@ class ChatRequest(BaseModel):
                     },
                     {
                         "role": "assistant",
-                        "content": "The main blockers were missing designs and a flaky CI pipeline.",
+                        "content": (
+                            "The main blockers were missing designs "
+                            "and a flaky CI pipeline."
+                        ),
                     },
                 ],
             }

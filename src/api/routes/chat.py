@@ -38,17 +38,20 @@ router = APIRouter()
                         "type": "string",
                         "description": (
                             "Newline-delimited SSE stream. Each event is a JSON object. "
-                            "See TokenEvent, CitationEvent, DoneEvent, ErrorEvent schemas."
+                            "See TokenEvent, CitationEvent, DoneEvent, ErrorEvent schemas."  # noqa: E501
                         ),
                     },
                     "examples": {
                         "token": {
                             "summary": "Token event",
-                            "value": 'data: {"type": "token", "content": "The main"}\n\n',
+                            "value": 'data: {"type": "token", "content": "The main"}\n\n',  # noqa: E501
                         },
                         "citation": {
                             "summary": "Citation event",
-                            "value": 'data: {"type": "citation", "chunk_id": "chunk-1", "filename": "retro.md", "section_path": "Retro > Blockers"}\n\n',
+                            "value": (  # noqa: E501
+                                'data: {"type": "citation", "chunk_id": "chunk-1",'
+                                ' "filename": "retro.md", "section_path": "Retro > Blockers"}\n\n'
+                            ),
                         },
                         "done": {
                             "summary": "Done event",
@@ -56,7 +59,7 @@ router = APIRouter()
                         },
                         "error": {
                             "summary": "Error event",
-                            "value": 'data: {"type": "error", "message": "LLM backend unreachable"}\n\n',
+                            "value": 'data: {"type": "error", "message": "LLM backend unreachable"}\n\n',  # noqa: E501
                         },
                     },
                 }
@@ -98,7 +101,13 @@ def chat(
                     yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
             for citation in build_citations(chunks):
-                yield f"data: {json.dumps({'type': 'citation', 'chunk_id': citation.chunk_id, 'filename': citation.filename, 'section_path': citation.section_path})}\n\n"
+                payload = {
+                        "type": "citation",
+                        "chunk_id": citation.chunk_id,
+                        "filename": citation.filename,
+                        "section_path": citation.section_path,
+                    }
+                yield f"data: {json.dumps(payload)}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 

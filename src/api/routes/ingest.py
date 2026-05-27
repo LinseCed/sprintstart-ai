@@ -45,7 +45,10 @@ def ingest(
     parsed_chunks = parse(body.filename, body.content.encode("utf-8"))
 
     if not parsed_chunks:
-        raise HTTPException(status_code=422, detail=f"Unsupported file type: {body.filename}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported file type: {body.filename}",
+        )
 
     try:
         chunks = [
