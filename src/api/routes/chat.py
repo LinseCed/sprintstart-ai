@@ -19,6 +19,7 @@ router = APIRouter()
 @router.post(
     "/chat",
     summary="Ask a question (streaming)",
+    response_class=StreamingResponse,
     description=(
         "Retrieves relevant chunks from the vector store, then streams a "
         "generated answer token by token as Server-Sent Events.\n\n"
@@ -29,6 +30,38 @@ router = APIRouter()
         "On error, a single `error` event is emitted instead and the stream closes."
     ),
     responses={
+        200: {
+            "description": "SSE stream",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "description": (
+                            "Newline-delimited SSE stream. Each event is a JSON object. "
+                            "See TokenEvent, CitationEvent, DoneEvent, ErrorEvent schemas."
+                        ),
+                    },
+                    "examples": {
+                        "token": {
+                            "summary": "Token event",
+                            "value": 'data: {"type": "token", "content": "The main"}\n\n',
+                        },
+                        "citation": {
+                            "summary": "Citation event",
+                            "value": 'data: {"type": "citation", "chunk_id": "chunk-1", "filename": "retro.md", "section_path": "Retro > Blockers"}\n\n',
+                        },
+                        "done": {
+                            "summary": "Done event",
+                            "value": 'data: {"type": "done"}\n\n',
+                        },
+                        "error": {
+                            "summary": "Error event",
+                            "value": 'data: {"type": "error", "message": "LLM backend unreachable"}\n\n',
+                        },
+                    },
+                }
+            },
+        },
         422: {
             "model": ValidationErrorResponse,
             "content": {
