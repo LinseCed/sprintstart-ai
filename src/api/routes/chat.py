@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends
@@ -12,6 +13,8 @@ from rag.citation import build_citations
 from rag.prompt import build_messages
 from rag.retriever import retrieve
 from store.base import VectorStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -113,5 +116,11 @@ def chat(
 
         except LLMUnavailableError as exc:
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+        except Exception:
+            logger.exception("Unexpected error in chat stream")
+            payload = json.dumps(
+                {"type": "error", "message": "An unexpected error occurred"}
+            )
+            yield f"data: {payload}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
