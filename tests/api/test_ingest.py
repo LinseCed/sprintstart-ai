@@ -148,7 +148,7 @@ def test_ingest_llm_unavailable_returns_503(
 
 
 @llm_required
-def test_ingest_small_markdown_with_real_ollama(real_client: TestClient) -> None:
+def test_ingest_small_markdown_with_real_llm(real_client: TestClient) -> None:
     content = (FIXTURES_DIR / "markdown_small_sample.md").read_text()
 
     response = real_client.post(
