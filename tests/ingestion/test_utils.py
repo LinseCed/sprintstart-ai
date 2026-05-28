@@ -10,7 +10,6 @@ def test_build_metadata_returns_correct_metadata():
 
     assert result["filename"] == "example.txt"
     assert result["type"] == ".txt"
-    assert result["source"].endswith("example.txt")
 
 
 def test_build_metadata_returns_all_expected_keys():
@@ -18,7 +17,7 @@ def test_build_metadata_returns_all_expected_keys():
 
     result = build_metadata(path)
 
-    assert set(result.keys()) == {"source", "filename", "type"}
+    assert set(result.keys()) == {"filename", "type"}
 
 
 def test_build_metadata_values_are_strings():
@@ -26,6 +25,5 @@ def test_build_metadata_values_are_strings():
 
     result = build_metadata(path)
 
-    assert isinstance(result["source"], str)
     assert isinstance(result["filename"], str)
     assert isinstance(result["type"], str)

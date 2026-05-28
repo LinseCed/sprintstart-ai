@@ -4,7 +4,7 @@ import chromadb
 import chromadb.api
 from chromadb.api.types import PyEmbeddings
 
-from rag.types import Chunk, ScoredChunk
+from rag.types import Chunk, ScoredChunk, is_chunk_kind
 
 _NO_POSITION: int = -1
 
@@ -98,7 +98,7 @@ class ChromaVectorStore:
             )
 
             kind_str = str(metadata.get("kind", "text"))
-            if kind_str != "text":
+            if not is_chunk_kind(kind_str):
                 raise ValueError(f"Unknown chunk kind {kind_str!r}")
 
             results.append(
@@ -108,7 +108,7 @@ class ChromaVectorStore:
                     filename=str(metadata["filename"]),
                     heading_path=heading_path,
                     position=position,
-                    kind="text",
+                    kind=kind_str,
                     text=str(text),
                     score=score,
                 )
@@ -117,13 +117,16 @@ class ChromaVectorStore:
         results.sort(key=lambda c: c.score, reverse=True)
         return results
 
-    def delete(self, artifact_id: str) -> None:
+    def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> None:
         raw_result = self._collection.get(
             where={"artifact_id": artifact_id},
             include=[],
         )
 
         ids = raw_result["ids"]
+
+        if exclude_ids:
+            ids = [i for i in ids if i not in exclude_ids]
 
         if ids:
             self._collection.delete(ids=ids)

@@ -49,7 +49,9 @@ class StubVectorStore:
             if chunk.score >= min_score
         ]
 
-    def delete(self, artifact_id: str) -> None:
+    def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> None:
         self.chunks = [
-            chunk for chunk in self.chunks if chunk.artifact_id != artifact_id
+            chunk
+            for chunk in self.chunks
+            if chunk.artifact_id != artifact_id or chunk.id in (exclude_ids or [])
         ]

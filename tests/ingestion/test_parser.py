@@ -62,7 +62,6 @@ def test_parse_small_markdown_as_single_chunk(markdown_small_file_content: bytes
     metadata = chunk.metadata
     assert metadata["filename"] == filename
     assert metadata["type"] == ".md"
-    assert metadata["source"].endswith(filename)
 
 
 def test_parse_small_txt_file_as_single_chunk(text_small_file_content: bytes):
@@ -79,7 +78,6 @@ def test_parse_small_txt_file_as_single_chunk(text_small_file_content: bytes):
     metadata = chunk.metadata
     assert metadata["filename"] == filename
     assert metadata["type"] == ".txt"
-    assert metadata["source"].endswith(filename)
 
 
 def test_parse_small_json_as_single_chunk(json_small_file_content: bytes):
@@ -96,7 +94,6 @@ def test_parse_small_json_as_single_chunk(json_small_file_content: bytes):
     metadata = chunk.metadata
     assert metadata["filename"] == filename
     assert metadata["type"] == ".json"
-    assert metadata["source"].endswith(filename)
 
 
 def test_parse_large_markdown_as_multiple_chunks(markdown_large_file_content: bytes):
@@ -121,7 +118,6 @@ def test_parse_large_markdown_as_multiple_chunks(markdown_large_file_content: by
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
         assert chunk.metadata["type"] == ".md"
-        assert chunk.metadata["source"].endswith(filename)
 
 
 def test_parse_large_json_as_multiple_chunks(json_large_file_content: bytes):
@@ -146,7 +142,6 @@ def test_parse_large_json_as_multiple_chunks(json_large_file_content: bytes):
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
         assert chunk.metadata["type"] == ".json"
-        assert chunk.metadata["source"].endswith(filename)
 
 
 def test_parse_large_txt_as_multiple_chunks(text_large_file_content: bytes):
@@ -171,4 +166,3 @@ def test_parse_large_txt_as_multiple_chunks(text_large_file_content: bytes):
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
         assert chunk.metadata["type"] == ".txt"
-        assert chunk.metadata["source"].endswith(filename)

@@ -1,10 +1,11 @@
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Sequence
 
 import httpx
 import ollama
 import pytest
 
+from llm.base import Message
 from llm.errors import LLMUnavailableError
 from llm.ollama_client import OllamaBackend, OllamaClient
 
@@ -31,23 +32,25 @@ class _FakeOllamaClient:
     def __init__(
         self,
         chat_content: str = "",
+        stream_tokens: list[str] | None = None,
         embed_vector: list[float] | None = None,
         chat_error: Exception | None = None,
         embed_error: Exception | None = None,
     ) -> None:
         self._chat_content = chat_content
+        self._stream_tokens = stream_tokens or [chat_content]
         self._embed_vector = embed_vector or []
         self._chat_error = chat_error
         self._embed_error = embed_error
         self.last_chat_model: str | None = None
-        self.last_chat_messages: list[Mapping[str, str]] | None = None
+        self.last_chat_messages: list[Message] | None = None
         self.last_embed_model: str | None = None
         self.last_embed_prompt: str | None = None
 
     def chat(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse:
         self.last_chat_model = model
         self.last_chat_messages = list(messages) if messages is not None else None
@@ -56,6 +59,20 @@ class _FakeOllamaClient:
         return ollama.ChatResponse(
             message=ollama.Message(role="assistant", content=self._chat_content)
         )
+
+    def chat_stream(
+        self,
+        model: str = "",
+        messages: Sequence[Message] | None = None,
+    ) -> Iterator[ollama.ChatResponse]:
+        self.last_chat_model = model
+        self.last_chat_messages = list(messages) if messages is not None else None
+        if self._chat_error is not None:
+            raise self._chat_error
+        for token in self._stream_tokens:
+            yield ollama.ChatResponse(
+                message=ollama.Message(role="assistant", content=token)
+            )
 
     def embeddings(
         self,
@@ -84,8 +101,9 @@ class TestGenerateHappyPath:
     def test_returns_assistant_content(self) -> None:
         fake = _FakeOllamaClient(chat_content="Hello there!")
         client = _make_client(inner_client=fake)
+        messages = [Message(role="user", content="Say hello")]
 
-        result = client.generate("Say hello")
+        result = client.generate(messages)
 
         assert result == "Hello there!"
         assert fake.last_chat_model == _TEST_MODEL
@@ -96,9 +114,42 @@ class TestGenerateHappyPath:
 class TestGenerateIntegration:
     def test_returns_a_string(self) -> None:
         client = _make_client()
-        result = client.generate("Reply with one word: hello")
+        result = client.generate(
+            [Message(role="user", content="Reply with one word: hello")]
+        )
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+class TestStreamHappyPath:
+    def test_yields_tokens(self) -> None:
+        fake = _FakeOllamaClient(stream_tokens=["Hello", " there", "!"])
+        client = _make_client(inner_client=fake)
+        messages = [Message(role="user", content="Say hello")]
+
+        result = list(client.stream(messages))
+
+        assert result == ["Hello", " there", "!"]
+        assert fake.last_chat_model == _TEST_MODEL
+
+    def test_yields_single_token(self) -> None:
+        fake = _FakeOllamaClient(chat_content="Hi!")
+        client = _make_client(inner_client=fake)
+
+        result = list(client.stream([Message(role="user", content="Hi")]))
+
+        assert result == ["Hi!"]
+
+
+@ollama_required
+class TestStreamIntegration:
+    def test_yields_strings(self) -> None:
+        client = _make_client()
+        tokens = list(
+            client.stream([Message(role="user", content="Reply with one word: hello")])
+        )
+        assert len(tokens) > 0
+        assert all(isinstance(t, str) for t in tokens)
 
 
 class TestEmbedHappyPath:
@@ -129,7 +180,13 @@ class TestLLMUnavailableError:
         fake = _FakeOllamaClient(chat_error=ConnectionError("refused"))
         client = _make_client(host="http://localhost:1", inner_client=fake)
         with pytest.raises(LLMUnavailableError):
-            client.generate("hello")
+            client.generate([Message(role="user", content="hello")])
+
+    def test_stream_raises_on_connection_error(self) -> None:
+        fake = _FakeOllamaClient(chat_error=ConnectionError("refused"))
+        client = _make_client(host="http://localhost:1", inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            list(client.stream([Message(role="user", content="hello")]))
 
     def test_embed_raises_on_connection_error(self) -> None:
         fake = _FakeOllamaClient(embed_error=ConnectionError("refused"))
@@ -141,7 +198,7 @@ class TestLLMUnavailableError:
         fake = _FakeOllamaClient(chat_error=ollama.ResponseError("model not found"))
         client = _make_client(inner_client=fake)
         with pytest.raises(LLMUnavailableError):
-            client.generate("hello")
+            client.generate([Message(role="user", content="hello")])
 
     def test_embed_raises_on_ollama_response_error(self) -> None:
         fake = _FakeOllamaClient(embed_error=ollama.ResponseError("model not found"))
