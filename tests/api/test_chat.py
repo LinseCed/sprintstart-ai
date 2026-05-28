@@ -17,9 +17,7 @@ from tests.stubs.store import StubVectorStore
 
 def _parse_events(text: str) -> list[dict[str, Any]]:
     return [
-        json.loads(line[6:])
-        for line in text.splitlines()
-        if line.startswith("data: ")
+        json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")
     ]
 
 
@@ -83,16 +81,18 @@ def test_chat_emits_citation_when_chunks_exist(
     embedding = [1.0] + [0.0] * 767
     app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
 
-    store.add([
-        Chunk(
-            id="chunk-1",
-            artifact_id="doc-1",
-            filename="retro.md",
-            text="Missing designs blocked the auth feature.",
-            embedding=embedding,
-            heading_path="Blockers",
-        )
-    ])
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="doc-1",
+                filename="retro.md",
+                text="Missing designs blocked the auth feature.",
+                embedding=embedding,
+                heading_path="Blockers",
+            )
+        ]
+    )
 
     response = http_client.post(
         "/api/v1/chat",
