@@ -117,13 +117,16 @@ class ChromaVectorStore:
         results.sort(key=lambda c: c.score, reverse=True)
         return results
 
-    def delete(self, artifact_id: str) -> None:
+    def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> None:
         raw_result = self._collection.get(
             where={"artifact_id": artifact_id},
             include=[],
         )
 
         ids = raw_result["ids"]
+
+        if exclude_ids:
+            ids = [i for i in ids if i not in exclude_ids]
 
         if ids:
             self._collection.delete(ids=ids)

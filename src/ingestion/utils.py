@@ -13,9 +13,8 @@ def build_metadata(path: Path) -> dict[str, str]:
 
     Returns:
         dict[str, str]: A dictionary containing file metadata such as:
-                        - source: absolute file path
                         - filename: file name including extension
                         - type: file extension
     """
 
-    return {"source": str(path.resolve()), "filename": path.name, "type": path.suffix}
+    return {"filename": path.name, "type": path.suffix}
