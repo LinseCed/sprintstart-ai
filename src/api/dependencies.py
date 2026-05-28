@@ -1,3 +1,4 @@
+import logging
 import os
 from functools import lru_cache
 
@@ -5,6 +6,8 @@ from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -23,4 +26,10 @@ def get_llm() -> LLMClient:
 
 @lru_cache
 def get_store() -> VectorStore:
-    return ChromaVectorStore(path=os.getenv("CHROMA_PATH"))
+    path = os.getenv("CHROMA_PATH")
+    if path is None:
+        logger.warning(
+            "CHROMA_PATH is not set — using ephemeral in-memory store, "
+            "data will not persist"
+        )
+    return ChromaVectorStore(path=path)
