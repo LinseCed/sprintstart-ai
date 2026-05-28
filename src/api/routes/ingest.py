@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_llm, get_store
@@ -42,6 +44,13 @@ def ingest(
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
 ) -> IngestResponse:
+    max_length = int(os.getenv("INGEST_MAX_CONTENT_LENGTH", "500000"))
+    if len(body.content) > max_length:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Content exceeds maximum length of {max_length} characters.",
+        )
+
     parsed_chunks = parse(body.filename, body.content.encode("utf-8"))
 
     if not parsed_chunks:
@@ -58,7 +67,7 @@ def ingest(
     except LLMUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    store.delete(body.artifact_id)
     store.add(chunks)
+    store.delete(body.artifact_id, exclude_ids=[c.id for c in chunks])
 
     return IngestResponse(artifact_id=body.artifact_id, chunk_count=len(chunks))
