@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from typing import Protocol
 
 import ollama
@@ -11,13 +11,13 @@ class OllamaBackend(Protocol):
     def chat(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse: ...
 
     def chat_stream(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]: ...
 
     def embeddings(
@@ -36,15 +36,20 @@ class _OllamaAdapter:
     def chat(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse:
-        return self._client.chat(model=model, messages=list(messages or []))
+        # ollama.Client.chat uses @overload and pyright cannot resolve the member type
+        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+            model=model, messages=list(messages or [])
+        )
 
     def chat_stream(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]:
+        # stream=True makes ollama return Iterator[ChatResponse] at runtime, but the
+        # @overload stubs are too coarse for pyright to narrow the return type
         return self._client.chat(  # type: ignore[return-value]
             model=model, messages=list(messages or []), stream=True
         )

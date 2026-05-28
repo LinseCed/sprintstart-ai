@@ -1,22 +1,38 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IngestRequest(BaseModel):
-    artifact_id: str = Field(
-        description=(
-            "Stable identifier for the source document. "
-            "Re-ingesting with the same artifact_id replaces all existing chunks."
+    artifact_id: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description=(
+                "Stable identifier for the source document. "
+                "Re-ingesting with the same artifact_id replaces all existing chunks."
+            ),
+            examples=["sprint-42-retro"],
         ),
-        examples=["sprint-42-retro"],
-    )
-    filename: str = Field(
-        description="Original filename, used in citations.", examples=["retro.md"]
-    )
+    ]
+    filename: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Original filename, used in citations.",
+            examples=["retro.md"],
+        ),
+    ]
     content: str = Field(
         description="Full plain-text or Markdown content of the document."
     )
+
+    @field_validator("filename")
+    @classmethod
+    def filename_has_no_path_separators(cls, v: str) -> str:
+        if "/" in v or "\\" in v:
+            raise ValueError("filename must not contain path separators")
+        return v
 
     model_config = {
         "json_schema_extra": {
@@ -59,24 +75,28 @@ class HistoryEntry(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str = Field(examples=["What were the main blockers in sprint 42?"])
-    top_k: int = Field(
-        default=5, ge=1, le=20, description="Maximum number of chunks to retrieve."
-    )
-    min_score: float = Field(
-        default=0.7,
-        ge=0.0,
-        le=1.0,
-        description="Minimum cosine similarity score for a chunk to be included.",
-    )
-    history: list[HistoryEntry] = Field(
-        default_factory=list,
-        description=(
-            "Ordered conversation history for multi-turn context. "
-            "Entries are chronological (oldest first) and should alternate "
-            "between 'user' and 'assistant' roles. "
-            "May be omitted or empty for single-turn requests."
+    top_k: Annotated[
+        int, Field(ge=1, le=20, description="Maximum number of chunks to retrieve.")
+    ] = 5
+    min_score: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            description="Minimum cosine similarity score for a chunk to be included.",
         ),
-    )
+    ] = 0.7
+    history: Annotated[
+        list[HistoryEntry],
+        Field(
+            description=(
+                "Ordered conversation history for multi-turn context. "
+                "Entries are chronological (oldest first) and should alternate "
+                "between 'user' and 'assistant' roles. "
+                "May be omitted or empty for single-turn requests."
+            ),
+        ),
+    ] = []
 
     model_config = {
         "json_schema_extra": {
@@ -122,12 +142,11 @@ class CitationEvent(BaseModel):
     type: Literal["citation"]
     chunk_id: str
     filename: str
-    section_path: str | None = Field(
-        default=None,
-        description=(
-            'Heading breadcrumb, e.g. "Retro > Blockers". Null if not available.'
-        ),
-    )
+    section_path: Annotated[
+        str | None,
+        Field(description='Heading breadcrumb, e.g. "Retro > Blockers". '
+                          "Null if not available."),
+    ] = None
 
 
 class DoneEvent(BaseModel):

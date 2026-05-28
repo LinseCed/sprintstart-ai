@@ -1,5 +1,5 @@
 import os
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 
 import httpx
 import ollama
@@ -43,14 +43,14 @@ class _FakeOllamaClient:
         self._chat_error = chat_error
         self._embed_error = embed_error
         self.last_chat_model: str | None = None
-        self.last_chat_messages: list[Mapping[str, str]] | None = None
+        self.last_chat_messages: list[Message] | None = None
         self.last_embed_model: str | None = None
         self.last_embed_prompt: str | None = None
 
     def chat(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse:
         self.last_chat_model = model
         self.last_chat_messages = list(messages) if messages is not None else None
@@ -63,7 +63,7 @@ class _FakeOllamaClient:
     def chat_stream(
         self,
         model: str = "",
-        messages: Sequence[Mapping[str, str]] | None = None,
+        messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]:
         self.last_chat_model = model
         self.last_chat_messages = list(messages) if messages is not None else None
