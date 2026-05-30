@@ -13,7 +13,6 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen
 
 COPY src ./src
-COPY tests ./tests
 
 EXPOSE 8000
 
