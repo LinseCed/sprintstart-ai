@@ -1,0 +1,13 @@
+services:
+  sprintstart-ai:
+    build: .
+    container_name: sprintstart-ai
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PROVIDER: local
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: llama3.2
+      EMBEDDING_MODEL: nomic-embed-text
+    volumes:
+      - ./data:/app/data
