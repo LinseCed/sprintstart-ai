@@ -51,7 +51,7 @@ The service runs on port `8000`.
 | Variable | Description | Default |
 |---|---|---|
 | `LLM_BACKEND` | LLM backend to use. Currently only `ollama` is supported. | `ollama` |
-| `OLLAMA_BASE_URL` | Base URL of the Ollama instance. | `http://localhost:11434` (local), overridden to `http://host.docker.internal:11434` in Docker |
+| `OLLAMA_BASE_URL` | Base URL of the Ollama instance. Use `http://host.docker.internal:11434` when running via Docker with Ollama on the host. | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Chat model to use for generation. | `llama3` |
 | `OLLAMA_EMBED_MODEL` | Embedding model to use for ingestion and retrieval. | `nomic-embed-text` |
 | `CHROMA_PATH` | Path for ChromaDB persistent storage. If unset, an in-memory store is used and data will not persist. | — |
