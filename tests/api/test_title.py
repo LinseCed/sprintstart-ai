@@ -22,13 +22,13 @@ def client() -> Generator[tuple[TestClient, StubLLMClient], Any, None]:
     app.dependency_overrides.clear()
 
 
-class TestLLM(StubLLMClient):
-    def generate(self, messages: list[Message]) -> str:
-        return "REST vs GraphQL"
-
 
 def test_title_generation(client: tuple[TestClient, StubLLMClient]):
     http_client, _ = client
+
+    class TestLLM(StubLLMClient):
+        def generate(self, messages: list[Message]) -> str:
+            return "REST vs GraphQL"
 
     app.dependency_overrides[get_llm] = lambda: TestLLM()
 
