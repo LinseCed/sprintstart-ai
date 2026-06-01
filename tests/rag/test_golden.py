@@ -123,6 +123,6 @@ def test_trick_prompts_return_no_citations(ingested_client: TestClient) -> None:
                 f"\nAnswer   : {answer!r}\n"
             )
 
-    assert not failures, (
-        "Trick prompt(s) unexpectedly returned citations:\n" + "".join(failures)
+    assert not failures, "Trick prompt(s) unexpectedly returned citations:\n" + "".join(
+        failures
     )
