@@ -1,0 +1,18 @@
+# Each entry: a question whose answer lives in exactly one corpus file.
+# The test asserts that at least one citation from expected_citation_filename
+# appears in the response.
+
+- question: "What is Codebridge and what problem does it solve for engineering teams?"
+  expected_citation_filename: "welcome.md"
+
+- question: "Who is the engineering lead and what decisions do they own?"
+  expected_citation_filename: "team-roles.md"
+
+- question: "How do I run the Codebridge backend locally after cloning the repo?"
+  expected_citation_filename: "dev-setup.md"
+
+- question: "How many approvals does a pull request need before it can be merged?"
+  expected_citation_filename: "process.md"
+
+- question: "What is a diff score and how is it calculated?"
+  expected_citation_filename: "glossary.md"

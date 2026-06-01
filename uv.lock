@@ -2001,6 +2001,7 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -2019,6 +2020,7 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff" },
 ]
 

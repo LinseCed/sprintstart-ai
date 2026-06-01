@@ -1,0 +1,13 @@
+# Each entry: a prompt that references content NOT present in the demo corpus.
+# The test asserts that NO citation events are returned, meaning the retriever
+# correctly found nothing relevant and the answer is not grounded in corpus docs.
+
+- prompt: "What is Codebridge's annual recurring revenue and growth rate?"
+
+- prompt: "What is the employee stock option vesting schedule and cliff period?"
+
+- prompt: "What is the postal address of the Codebridge headquarters office?"
+
+- prompt: "What are the terms of the enterprise master service agreement?"
+
+- prompt: "What is the on-call escalation policy when the primary responder is unavailable?"

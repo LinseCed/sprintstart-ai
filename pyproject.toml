@@ -32,6 +32,9 @@ extraPaths = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "integration: end-to-end tests that require Ollama to be running",
+]
 
 [tool.coverage.run]
 source = ["src"]
@@ -43,4 +46,5 @@ dev = [
     "pytest",
     "pytest-cov",
     "httpx>=0.28.1",
+    "pyyaml>=6.0",
 ]
