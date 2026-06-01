@@ -128,23 +128,28 @@ class HealthResponse(BaseModel):
 
 
 class TitleRequest(BaseModel):
-    prompt: Annotated[str, 
-                      Field(min_length = 1, description="The input prompt used to generate the title",
-                            examples=["What are the main differences between REST and GraphQL?"])
-                      ]  
-    max_length : Annotated[int, 
-                           Field(ge = 1, le = 200,
-                                  description="Maximum title length"),] = 60
-    
+    prompt: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="The input prompt used to generate the title",
+            examples=["What are the main differences between REST and GraphQL?"],
+        ),
+    ]
+    max_length: Annotated[
+        int,
+        Field(ge=1, le=200, description="Maximum title length"),
+    ] = 60
+
     model_config = {
         "json_schema_extra": {
             "example": {
                 "prompt": "What are the main differences between REST and GraphQL?",
-                "max_length": 60
+                "max_length": 60,
             }
         }
     }
-    
+
     @field_validator("prompt")
     @classmethod
     def prompt_not_blank(cls, value: str) -> str:
@@ -152,17 +157,15 @@ class TitleRequest(BaseModel):
             raise ValueError("prompt cannot be blank")
         return value
 
+
 class TitleResponse(BaseModel):
     title: str = Field(description="From the prompt generated title.")
 
     model_config = {
-        "json_schema_extra": {
-            "example": {
-                "title": "REST vs GraphQL: key differences"
-            }
-        }
+        "json_schema_extra": {"example": {"title": "REST vs GraphQL: key differences"}}
     }
-    
+
+
 class ValidationErrorResponse(BaseModel):
     detail: str
 
