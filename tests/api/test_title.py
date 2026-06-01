@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api.dependencies import get_llm
+from llm.base import Message
 from llm.errors import LLMUnavailableError
 from tests.stubs.llm import StubLLMClient
 
@@ -22,7 +23,7 @@ def client() -> Generator[tuple[TestClient, StubLLMClient], Any, None]:
 
 
 class TestLLM(StubLLMClient):
-    def generate(self, messages):  # type: ignore
+    def generate(self, messages: list[Message]) -> str:
         return "REST vs GraphQL"
 
 
@@ -44,7 +45,7 @@ def test_title_respects_max_length(client: tuple[TestClient, StubLLMClient]):
     http_client, _ = client
 
     class LongTitleLLM(StubLLMClient):
-        def generate(self, messages):  # type: ignore
+        def generate(self, messages: list[Message]) -> str:
             return "THIS IS A VERY LONG TITLE THAT EXCEEDS LIMIT"
 
     app.dependency_overrides[get_llm] = lambda: LongTitleLLM()
@@ -74,7 +75,7 @@ def test_llm_failure_returns_503(client: tuple[TestClient, StubLLMClient]):
     http_client, _ = client
 
     class FailingLLM(StubLLMClient):
-        def generate(self, messages):  # type: ignore
+        def generate(self, messages: list[Message]) -> str:
             raise LLMUnavailableError("http://localhost:11434")
 
     app.dependency_overrides[get_llm] = lambda: FailingLLM()
