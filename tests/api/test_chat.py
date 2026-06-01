@@ -160,6 +160,7 @@ def test_chat_llm_unavailable_emits_error_event(
     assert events[0]["type"] == "error"
 
 
+@pytest.mark.integration
 @llm_required
 def test_chat_with_real_llm(real_client: TestClient) -> None:
     response = real_client.post(

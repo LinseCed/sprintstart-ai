@@ -147,6 +147,7 @@ def test_ingest_llm_unavailable_returns_503(
     assert response.status_code == 503
 
 
+@pytest.mark.integration
 @llm_required
 def test_ingest_small_markdown_with_real_llm(real_client: TestClient) -> None:
     content = (FIXTURES_DIR / "markdown_small_sample.md").read_text()
