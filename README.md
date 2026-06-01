@@ -48,13 +48,13 @@ The service runs on port `8000`.
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|---|---|---|
-| `LLM_BACKEND` | LLM backend to use. Currently only `ollama` is supported. | `ollama` |
-| `OLLAMA_BASE_URL` | Base URL of the Ollama instance. Use `http://host.docker.internal:11434` when running via Docker with Ollama on the host. | `http://localhost:11434` |
-| `OLLAMA_MODEL` | Chat model to use for generation. | `llama3` |
-| `OLLAMA_EMBED_MODEL` | Embedding model to use for ingestion and retrieval. | `nomic-embed-text` |
-| `CHROMA_PATH` | Path for ChromaDB persistent storage. If unset, an in-memory store is used and data will not persist. | — |
+| Variable | Description |
+|---|---|
+| `LLM_BACKEND` | LLM backend to use. Currently only `ollama` is supported. |
+| `OLLAMA_BASE_URL` | Base URL of the Ollama instance. Use `http://host.docker.internal:11434` when running via Docker with Ollama on the host. |
+| `OLLAMA_MODEL` | Chat model to use for generation. |
+| `OLLAMA_EMBED_MODEL` | Embedding model to use for ingestion and retrieval. |
+| `CHROMA_PATH` | Path for ChromaDB persistent storage. If unset, an in-memory store is used and data will not persist. |
 
 ## API Endpoints
 
@@ -63,7 +63,7 @@ The service runs on port `8000`.
 | `GET` | `/api/v1/health` | Reports service health including LLM backend status. Returns `503` if Ollama is unreachable. |
 | `POST` | `/api/v1/ingest` | Parses, chunks, and embeds a document and stores it in the vector store. Re-ingesting the same `artifact_id` replaces existing chunks. |
 | `POST` | `/api/v1/chat` | Retrieves relevant chunks and streams a generated answer as Server-Sent Events (SSE). |
-| `POST` | `/api/v1/title` | Generates a short descriptive title from a user prompt using an LLM.
+| `POST` | `/api/v1/title` | Generates a short descriptive title from a user prompt using an LLM and respecting the given max character length.
 
 ### Chat SSE stream
 
@@ -85,5 +85,6 @@ uv run pytest
 With coverage:
 
 ```bash
-uv run pytest --cov
+uv run pytest --cov=src --cov-report=term-missing
+
 ```

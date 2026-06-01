@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)
 
 @lru_cache
 def get_llm() -> LLMClient:
-    backend = os.getenv("LLM_BACKEND", "ollama")
+    backend = os.getenv("LLM_BACKEND")
 
     if backend == "ollama":
         return OllamaClient(
-            host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            model=os.getenv("OLLAMA_MODEL", "llama3"),
-            embed_model=os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+            host=os.getenv("OLLAMA_BASE_URL"),
+            model=os.getenv("OLLAMA_MODEL"),
+            embed_model=os.getenv("OLLAMA_EMBED_MODEL"),
         )
 
     raise ValueError(f"Unknown LLM backend: {backend!r}")
