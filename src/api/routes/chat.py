@@ -71,7 +71,7 @@ router = APIRouter()
         422: {
             "model": ValidationErrorResponse,
             "content": {
-                "application/json": {"example": {"detail": "'question' is required"}}
+                "application/json": {"example": {"detail": "'prompt' is required"}}
             },
         },
         503: {
@@ -93,11 +93,11 @@ def chat(
 ) -> StreamingResponse:
     def event_stream() -> Iterator[str]:
         try:
-            chunks = retrieve(body.question, llm, store, body.top_k, body.min_score)
+            chunks = retrieve(body.prompt, llm, store, body.top_k, body.min_score)
             history: list[Message] = [
-                Message(role=h.role, content=h.content) for h in body.history
+                Message(role=h.role, content=h.content) for h in body.context
             ]
-            messages = build_messages(body.question, chunks, history)
+            messages = build_messages(body.prompt, chunks, history)
 
             for token in llm.stream(messages):
                 if token:
