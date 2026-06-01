@@ -22,7 +22,6 @@ def client() -> Generator[tuple[TestClient, StubLLMClient], Any, None]:
     app.dependency_overrides.clear()
 
 
-
 def test_title_generation(client: tuple[TestClient, StubLLMClient]):
     http_client, _ = client
 
