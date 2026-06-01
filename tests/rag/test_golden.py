@@ -69,7 +69,9 @@ def ingested_client() -> Generator[TestClient, Any, None]:
 @pytest.mark.integration
 @llm_required
 def test_golden_questions(ingested_client: TestClient) -> None:
-    """Every golden question must produce at least one citation from the expected file."""
+    """Every golden question must produce at least one citation from the
+    expected file.
+    """
     cases: list[dict[str, str]] = yaml.safe_load(GOLDEN_QUESTIONS_FILE.read_text())
 
     failures: list[str] = []
