@@ -128,6 +128,17 @@ class HealthResponse(BaseModel):
 
 
 class TitleRequest(BaseModel):
+    """
+    Request model for generating a title from a user prompt.
+
+    Args:
+        prompt: Input prompt used for title generation.
+        max_length: Maximum allowed length of the generated title.
+
+    Raises:
+        ValueError: If prompt is empty or contains only whitespace.
+    """
+
     prompt: Annotated[
         str,
         Field(
@@ -153,12 +164,31 @@ class TitleRequest(BaseModel):
     @field_validator("prompt")
     @classmethod
     def prompt_not_blank(cls, value: str) -> str:
+        """
+        Validate that the prompt is not blank.
+
+        Args:
+            value: Prompt string to validate.
+
+        Raises:
+            ValueError: If the prompt is empty or only whitespace.
+
+        Returns:
+            str: Validated prompt string.
+        """
         if not value.strip():
             raise ValueError("prompt cannot be blank")
         return value
 
 
 class TitleResponse(BaseModel):
+    """
+    Response model containing the generated title.
+
+    Args:
+        title: Generated title based on the provided prompt.
+    """
+
     title: str = Field(description="From the prompt generated title.")
 
     model_config = {

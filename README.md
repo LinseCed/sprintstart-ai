@@ -63,6 +63,7 @@ The service runs on port `8000`.
 | `GET` | `/api/v1/health` | Reports service health including LLM backend status. Returns `503` if Ollama is unreachable. |
 | `POST` | `/api/v1/ingest` | Parses, chunks, and embeds a document and stores it in the vector store. Re-ingesting the same `artifact_id` replaces existing chunks. |
 | `POST` | `/api/v1/chat` | Retrieves relevant chunks and streams a generated answer as Server-Sent Events (SSE). |
+| `POST` | `/api/v1/title` | Generates a short descriptive title from a user prompt using an LLM.
 
 ### Chat SSE stream
 

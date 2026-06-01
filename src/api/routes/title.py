@@ -57,6 +57,26 @@ Rules:
 def generate_title(
     body: TitleRequest, llm: LLMClient = Depends(get_llm)
 ) -> TitleResponse:
+    """
+    Generate a short descriptive title from a user prompt using an LLM.
+
+    Args:
+        body: Request body containing the prompt and max_length constraint.
+        llm: Injected LLM client used to generate the title.
+
+    Returns:
+        TitleResponse: Object containing the generated title.
+
+    Raises:
+        HTTPException:
+            - 503: If the LLM backend is unavailable or unreachable.
+
+    Behavior:
+        - Sends a system prompt to enforce strict title generation rules.
+        - Combines system + user message for LLM input.
+        - Trims whitespace from LLM output.
+        - Enforces max_length constraint by hard truncation.
+    """
 
     messages: list[Message] = [
         {"role": "system", "content": SYSTEM_PROMPT},
