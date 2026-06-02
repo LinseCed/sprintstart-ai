@@ -4,23 +4,37 @@ version = "0.1.0"
 description = "SprintStart is an AI-powered onboarding and training platform designed to support software teams by transforming scattered project artifacts into actionable, personalized project knowledge. "
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "ollama>=0.6.2",
+    "python-dotenv>=1.2.2",
+    "chromadb>=1.5.9",
+    "fastapi>=0.136.3",
+    "uvicorn>=0.48.0",
+]
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "B008",  # Depends() in default args is standard FastAPI pattern
+]
 
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
+extraPaths = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: end-to-end tests that require Ollama to be running",
+]
 
 [tool.coverage.run]
 source = ["src"]
@@ -31,4 +45,6 @@ dev = [
     "pyright",
     "pytest",
     "pytest-cov",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0",
 ]
