@@ -74,7 +74,7 @@ class HistoryEntry(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(examples=["What were the main blockers in sprint 42?"])
+    prompt: str = Field(examples=["What were the main blockers in sprint 42?"])
     top_k: Annotated[
         int, Field(ge=1, le=20, description="Maximum number of chunks to retrieve.")
     ] = 5
@@ -86,7 +86,7 @@ class ChatRequest(BaseModel):
             description="Minimum cosine similarity score for a chunk to be included.",
         ),
     ] = 0.7
-    history: Annotated[
+    context: Annotated[
         list[HistoryEntry],
         Field(
             description=(
@@ -101,10 +101,10 @@ class ChatRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "question": "Can you summarize that?",
+                "prompt": "Can you summarize that?",
                 "top_k": 5,
                 "min_score": 0.7,
-                "history": [
+                "context": [
                     {
                         "role": "user",
                         "content": "What were the main blockers in sprint 42?",

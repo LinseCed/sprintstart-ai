@@ -24,7 +24,7 @@ Rules:
 
 
 @router.post(
-    "/title",
+    "/generate-title",
     summary="Generate a title from a prompt",
     response_model=TitleResponse,
     description=(

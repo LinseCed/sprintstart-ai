@@ -32,7 +32,7 @@ def test_title_generation(client: tuple[TestClient, StubLLMClient]):
     app.dependency_overrides[get_llm] = lambda: TestLLM()
 
     response = http_client.post(
-        "/api/v1/title",
+        "/api/v1/generate-title",
         json={"prompt": "What are the differences between REST and GraphQL?"},
     )
 
@@ -50,7 +50,7 @@ def test_title_respects_max_length(client: tuple[TestClient, StubLLMClient]):
     app.dependency_overrides[get_llm] = lambda: LongTitleLLM()
 
     response = http_client.post(
-        "/api/v1/title", json={"prompt": "Generate title", "max_length": 10}
+        "/api/v1/generate-title", json={"prompt": "Generate title", "max_length": 10}
     )
 
     assert response.status_code == 200
@@ -65,7 +65,7 @@ def test_empty_prompt_returns_validation_error(
 ):
     http_client, _ = client
 
-    response = http_client.post("/api/v1/title", json={"prompt": "   "})
+    response = http_client.post("/api/v1/generate-title", json={"prompt": "   "})
 
     assert response.status_code == 422
 
@@ -79,6 +79,6 @@ def test_llm_failure_returns_503(client: tuple[TestClient, StubLLMClient]):
 
     app.dependency_overrides[get_llm] = lambda: FailingLLM()
 
-    response = http_client.post("/api/v1/title", json={"prompt": "hello"})
+    response = http_client.post("/api/v1/generate-title", json={"prompt": "hello"})
 
     assert response.status_code == 503

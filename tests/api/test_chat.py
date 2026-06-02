@@ -47,7 +47,7 @@ def test_chat_streams_tokens_and_done(
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"question": "What were the blockers?"},
+        json={"prompt": "What were the blockers?"},
     )
 
     assert response.status_code == 200
@@ -65,7 +65,7 @@ def test_chat_token_event_contains_llm_response(
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"question": "What were the blockers?"},
+        json={"prompt": "What were the blockers?"},
     )
 
     token_events = [e for e in _parse_events(response.text) if e["type"] == "token"]
@@ -96,7 +96,7 @@ def test_chat_emits_citation_when_chunks_exist(
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"question": "What were the blockers?", "min_score": 0.0},
+        json={"prompt": "What were the blockers?", "min_score": 0.0},
     )
 
     citation_events = [
@@ -115,8 +115,8 @@ def test_chat_with_history_succeeds(
     response = http_client.post(
         "/api/v1/chat",
         json={
-            "question": "Can you summarize that?",
-            "history": [
+            "prompt": "Can you summarize that?",
+            "context": [
                 {"role": "user", "content": "What were the blockers?"},
                 {"role": "assistant", "content": "Missing designs and flaky CI."},
             ],
@@ -151,7 +151,7 @@ def test_chat_llm_unavailable_emits_error_event(
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"question": "What were the blockers?"},
+        json={"prompt": "What were the blockers?"},
     )
 
     # Error is emitted as an SSE event — HTTP status is still 200
@@ -165,7 +165,7 @@ def test_chat_llm_unavailable_emits_error_event(
 def test_chat_with_real_llm(real_client: TestClient) -> None:
     response = real_client.post(
         "/api/v1/chat",
-        json={"question": "Reply with one word: hello."},
+        json={"prompt": "Reply with one word: hello."},
     )
 
     assert response.status_code == 200
