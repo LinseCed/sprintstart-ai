@@ -9,10 +9,9 @@ from llm.base import Message
 from llm.errors import LLMUnavailableError
 from llm.ollama_client import OllamaBackend, OllamaClient
 
-_LOCAL_HOST = os.environ.get("OLLAMA_HOST")
 _TEST_MODEL = os.environ.get("OLLAMA_MODEL", "test-model")
 _EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "test-embed-model")
-_OLLAMA_BASE = _LOCAL_HOST or "http://localhost:11434"
+_OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
 def _ollama_is_reachable() -> bool:
@@ -87,7 +86,7 @@ class _FakeOllamaClient:
 
 
 def _make_client(
-    host: str | None = _LOCAL_HOST,
+    host: str | None = _OLLAMA_BASE,
     model: str | None = _TEST_MODEL,
     embed_model: str | None = _EMBED_MODEL,
     inner_client: OllamaBackend | None = None,
