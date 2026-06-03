@@ -54,7 +54,9 @@ def ingest(
     try:
         parsed_chunks = parse(body.filename, body.content.encode("utf-8"))
     except NotImplementedError:
-        suffix = body.filename.rsplit(".", 1)[-1] if "." in body.filename else body.filename
+        suffix = (
+            body.filename.rsplit(".", 1)[-1] if "." in body.filename else body.filename
+        )
         raise HTTPException(
             status_code=422,
             detail=f"Parsing .{suffix} files is not yet supported.",
