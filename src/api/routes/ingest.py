@@ -60,7 +60,7 @@ def ingest(
         raise HTTPException(
             status_code=422,
             detail=f"Parsing .{suffix} files is not yet supported.",
-        )
+        ) from NotImplementedError
 
     if not parsed_chunks:
         raise HTTPException(
