@@ -85,7 +85,7 @@ class ChatRequest(BaseModel):
             le=1.0,
             description="Minimum cosine similarity score for a chunk to be included.",
         ),
-    ] = 0.7
+    ] = 0.3
     context: Annotated[
         list[HistoryEntry],
         Field(
