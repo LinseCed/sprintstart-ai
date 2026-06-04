@@ -1,4 +1,3 @@
-import base64
 from collections.abc import Generator
 from typing import Any
 
@@ -58,7 +57,7 @@ def test_ingest_png_returns_one_chunk(
 def test_ingest_jpg_returns_one_chunk(
     client: tuple[TestClient, StubVectorStore],
 ) -> None:
-    http_client, store = client
+    http_client, _ = client
 
     response = http_client.post(
         "/api/v1/ingest",

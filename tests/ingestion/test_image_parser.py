@@ -1,5 +1,3 @@
-import base64
-
 from ingestion.image_parser import parse_image
 
 # Minimal 1×1 red PNG (base64-encoded)

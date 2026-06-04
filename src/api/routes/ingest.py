@@ -77,8 +77,6 @@ def ingest(
             detail=f"Unsupported file type: {body.filename}",
         )
 
-    # Caption pass: replace image chunk content with LLM-generated caption.
-    # On LLMUnavailableError the chunk is dropped and ingestion continues.
     enriched: list[ParsedChunk] = []
     for chunk in parsed_chunks:
         if chunk.kind == "image":
@@ -88,7 +86,7 @@ def ingest(
                 raise HTTPException(
                     status_code=422,
                     detail=f"Image content for {body.filename!r} is not valid base64.",
-                )
+                ) from Exception
             try:
                 caption = llm.caption_image(image_bytes)
                 enriched.append(
