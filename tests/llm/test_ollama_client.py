@@ -18,7 +18,6 @@ _TINY_PNG_B64 = (
 )
 _TINY_PNG_BYTES = base64.b64decode(_TINY_PNG_B64)
 
-_LOCAL_HOST = os.environ.get("OLLAMA_HOST")
 _TEST_MODEL = os.environ.get("OLLAMA_MODEL", "test-model")
 _EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "test-embed-model")
 _OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
