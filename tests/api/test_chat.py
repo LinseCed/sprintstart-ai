@@ -1,4 +1,3 @@
-import json
 from collections.abc import Generator, Iterator
 from typing import Any
 
@@ -10,15 +9,9 @@ from api.dependencies import get_llm, get_store
 from llm.base import Message
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
-from tests.conftest import llm_required
+from tests.conftest import llm_required, parse_sse_events
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
-
-
-def _parse_events(text: str) -> list[dict[str, Any]]:
-    return [
-        json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")
-    ]
 
 
 @pytest.fixture
@@ -51,7 +44,7 @@ def test_chat_streams_tokens_and_done(
     )
 
     assert response.status_code == 200
-    events = _parse_events(response.text)
+    events = parse_sse_events(response.text)
     types = [e["type"] for e in events]
     assert "token" in types
     assert types[-1] == "done"
@@ -68,7 +61,7 @@ def test_chat_token_event_contains_llm_response(
         json={"prompt": "What were the blockers?"},
     )
 
-    token_events = [e for e in _parse_events(response.text) if e["type"] == "token"]
+    token_events = [e for e in parse_sse_events(response.text) if e["type"] == "token"]
     assert len(token_events) == 1
     assert token_events[0]["content"] == "Missing designs and flaky CI."
 
@@ -100,7 +93,7 @@ def test_chat_emits_citation_when_chunks_exist(
     )
 
     citation_events = [
-        e for e in _parse_events(response.text) if e["type"] == "citation"
+        e for e in parse_sse_events(response.text) if e["type"] == "citation"
     ]
     assert len(citation_events) == 1
     assert citation_events[0]["filename"] == "retro.md"
@@ -124,7 +117,7 @@ def test_chat_with_history_succeeds(
     )
 
     assert response.status_code == 200
-    events = _parse_events(response.text)
+    events = parse_sse_events(response.text)
     assert events[-1]["type"] == "done"
 
 
@@ -156,7 +149,7 @@ def test_chat_llm_unavailable_emits_error_event(
 
     # Error is emitted as an SSE event — HTTP status is still 200
     assert response.status_code == 200
-    events = _parse_events(response.text)
+    events = parse_sse_events(response.text)
     assert events[0]["type"] == "error"
 
 
@@ -169,7 +162,7 @@ def test_chat_with_real_llm(real_client: TestClient) -> None:
     )
 
     assert response.status_code == 200
-    events = _parse_events(response.text)
+    events = parse_sse_events(response.text)
     types = [e["type"] for e in events]
     assert "token" in types
     assert types[-1] == "done"

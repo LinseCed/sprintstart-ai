@@ -24,7 +24,14 @@ class IngestRequest(BaseModel):
         ),
     ]
     content: str = Field(
-        description="Full plain-text or Markdown content of the document."
+        description=(
+            "Document content as a string. "
+            "For text-based files (.txt, .md, .json, .yaml, .toml) send the raw text. "
+            "For image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) send the file "
+            "as a standard base64-encoded string. "
+            "If a vision model is not configured, image chunks are silently skipped "
+            "and chunk_count will be 0."
+        )
     )
 
     @field_validator("filename")
@@ -47,7 +54,13 @@ class IngestRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     artifact_id: str
-    chunk_count: int = Field(description="Number of chunks stored.")
+    chunk_count: int = Field(
+        description=(
+            "Number of chunks stored. "
+            "0 indicates the file was recognised but produced no storable content "
+            "(e.g. an image file when no vision model is configured)."
+        )
+    )
 
     model_config = {
         "json_schema_extra": {

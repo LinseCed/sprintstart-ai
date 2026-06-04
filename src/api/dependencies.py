@@ -19,6 +19,7 @@ def get_llm() -> LLMClient:
             host=os.getenv("OLLAMA_BASE_URL"),
             model=os.getenv("OLLAMA_MODEL"),
             embed_model=os.getenv("OLLAMA_EMBED_MODEL"),
+            vision_model=os.getenv("OLLAMA_VISION_MODEL"),
         )
 
     raise ValueError(f"Unknown LLM backend: {backend!r}")

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-ChunkKind = Literal["text", "code", "pdf"]
+ChunkKind = Literal["text", "code", "pdf", "image"]
 
 
 @dataclass(slots=True)

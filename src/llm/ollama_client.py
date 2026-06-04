@@ -26,6 +26,13 @@ class OllamaBackend(Protocol):
         prompt: str = "",
     ) -> ollama.EmbeddingsResponse: ...
 
+    def chat_with_images(
+        self,
+        model: str = "",
+        prompt: str = "",
+        images: list[bytes] | None = None,
+    ) -> ollama.ChatResponse: ...
+
 
 class _OllamaAdapter:
     """Wraps ollama.Client to satisfy the OllamaBackend protocol."""
@@ -61,6 +68,17 @@ class _OllamaAdapter:
     ) -> ollama.EmbeddingsResponse:
         return self._client.embeddings(model=model, prompt=prompt)
 
+    def chat_with_images(
+        self,
+        model: str = "",
+        prompt: str = "",
+        images: list[bytes] | None = None,
+    ) -> ollama.ChatResponse:
+        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+            model=model,
+            messages=[{"role": "user", "content": prompt, "images": images or []}],
+        )
+
 
 class OllamaClient:
     def __init__(
@@ -68,11 +86,13 @@ class OllamaClient:
         host: str | None = None,
         model: str | None = None,
         embed_model: str | None = None,
+        vision_model: str | None = None,
         client: OllamaBackend | None = None,
     ) -> None:
         self._host = host
         self._model = model
         self._embed_model = embed_model
+        self._vision_model = vision_model
         self._client: OllamaBackend = (
             client if client is not None else _OllamaAdapter(host=host)
         )
@@ -101,5 +121,18 @@ class OllamaClient:
         try:
             response = self._client.embeddings(model=self._embed_model, prompt=text)
             return list(response.embedding or [])
+        except (ollama.ResponseError, ConnectionError, OSError) as exc:
+            raise LLMUnavailableError(self._host, cause=exc) from exc
+
+    def caption_image(self, image_bytes: bytes) -> str:
+        if self._vision_model is None:
+            raise LLMUnavailableError(self._host)
+        try:
+            response = self._client.chat_with_images(
+                model=self._vision_model,
+                prompt="Describe this image concisely.",
+                images=[image_bytes],
+            )
+            return response.message.content or ""
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc
