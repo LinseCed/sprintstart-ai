@@ -82,9 +82,14 @@ def ingest(
                 )
             try:
                 caption = llm.caption_image(image_bytes)
-                enriched.append(ParsedChunk(content=caption, kind="image", metadata=chunk.metadata))
+                enriched.append(
+                    ParsedChunk(content=caption, kind="image", metadata=chunk.metadata)
+                )
             except LLMUnavailableError:
-                logger.warning("Vision model unavailable — skipping image chunk in %s", body.filename)
+                logger.warning(
+                    "Vision model unavailable — skipping image chunk in %s",
+                    body.filename,
+                )
         else:
             enriched.append(chunk)
 
