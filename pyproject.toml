@@ -35,6 +35,9 @@ pythonpath = ["src"]
 markers = [
     "integration: end-to-end tests that require Ollama to be running",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning:chromadb",
+]
 
 [tool.coverage.run]
 source = ["src"]

@@ -81,7 +81,7 @@ def test_golden_questions(ingested_client: TestClient) -> None:
 
         response = ingested_client.post(
             "/api/v1/chat",
-            json={"question": question, "min_score": _MIN_SCORE},
+            json={"prompt": question, "min_score": _MIN_SCORE},
         )
         events = _parse_events(response.text)
         cited = {e["filename"] for e in events if e["type"] == "citation"}
@@ -110,7 +110,7 @@ def test_trick_prompts_return_no_citations(ingested_client: TestClient) -> None:
 
         response = ingested_client.post(
             "/api/v1/chat",
-            json={"question": prompt, "min_score": _MIN_SCORE},
+            json={"prompt": prompt, "min_score": _MIN_SCORE},
         )
         events = _parse_events(response.text)
         citation_events = [e for e in events if e["type"] == "citation"]
