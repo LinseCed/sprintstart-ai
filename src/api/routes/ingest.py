@@ -1,3 +1,5 @@
+import base64
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,10 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.dependencies import get_llm, get_store
 from api.schemas import IngestRequest, IngestResponse, ValidationErrorResponse
 from ingestion.mapper import to_chunk
+from ingestion.models import ParsedChunk
 from ingestion.parser import parse
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from store.base import VectorStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,7 +23,11 @@ router = APIRouter()
     summary="Ingest a document",
     description=(
         "Parses, chunks, and embeds a document, then stores it in the vector store. "
-        "Re-ingesting the same artifact_id replaces the existing chunks."
+        "Re-ingesting the same artifact_id replaces the existing chunks. "
+        "Supported types: plain text, Markdown, JSON, YAML, TOML, and images "
+        "(.png, .jpg, .jpeg, .gif, .webp, .bmp — send as base64-encoded content). "
+        "Image files are captioned via the configured vision model; if no vision model "
+        "is available the request succeeds with chunk_count=0."
     ),
     responses={
         422: {
@@ -68,10 +77,38 @@ def ingest(
             detail=f"Unsupported file type: {body.filename}",
         )
 
+    enriched: list[ParsedChunk] = []
+    for chunk in parsed_chunks:
+        if chunk.kind == "image":
+            try:
+                image_bytes = base64.b64decode(chunk.content)
+            except Exception:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Image content for {body.filename!r} is not valid base64.",
+                ) from Exception
+            try:
+                caption = llm.caption_image(image_bytes)
+                enriched.append(
+                    ParsedChunk(content=caption, kind="image", metadata=chunk.metadata)
+                )
+            except LLMUnavailableError:
+                logger.warning(
+                    "Vision model unavailable — skipping image chunk in %s",
+                    body.filename,
+                )
+        else:
+            enriched.append(chunk)
+
+    if not enriched:
+        store.delete(body.artifact_id, exclude_ids=[])
+        return IngestResponse(artifact_id=body.artifact_id, chunk_count=0)
+
+    # Embed pass: generate embeddings and store.
     try:
         chunks = [
             to_chunk(chunk, body.artifact_id, llm.embed(chunk.content))
-            for chunk in parsed_chunks
+            for chunk in enriched
         ]
     except LLMUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

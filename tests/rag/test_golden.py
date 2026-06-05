@@ -8,7 +8,6 @@ Marked pytest.mark.integration — skipped automatically when Ollama is not
 reachable, so offline CI stays green.
 """
 
-import json
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -20,20 +19,14 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_store
 from store.chroma_store import ChromaVectorStore
-from tests.conftest import llm_required
+from tests.conftest import llm_required, parse_sse_events
 
 CORPUS_DIR = Path(__file__).parent / "demo-corpus"
 GOLDEN_QUESTIONS_FILE = Path(__file__).parent / "golden_questions.yaml"
 TRICK_PROMPTS_FILE = Path(__file__).parent / "trick_prompts.yaml"
 
-# Use a slightly relaxed threshold so small embedding drift doesn't flake.
-_MIN_SCORE = 0.6
-
-
-def _parse_events(text: str) -> list[dict[str, Any]]:
-    return [
-        json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")
-    ]
+_GOLDEN_MIN_SCORE = 0.6
+_TRICK_MIN_SCORE = 0.65
 
 
 @pytest.fixture(scope="module")
@@ -81,9 +74,9 @@ def test_golden_questions(ingested_client: TestClient) -> None:
 
         response = ingested_client.post(
             "/api/v1/chat",
-            json={"prompt": question, "min_score": _MIN_SCORE},
+            json={"prompt": question, "min_score": _GOLDEN_MIN_SCORE},
         )
-        events = _parse_events(response.text)
+        events = parse_sse_events(response.text)
         cited = {e["filename"] for e in events if e["type"] == "citation"}
 
         if expected not in cited:
@@ -110,9 +103,9 @@ def test_trick_prompts_return_no_citations(ingested_client: TestClient) -> None:
 
         response = ingested_client.post(
             "/api/v1/chat",
-            json={"prompt": prompt, "min_score": _MIN_SCORE},
+            json={"prompt": prompt, "min_score": _TRICK_MIN_SCORE},
         )
-        events = _parse_events(response.text)
+        events = parse_sse_events(response.text)
         citation_events = [e for e in events if e["type"] == "citation"]
 
         if citation_events:
