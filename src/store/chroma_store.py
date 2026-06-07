@@ -132,14 +132,14 @@ class ChromaVectorStore:
             self._collection.delete(ids=ids)
 
     def all_chunks(self) -> list[Chunk]:
-        raw_result = self.collection.get(
+        raw_result = self._collection.get(
             include=["documents", "metadatas", "embeddings"],
         )
 
-        ids = raw_result.get("ids", [])
-        documents = raw_result.get("documents", [])
-        metadatas = raw_result.get("metadatas", [])
-        embeddings = raw_result.get("embeddings", [])
+        ids = raw_result["ids"]
+        documents = raw_result["documents"] or []
+        metadatas = raw_result["metadatas"] or []
+        embeddings = raw_result["embeddings"] or []
 
         chunks: list[Chunk] = []
 
@@ -154,9 +154,16 @@ class ChromaVectorStore:
             heading_path = str(raw_heading_path) if raw_heading_path else None
 
             raw_position = metadata.get("position")
-            position = None if raw_position in (None, -1) else int(raw_position)
+            position = (
+                None
+                if not isinstance(raw_position, (int, float))
+                or raw_position == _NO_POSITION
+                else int(raw_position)
+            )
 
-            raw_kind = metadata.get("kind", "text")
+            kind_str = str(metadata.get("kind", "text"))
+            if not is_chunk_kind(kind_str):
+                raise ValueError(f"Unknown chunk kind {kind_str!r}")
 
             chunks.append(
                 Chunk(
@@ -165,14 +172,13 @@ class ChromaVectorStore:
                     filename=str(metadata["filename"]),
                     heading_path=heading_path,
                     position=position,
-                    kind=str(raw_kind),
+                    kind=kind_str,
                     text=str(text),
                     embedding=list(embedding),
-                    score=None,
                 )
             )
 
         return chunks
 
     def count(self) -> int:
-        return self.collection.count()
+        return self._collection.count()

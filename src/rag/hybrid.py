@@ -1,12 +1,15 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from typing import TYPE_CHECKING, Any, cast
 
-from rank_bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 from llm.base import LLMClient
-from rag.types import Chunk
+from rag.types import Chunk, ScoredChunk
 from store.base import VectorStore
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 RRF_K = 60
 RRF_MIN_RATIO = 0.15
@@ -17,12 +20,25 @@ def tokenize(text: str) -> list[str]:
     return re.findall(r"[a-zA-Z0-9_./:-]+", text.lower())
 
 
+def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
+    return ScoredChunk(
+        id=chunk.id,
+        artifact_id=chunk.artifact_id,
+        filename=chunk.filename,
+        heading_path=chunk.heading_path,
+        position=chunk.position,
+        kind=chunk.kind,
+        text=chunk.text,
+        score=score,
+    )
+
+
 def reciprocal_rank_fusion(
-    ranked_lists: list[list[Chunk]],
+    ranked_lists: list[list[ScoredChunk]],
     k: int = RRF_K,
-) -> list[Chunk]:
+) -> list[ScoredChunk]:
     scores: dict[str, float] = {}
-    chunks_by_id: dict[str, Chunk] = {}
+    chunks_by_id: dict[str, ScoredChunk] = {}
 
     for ranked_chunks in ranked_lists:
         for rank, chunk in enumerate(ranked_chunks, start=1):
@@ -30,39 +46,42 @@ def reciprocal_rank_fusion(
             chunks_by_id[chunk.id] = chunk
 
     fused = [
-        replace(chunks_by_id[chunk_id], score=score)
+        to_scored_chunk(chunks_by_id[chunk_id], score)
         for chunk_id, score in scores.items()
     ]
 
-    fused.sort(key=lambda chunk: chunk.score or 0.0, reverse=True)
+    fused.sort(key=lambda chunk: chunk.score, reverse=True)
     return fused
 
 
 def filter_by_rrf_ratio(
-    chunks: list[Chunk],
+    chunks: list[ScoredChunk],
     min_ratio: float = RRF_MIN_RATIO,
-) -> list[Chunk]:
+) -> list[ScoredChunk]:
     if not chunks:
         return []
 
-    top_score = chunks[0].score or 0.0
+    top_score = chunks[0].score
     threshold = top_score * min_ratio
 
-    return [chunk for chunk in chunks if (chunk.score or 0.0) >= threshold]
+    return [chunk for chunk in chunks if chunk.score >= threshold]
 
 
 class BM25Index:
     def __init__(self, chunks: list[Chunk]) -> None:
         self.chunks = chunks
         self.tokenized_corpus = [tokenize(chunk.text) for chunk in chunks]
-        self.index = BM25Okapi(self.tokenized_corpus)
+        self.index: Any | None = (
+            BM25Okapi(self.tokenized_corpus) if self.tokenized_corpus else None
+        )
 
-    def query(self, question: str, top_k: int) -> list[Chunk]:
-        if not self.chunks:
+    def query(self, question: str, top_k: int) -> list[ScoredChunk]:
+        if not self.chunks or self.index is None:
             return []
 
         tokenized_question = tokenize(question)
-        scores = self.index.get_scores(tokenized_question)
+        raw_scores = self.index.get_scores(tokenized_question)
+        scores = cast("Sequence[float]", raw_scores)
 
         ranked = sorted(
             zip(self.chunks, scores, strict=True),
@@ -71,7 +90,7 @@ class BM25Index:
         )
 
         return [
-            replace(chunk, score=float(score))
+            to_scored_chunk(chunk, float(score))
             for chunk, score in ranked[:top_k]
             if score > 0
         ]
@@ -99,7 +118,7 @@ def hybrid_retrieve(
     top_k: int,
     min_score: float,
     bm25_cache: BM25IndexCache,
-) -> list[Chunk]:
+) -> list[ScoredChunk]:
     chunk_count = store.count()
 
     if chunk_count > SEMANTIC_ONLY_CHUNK_LIMIT:
