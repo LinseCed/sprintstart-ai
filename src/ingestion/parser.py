@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from ingestion.code_parser import parse_code
 from ingestion.image_parser import parse_image
 from ingestion.models import ParsedChunk
 from ingestion.text_parser import parse_text
@@ -58,7 +59,7 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     file_suffix = Path(filename).suffix
 
     if file_suffix in CODE_EXTENSIONS:
-        raise NotImplementedError
+        return parse_code(filename, content)
 
     elif file_suffix in TEXT_EXTENSIONS:
         return parse_text(filename, content)
