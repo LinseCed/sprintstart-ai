@@ -40,6 +40,7 @@ def bar():
         assert "import os" in chunk.content
         assert "import sys" in chunk.content
 
+
 def test_fallback_when_no_definitions():
     code = b"""
 print("hello")
@@ -49,6 +50,7 @@ x = 1 + 1
     result = parse("test.py", code)
 
     assert all(chunk.kind == "text" for chunk in result)
+
 
 def test_fallback_when_file_is_not_supported():
     code = b"""
@@ -75,6 +77,7 @@ class User:
 
     assert any("class User" in chunk.content for chunk in result)
 
+
 def test_chunk_order_is_preserved():
     code = b"""
 import os
@@ -92,6 +95,7 @@ def b():
 
     assert indices == sorted(indices)
 
+
 def test_no_empty_chunks_are_generated():
     code = b"""
 def foo():
@@ -104,6 +108,7 @@ def bar():
 
     for chunk in result:
         assert chunk.content.strip() != ""
+
 
 def test_compute_boundaries_detects_functions():
     lines = [
@@ -144,6 +149,7 @@ export const multiply = (a, b) => {
     assert any("add" in chunk.content for chunk in result)
     assert any("User" in chunk.content for chunk in result)
     assert any("multiply" in chunk.content for chunk in result)
+
 
 def test_parse_typescript_functions_and_classes():
     code = b"""

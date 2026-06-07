@@ -21,15 +21,15 @@ def test_chunk_text_splits_correctly():
 
 
 def test_chunk_code_respects_size_directly():
-    code = "\n".join([
-        "def foo():",
-        "    pass",
-    ] * 200)
+    code = "\n".join(
+        [
+            "def foo():",
+            "    pass",
+        ]
+        * 200
+    )
 
     chunks = chunk_code("test.py", code, chunk_size=50)
 
-
     for chunk in chunks[:-1]:
         assert len(chunk.content) <= 50
-
-
