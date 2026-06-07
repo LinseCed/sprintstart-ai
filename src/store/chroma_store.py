@@ -148,6 +148,7 @@ class ChromaVectorStore:
             documents,
             metadatas,
             embeddings,
+            strict=True,
         ):
             raw_heading_path = metadata.get("heading_path")
             heading_path = str(raw_heading_path) if raw_heading_path else None

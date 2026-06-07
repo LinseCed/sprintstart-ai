@@ -1,7 +1,7 @@
 from src.rag.hybrid import (
     BM25IndexCache,
-    reciprocal_rank_fusion,
     hybrid_retrieve,
+    reciprocal_rank_fusion,
 )
 from src.rag.types import Chunk
 from tests.stubs.llm import StubLLMClient

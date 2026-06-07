@@ -1,13 +1,12 @@
 import re
-from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 from rank_bm25 import BM25Okapi
 
 from llm.base import LLMClient
 from rag.types import Chunk
 from store.base import VectorStore
-
 
 RRF_K = 60
 RRF_MIN_RATIO = 0.15
@@ -70,7 +69,7 @@ class BM25Index:
         scores = self.index.get_scores(tokenized_question)
 
         ranked = sorted(
-            zip(self.chunks, scores),
+            zip(self.chunks, scores, strict=True),
             key=lambda item: item[1],
             reverse=True,
         )
