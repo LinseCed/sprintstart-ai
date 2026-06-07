@@ -48,11 +48,7 @@ def filter_by_rrf_ratio(
     top_score = chunks[0].score or 0.0
     threshold = top_score * min_ratio
 
-    return [
-        chunk
-        for chunk in chunks
-        if (chunk.score or 0.0) >= threshold
-    ]
+    return [chunk for chunk in chunks if (chunk.score or 0.0) >= threshold]
 
 
 class BM25Index:
