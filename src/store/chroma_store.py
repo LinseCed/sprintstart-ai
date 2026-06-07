@@ -130,3 +130,48 @@ class ChromaVectorStore:
 
         if ids:
             self._collection.delete(ids=ids)
+
+    def all_chunks(self) -> list[Chunk]:
+        raw_result = self.collection.get(
+            include=["documents", "metadatas", "embeddings"],
+        )
+
+        ids = raw_result.get("ids", [])
+        documents = raw_result.get("documents", [])
+        metadatas = raw_result.get("metadatas", [])
+        embeddings = raw_result.get("embeddings", [])
+
+        chunks: list[Chunk] = []
+
+        for chunk_id, text, metadata, embedding in zip(
+            ids,
+            documents,
+            metadatas,
+            embeddings,
+        ):
+            raw_heading_path = metadata.get("heading_path")
+            heading_path = str(raw_heading_path) if raw_heading_path else None
+
+            raw_position = metadata.get("position")
+            position = None if raw_position in (None, -1) else int(raw_position)
+
+            raw_kind = metadata.get("kind", "text")
+
+            chunks.append(
+                Chunk(
+                    id=str(chunk_id),
+                    artifact_id=str(metadata["artifact_id"]),
+                    filename=str(metadata["filename"]),
+                    heading_path=heading_path,
+                    position=position,
+                    kind=str(raw_kind),
+                    text=str(text),
+                    embedding=list(embedding),
+                    score=None,
+                )
+            )
+
+        return chunks
+
+    def count(self) -> int:
+        return self.collection.count()

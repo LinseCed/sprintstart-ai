@@ -1,6 +1,10 @@
 from llm.base import LLMClient
-from rag.types import ScoredChunk
+from rag.hybrid import BM25IndexCache, hybrid_retrieve
+from rag.types import Chunk
 from store.base import VectorStore
+
+
+_BM25_CACHE = BM25IndexCache()
 
 
 def retrieve(
@@ -9,11 +13,12 @@ def retrieve(
     store: VectorStore,
     top_k: int,
     min_score: float,
-) -> list[ScoredChunk]:
-    embedding = llm.embed(question)
-
-    return store.query(
-        embedding=embedding,
+) -> list[Chunk]:
+    return hybrid_retrieve(
+        question=question,
+        llm=llm,
+        store=store,
         top_k=top_k,
         min_score=min_score,
+        bm25_cache=_BM25_CACHE,
     )

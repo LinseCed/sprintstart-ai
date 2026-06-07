@@ -12,9 +12,13 @@ logger = logging.getLogger(__name__)
 
 @lru_cache
 def get_llm() -> LLMClient:
-    backend = os.getenv("LLM_BACKEND")
+    backend = (
+        os.getenv("LLM_BACKEND")
+        or os.getenv("LLM_PROVIDER")
+        or "local"
+    ).lower()
 
-    if backend == "ollama":
+    if backend in {"ollama", "local"}:
         return OllamaClient(
             host=os.getenv("OLLAMA_BASE_URL"),
             model=os.getenv("OLLAMA_MODEL"),
