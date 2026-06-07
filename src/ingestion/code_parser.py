@@ -1,25 +1,14 @@
 import re
 from pathlib import Path
 
-from chunker import chunk_code
-from text_parser import parse_text
-
+from ingestion.chunker import chunk_code
 from ingestion.models import ParsedChunk
+from ingestion.text_parser import parse_text
 
 PATTERNS: dict[str, re.Pattern[str]] = {
     ".py": re.compile(r"^(async\s+def |def |class )"),
-    ".js": re.compile(r"""^(
-        (export\s+)?(async\s+)?function\s+\w+|
-        (export\s+)?(default\s+)?class\s+\w+|
-        (export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s*)?(\(|function)|
-        (export\s+)?(interface|type|enum)\s+\w+
-    )"""),
-    ".ts": re.compile(r"""^(
-        (export\s+)?(async\s+)?function\s+\w+|
-        (export\s+)?(default\s+)?class\s+\w+|
-        (export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s*)?(\(|function)|
-        (export\s+)?(interface|type|enum)\s+\w+
-    )"""),
+    ".js": re.compile(r"^(export\s+)?(async\s+)?(function|class|const|let|var)\b"),
+    ".ts": re.compile(r"^(export\s+)?(async\s+)?(function|class|const|let|var)\b"),
     ".go": re.compile(r"func\s+\w+|type\s+\w+|const\s+\w+|var\s+\w+"),
 }
 

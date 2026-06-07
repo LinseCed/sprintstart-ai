@@ -166,3 +166,17 @@ def test_parse_large_txt_as_multiple_chunks(text_large_file_content: bytes):
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
         assert chunk.metadata["type"] == ".txt"
+
+
+def test_parse_python_single_function():
+    code = b"""
+import os
+
+def foo():
+    return 1
+"""
+
+    result = parse("test.py", code)
+
+    assert len(result) >= 1
+    assert all(chunk.kind == "code" for chunk in result)
