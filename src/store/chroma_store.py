@@ -139,7 +139,9 @@ class ChromaVectorStore:
         ids = raw_result["ids"]
         documents = raw_result["documents"] or []
         metadatas = raw_result["metadatas"] or []
-        embeddings = raw_result["embeddings"] if raw_result["embeddings"] is not None else []
+        embeddings = (
+            raw_result["embeddings"] if raw_result["embeddings"] is not None else []
+        )
 
         chunks: list[Chunk] = []
 
