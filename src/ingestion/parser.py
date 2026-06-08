@@ -4,6 +4,7 @@ from pathlib import Path
 from ingestion.code_parser import parse_code
 from ingestion.image_parser import parse_image
 from ingestion.models import ParsedChunk
+from ingestion.pdf_parser import parse_pdf
 from ingestion.text_parser import parse_text
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
         return parse_text(filename, content)
 
     elif file_suffix in PDF_EXTENSION:
-        raise NotImplementedError
+        return parse_pdf(filename, content)
 
     elif file_suffix in IMAGE_EXTENSIONS:
         return parse_image(filename, content)
