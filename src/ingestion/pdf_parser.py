@@ -28,7 +28,8 @@ def parse_pdf(filename: str, content: bytes) -> list[ParsedChunk]:
     Metadata added:
         - page_number: The 1-based index of the PDF page the chunk belongs to
         - chunk_index: Sequential index of the chunk within the current page
-        - global_pdf_chunk_index: Sequential global index of the chunk across the entire PDF document
+        - global_pdf_chunk_index: Sequential global index of the chunk across the
+          entire PDF document
 
     Args:
         filename (str):
@@ -42,13 +43,13 @@ def parse_pdf(filename: str, content: bytes) -> list[ParsedChunk]:
             A flat list of all extracted and chunked PDF content,
             enriched with page and chunk metadata.
     """
-    
+
     try:
-        reader = PdfReader(io.BytesIO(content)) # in memory processing
+        reader = PdfReader(io.BytesIO(content))  # in memory processing
     except Exception as e:
         logger.error("Failed to read PDF %s: %s", filename, e)
-        return [] 
-    
+        return []
+
     pdf_chunks: list[ParsedChunk] = []
     global_pdf_chunk_index: int = 0
     for page_number, page in enumerate(reader.pages, start=1):
@@ -56,11 +57,15 @@ def parse_pdf(filename: str, content: bytes) -> list[ParsedChunk]:
             text = page.extract_text()
         except Exception as e:
             logger.warning(
-                "Failed to extract text from page %s in %s: %s",page_number,filename,e)
-            continue 
+                "Failed to extract text from page %s in %s: %s",
+                page_number,
+                filename,
+                e,
+            )
+            continue
 
         if not text or not text.strip():
-            logger.warning("Skipping empty page %s in %s",page_number,filename)
+            logger.warning("Skipping empty page %s in %s", page_number, filename)
             continue
 
         chunks: list[ParsedChunk] = chunk_text(filename, text)
