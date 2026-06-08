@@ -17,7 +17,6 @@ class Chunk:
     embedding: list[float]
     heading_path: str | None = None
     position: int | None = None
-    score: float | None = None
     kind: ChunkKind = "text"
 
 
