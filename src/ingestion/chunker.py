@@ -47,3 +47,60 @@ def chunk_text(filename: str, text: str, chunk_size: int = 512) -> list[ParsedCh
         )
 
     return chunks
+
+
+def chunk_code(filename: str, code: str, chunk_size: int = 512) -> list[ParsedChunk]:
+    """Split large code blocks into smaller code chunks.
+
+    The function preserves line boundaries and creates sequential
+    code chunks that do not exceed the configured chunk size (default=512 characters).
+
+    Args:
+        filename (str):
+            Name of the source file.
+
+        code (str):
+            Source code content.
+
+        chunk_size (int, optional):
+            Maximum size of each chunk in characters.
+            Defaults to 512.
+
+    Returns:
+        list[ParsedChunk]:
+            Sequential code chunks with metadata and chunk indices.
+    """
+    lines: list[str] = code.splitlines()
+    chunks_content: list[str] = []
+    current_chunk_content: list[str] = []
+    current_chunk_content_length = 0
+    for line in lines:
+        if (
+            current_chunk_content_length + len(line) > chunk_size
+            and current_chunk_content
+        ):
+            chunks_content.append("\n".join(current_chunk_content))
+            current_chunk_content = []
+            current_chunk_content_length = 0
+
+        current_chunk_content.append(line)
+        current_chunk_content_length += len(line) + 1  # + 1, because each added line
+        # brings a line break (/n) with it
+
+    if current_chunk_content:
+        chunks_content.append("\n".join(current_chunk_content))
+
+    total_chunks_amount: int = len(chunks_content)
+
+    return [
+        ParsedChunk(
+            content=chunk_content,
+            kind="code",
+            metadata={
+                **build_metadata(Path(filename)),
+                "chunk_index": str(chunk_index),
+                "total_chunks": str(total_chunks_amount),
+            },
+        )
+        for chunk_index, chunk_content in enumerate(chunks_content)
+    ]
