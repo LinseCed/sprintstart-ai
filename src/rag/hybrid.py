@@ -150,6 +150,9 @@ def hybrid_retrieve(
         semantic_results = semantic_future.result()
         bm25_results = bm25_future.result()
 
+    if not semantic_results:
+        return []
+
     fused = reciprocal_rank_fusion(
         ranked_lists=[semantic_results, bm25_results],
         k=RRF_K,
