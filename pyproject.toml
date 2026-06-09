@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.136.3",
     "uvicorn>=0.48.0",
     "rank-bm25>=0.2.2",
+    "pypdf>=6.13.1",
 ]
 
 [tool.ruff]
