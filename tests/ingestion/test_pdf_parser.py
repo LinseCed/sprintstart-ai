@@ -89,8 +89,6 @@ def test_pdf_long_page_splits_into_multiple_chunks(pdf_long_page: bytes):
     assert min(indices) == 0
 
 
-
-
 def test_parse_pdf_returns_empty_when_reader_fails(
     monkeypatch: MonkeyPatch,
     caplog: LogCaptureFixture,
@@ -98,12 +96,20 @@ def test_parse_pdf_returns_empty_when_reader_fails(
     def fake_reader(*args: object, **kwargs: object) -> None:
         raise ValueError("broken pdf")
 
-    monkeypatch.setattr(pdf_parser,"PdfReader",fake_reader,)
+    monkeypatch.setattr(
+        pdf_parser,
+        "PdfReader",
+        fake_reader,
+    )
 
-    result = pdf_parser.parse_pdf("broken.pdf",b"not_a_real_pdf",)
+    result = pdf_parser.parse_pdf(
+        "broken.pdf",
+        b"not_a_real_pdf",
+    )
 
     assert result == []
     assert "Failed to read PDF broken.pdf" in caplog.text
+
 
 def test_parse_pdf_skips_page_when_extract_text_fails(
     monkeypatch: MonkeyPatch,
@@ -116,12 +122,15 @@ def test_parse_pdf_skips_page_when_extract_text_fails(
     class FakeReader:
         pages: list[FakePage] = [FakePage()]
 
-    def fake_reader(*args: object, **kwargs: object) -> FakeReader:  
+    def fake_reader(*args: object, **kwargs: object) -> FakeReader:
         return FakeReader()
 
-    monkeypatch.setattr(pdf_parser,"PdfReader",fake_reader)
+    monkeypatch.setattr(pdf_parser, "PdfReader", fake_reader)
 
-    result = pdf_parser.parse_pdf("test.pdf",b"dummy",)
+    result = pdf_parser.parse_pdf(
+        "test.pdf",
+        b"dummy",
+    )
 
     assert result == []
-    assert ("Failed to extract text from page 1 in test.pdf"in caplog.text)
+    assert "Failed to extract text from page 1 in test.pdf" in caplog.text
