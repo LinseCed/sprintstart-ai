@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import pytest
+from pytest import LogCaptureFixture, MonkeyPatch
 
+import ingestion.pdf_parser as pdf_parser
 from ingestion.pdf_parser import parse_pdf
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -85,3 +87,41 @@ def test_pdf_long_page_splits_into_multiple_chunks(pdf_long_page: bytes):
     assert indices == sorted(indices)
     assert len(indices) == len(set(indices))
     assert min(indices) == 0
+
+
+
+
+def test_parse_pdf_returns_empty_when_reader_fails(
+    monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
+) -> None:
+    def fake_reader(*args: object, **kwargs: object) -> None:
+        raise ValueError("broken pdf")
+
+    monkeypatch.setattr(pdf_parser,"PdfReader",fake_reader,)
+
+    result = pdf_parser.parse_pdf("broken.pdf",b"not_a_real_pdf",)
+
+    assert result == []
+    assert "Failed to read PDF broken.pdf" in caplog.text
+
+def test_parse_pdf_skips_page_when_extract_text_fails(
+    monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
+) -> None:
+    class FakePage:
+        def extract_text(self) -> str:
+            raise RuntimeError("extract failed")
+
+    class FakeReader:
+        pages: list[FakePage] = [FakePage()]
+
+    def fake_reader(*args: object, **kwargs: object) -> FakeReader:  
+        return FakeReader()
+
+    monkeypatch.setattr(pdf_parser,"PdfReader",fake_reader)
+
+    result = pdf_parser.parse_pdf("test.pdf",b"dummy",)
+
+    assert result == []
+    assert ("Failed to extract text from page 1 in test.pdf"in caplog.text)
