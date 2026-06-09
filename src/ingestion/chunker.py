@@ -1,52 +1,118 @@
+import os
 from pathlib import Path
 
-from ingestion.models import ParsedChunk
+from ingestion.models import ChunkKind, ParsedChunk
 from ingestion.utils import build_metadata
 
+try:
+    chunk_size: int = int(os.getenv("CHUNK_SIZE", "512"))
+    chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "64"))
+except ValueError as err:
+    raise ValueError("CHUNK_SIZE and CHUNK_OVERLAP must be an integer") from err
 
-def chunk_text(filename: str, text: str, chunk_size: int = 512) -> list[ParsedChunk]:
-    """Split a text into fixed-size ParsedChunk objects.
+if chunk_overlap >= chunk_size:
+    raise ValueError("chunk_overlap must be smaller than chunk_size")
 
-    The function divides the input text into sequential chunks of
-    at most `chunk_size` characters while preserving the original
-    order of the content.
+def toParsedChunk(
+    chunk_content: str,
+    kind: ChunkKind,
+    filename: str,
+    chunk_index: int,
+    total_chunks_amount: int,
+):
+    return ParsedChunk(
+        content=chunk_content,
+        kind=kind,
+        metadata={
+            **build_metadata(Path(filename)),
+            "chunk_index": str(chunk_index),
+            "total_chunks": str(total_chunks_amount),
+        },
+    )
 
-    Each generated chunk contains:
-    - the chunk text content
-    - the chunk type ("text")
-    - metadata about the source file
-    - a sequential chunk index
+def flush_chunk(
+    parts: list[str],
+    chunk_overlap: int,
+) -> tuple[str, str, int]:
+    chunk_content = "\n\n".join(parts)
+    overlap: str = chunk_content[-chunk_overlap:] if chunk_overlap > 0 else ""
+    return chunk_content, overlap, len(overlap)
 
 
-    Args:
-        filename (str): Name of the source file.
-        text (str): Decoded text content to split into chunks.
-        chunk_size (int, optional):  Maximum number of characters
-                                     per chunk. Defaults to 512.
+def chunk_text(
+    filename: str,
+    text: str,
+    chunk_size: int = chunk_size,
+    chunk_overlap: int = chunk_overlap,
+) -> list[ParsedChunk]:
+    
+    raw_chunks_content: list[str] = []
 
-    Returns:
-        list[ParsedChunk]: A list of ParsedChunk objects containing
-                           sequential text chunks with metadata.
-    """
+    paragraphs: list[str] = [
+        paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()
+    ]
+    current_chunk_content: list[str] = []
+    current_chunk_content_length: int = 0
 
-    chunks: list[ParsedChunk] = []
+    for paragraph in paragraphs:
+        paragraph_length: int = len(paragraph)
 
-    for i in range(0, len(text), chunk_size):
-        chunk_sized_text: str = text[i : i + chunk_size]
+        # hard split when paragraph itself exceeds chunk_size
+        if paragraph_length > chunk_size:
+            if current_chunk_content:
+                chunk_content, overlap, overlap_len = flush_chunk(
+                    current_chunk_content,
+                    chunk_overlap,
+                ) 
+                
+                raw_chunks_content.append(chunk_content)
+                current_chunk_content = [overlap] if overlap else []
+                current_chunk_content_length = overlap_len
 
-        chunks.append(
-            ParsedChunk(
-                content=chunk_sized_text,
-                kind="text",
-                metadata={
-                    # unpack the dict
-                    **build_metadata(Path(filename)),
-                    "chunk_index": str(i // chunk_size),
-                },
+            paragraph_with_overlap: str = "\n\n".join(current_chunk_content) + paragraph
+            start: int = 0
+            while start < len(paragraph_with_overlap):
+                paragraph_part: str = paragraph_with_overlap[start : start + chunk_size]
+                chunk_content, overlap, overlap_len = flush_chunk(
+                    [paragraph_part],
+                    chunk_overlap,
+                )
+                raw_chunks_content.append(chunk_content)
+                current_chunk_content = [overlap] if overlap else []
+                current_chunk_content_length = overlap_len
+
+                start += chunk_size - chunk_overlap
+            continue
+
+
+        # handle when current_chunk_content + paragraph exceeds chunk size
+        if current_chunk_content and (
+            current_chunk_content_length + paragraph_length > chunk_size
+        ):
+            chunk_content, overlap, overlap_len = flush_chunk(
+                current_chunk_content,
+                chunk_overlap,
             )
-        )
+            
+            raw_chunks_content.append(chunk_content)
 
-    return chunks
+            current_chunk_content = [overlap] if overlap else []
+            current_chunk_content_length = overlap_len
+
+        # append whole paragraph to current_chunk_content
+        current_chunk_content.append(paragraph)
+        current_chunk_content_length += paragraph_length
+
+    # if there is some content left, append it to the raw_chunks
+    if current_chunk_content:
+        raw_chunks_content.append("\n\n".join(current_chunk_content))
+
+    total_chunks_amount = len(raw_chunks_content)
+
+    return [
+        toParsedChunk(chunk_content, "text", filename, chunk_index, total_chunks_amount)
+        for chunk_index, chunk_content in enumerate(raw_chunks_content)
+    ]
 
 
 def chunk_code(filename: str, code: str, chunk_size: int = 512) -> list[ParsedChunk]:
@@ -93,14 +159,8 @@ def chunk_code(filename: str, code: str, chunk_size: int = 512) -> list[ParsedCh
     total_chunks_amount: int = len(chunks_content)
 
     return [
-        ParsedChunk(
-            content=chunk_content,
-            kind="code",
-            metadata={
-                **build_metadata(Path(filename)),
-                "chunk_index": str(chunk_index),
-                "total_chunks": str(total_chunks_amount),
-            },
-        )
+        toParsedChunk(chunk_content, "code", filename, chunk_index, total_chunks_amount)
         for chunk_index, chunk_content in enumerate(chunks_content)
     ]
+
+
