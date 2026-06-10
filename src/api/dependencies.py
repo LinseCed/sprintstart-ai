@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
-from llm.openai_client import OpenAICompatibleClient
+from llm.openai_client import OpenAIClient
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
 
@@ -24,7 +24,7 @@ def get_llm() -> LLMClient:
         )
 
     if backend in {"openai", "openai-compatible"}:
-        return OpenAICompatibleClient(
+        return OpenAIClient(
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             api_key=os.getenv("OPENAI_API_KEY") or "unused",
             chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),

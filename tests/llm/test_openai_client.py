@@ -5,14 +5,14 @@ import pytest
 
 from llm.base import Message
 from llm.errors import LLMUnavailableError
-from llm.openai_client import OpenAICompatibleClient
+from llm.openai_client import OpenAIClient
 
 
-def make_client(handler) -> OpenAICompatibleClient:
+def make_client(handler) -> OpenAIClient:
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(transport=transport)
 
-    return OpenAICompatibleClient(
+    return OpenAIClient(
         base_url="http://openai-compatible.test/v1",
         api_key="test-key",
         chat_model="chat-model",
@@ -130,7 +130,18 @@ def test_embed_uses_embeddings_endpoint() -> None:
     assert client.embed("hello world") == [0.1, 0.2, 0.3]
 
 
-def test_caption_image_uses_vision_model() -> None:
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01"
+    b"\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00"
+    b"\x90wS\xde"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def test_caption_image_uses_detected_mime_type() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/chat/completions"
 
@@ -162,11 +173,12 @@ def test_caption_image_uses_vision_model() -> None:
 
     client = make_client(handler)
 
-    assert client.caption_image(b"fake-image") == "Image caption"
+    assert client.caption_image(PNG_BYTES) == "Image caption"
 
 
 def test_caption_image_without_vision_model_raises() -> None:
-    client = OpenAICompatibleClient(
+
+    client = OpenAIClient(
         base_url="http://openai-compatible.test/v1",
         api_key="test-key",
         chat_model="chat-model",
@@ -175,7 +187,7 @@ def test_caption_image_without_vision_model_raises() -> None:
     )
 
     with pytest.raises(LLMUnavailableError):
-        client.caption_image(b"fake-image")
+        client.caption_image(PNG_BYTES)
 
 
 def test_errors_map_to_llm_unavailable_error() -> None:
