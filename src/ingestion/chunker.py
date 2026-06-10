@@ -13,6 +13,7 @@ except ValueError as err:
 if chunk_overlap >= chunk_size:
     raise ValueError("chunk_overlap must be smaller than chunk_size")
 
+
 def to_parsed_chunk(
     chunk_content: str,
     kind: ChunkKind,
@@ -52,6 +53,7 @@ def to_parsed_chunk(
         },
     )
 
+
 def chunk_text(
     filename: str,
     text: str,
@@ -88,7 +90,7 @@ def chunk_text(
         list[ParsedChunk]:
             Paragraph-aware text chunks with metadata.
     """
-    
+
     raw_chunks_content: list[str] = []
 
     paragraphs: list[str] = [
@@ -102,37 +104,37 @@ def chunk_text(
         # hard split by character when paragraph itself exceeds chunk_size
         if paragraph_length > chunk_size:
             if current_chunk_content:
-                 
                 raw_chunks_content.append("\n\n".join(current_chunk_content))
-                overlap_paragraph: str = current_chunk_content[-1] if len(current_chunk_content[-1]) < chunk_overlap else ""
+                overlap_paragraph: str = (
+                    current_chunk_content[-1]
+                    if len(current_chunk_content[-1]) < chunk_overlap
+                    else ""
+                )
                 current_chunk_content = [overlap_paragraph] if overlap_paragraph else []
 
-            paragraph_with_overlap: str = "\n\n".join(current_chunk_content + [paragraph])
+            paragraph_with_overlap: str = "\n\n".join(
+                current_chunk_content + [paragraph]
+            )
             start: int = 0
             while start < len(paragraph_with_overlap):
-        
-                raw_chunks_content.append(paragraph_with_overlap[start : start + chunk_size])
+                raw_chunks_content.append(
+                    paragraph_with_overlap[start : start + chunk_size]
+                )
                 start += chunk_size - chunk_overlap
 
             continue
 
         # Would adding the paragraph exceed chunk_size?
-        candidate_length: int = len(
-            "\n\n".join(current_chunk_content + [paragraph])
-        )
+        candidate_length: int = len("\n\n".join(current_chunk_content + [paragraph]))
 
         # handle when current_chunk_content + paragraph exceeds chunk size
-        if current_chunk_content and (
-            candidate_length > chunk_size
-        ):
-            
+        if current_chunk_content and (candidate_length > chunk_size):
             raw_chunks_content.append("\n\n".join(current_chunk_content))
             overlap_paragraph: str = current_chunk_content[-1]
             current_chunk_content = [overlap_paragraph]
 
         # append whole paragraph to current_chunk_content
         current_chunk_content.append(paragraph)
-        
 
     # if there is some content left, append it to the raw_chunks
     if current_chunk_content:
@@ -141,7 +143,9 @@ def chunk_text(
     total_chunks_amount = len(raw_chunks_content)
 
     return [
-        to_parsed_chunk(chunk_content, "text", filename, chunk_index, total_chunks_amount)
+        to_parsed_chunk(
+            chunk_content, "text", filename, chunk_index, total_chunks_amount
+        )
         for chunk_index, chunk_content in enumerate(raw_chunks_content)
     ]
 
@@ -190,8 +194,8 @@ def chunk_code(filename: str, code: str, chunk_size: int = 512) -> list[ParsedCh
     total_chunks_amount: int = len(chunks_content)
 
     return [
-        to_parsed_chunk(chunk_content, "code", filename, chunk_index, total_chunks_amount)
+        to_parsed_chunk(
+            chunk_content, "code", filename, chunk_index, total_chunks_amount
+        )
         for chunk_index, chunk_content in enumerate(chunks_content)
     ]
-
-
