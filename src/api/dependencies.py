@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
+from llm.openai_client import OpenAIClient
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
 
@@ -20,6 +21,15 @@ def get_llm() -> LLMClient:
             model=os.getenv("OLLAMA_MODEL"),
             embed_model=os.getenv("OLLAMA_EMBED_MODEL"),
             vision_model=os.getenv("OLLAMA_VISION_MODEL"),
+        )
+
+    if backend in {"openai", "openai-compatible"}:
+        return OpenAIClient(
+            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            api_key=os.getenv("OPENAI_API_KEY") or "unused",
+            chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            embed_model=os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small"),
+            vision_model=os.getenv("OPENAI_VISION_MODEL"),
         )
 
     raise ValueError(f"Unknown LLM backend: {backend!r}")
