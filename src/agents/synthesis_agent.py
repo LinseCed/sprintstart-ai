@@ -12,8 +12,8 @@ from store.base import VectorStore
 
 _MAX_STEPS = 3
 
-_SEED_TOP_K = 5
-_SEED_MIN_SCORE = 0.3
+_SEED_TOP_K = 8
+_SEED_MIN_SCORE = 0.15
 _SEED_EXTRA_QUERIES = 2
 
 _DECISION_ROLE = (

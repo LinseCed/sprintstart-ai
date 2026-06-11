@@ -24,6 +24,7 @@ def get_llm() -> LLMClient:
             model=os.getenv("OLLAMA_MODEL"),
             embed_model=os.getenv("OLLAMA_EMBED_MODEL"),
             vision_model=os.getenv("OLLAMA_VISION_MODEL"),
+            temperature=float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
         )
 
     if backend in {"openai", "openai-compatible"}:

@@ -90,19 +90,17 @@ class OllamaBackend(Protocol):
 
 
 class _OllamaAdapter:
-    """Wraps ollama.Client to satisfy the OllamaBackend protocol."""
-
-    def __init__(self, host: str | None) -> None:
+    def __init__(self, host: str | None, temperature: float) -> None:
         self._client = ollama.Client(host=host)
+        self._options = {"temperature": temperature}
 
     def chat(
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse:
-        # ollama.Client.chat uses @overload and pyright cannot resolve the member type
         return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
-            model=model, messages=list(messages or [])
+            model=model, messages=list(messages or []), options=self._options
         )
 
     def chat_tools(
@@ -115,6 +113,7 @@ class _OllamaAdapter:
             model=model,
             messages=list(messages or []),
             tools=list(tools) if tools else None,
+            options=self._options,
         )
 
     def chat_stream(
@@ -122,10 +121,11 @@ class _OllamaAdapter:
         model: str = "",
         messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]:
-        # stream=True makes ollama return Iterator[ChatResponse] at runtime, but the
-        # @overload stubs are too coarse for pyright to narrow the return type
         return self._client.chat(  # type: ignore[return-value]
-            model=model, messages=list(messages or []), stream=True
+            model=model,
+            messages=list(messages or []),
+            stream=True,
+            options=self._options,
         )
 
     def embeddings(
@@ -144,7 +144,11 @@ class _OllamaAdapter:
         return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
             model=model,
             messages=[{"role": "user", "content": prompt, "images": images or []}],
+            options=self._options,
         )
+
+
+_DEFAULT_TEMPERATURE = 0.1
 
 
 class OllamaClient:
@@ -155,13 +159,16 @@ class OllamaClient:
         embed_model: str | None = None,
         vision_model: str | None = None,
         client: OllamaBackend | None = None,
+        temperature: float = _DEFAULT_TEMPERATURE,
     ) -> None:
         self._host = host
         self._model = model
         self._embed_model = embed_model
         self._vision_model = vision_model
         self._client: OllamaBackend = (
-            client if client is not None else _OllamaAdapter(host=host)
+            client
+            if client is not None
+            else _OllamaAdapter(host=host, temperature=temperature)
         )
 
     def chat(
