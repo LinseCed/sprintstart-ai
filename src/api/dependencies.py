@@ -2,6 +2,9 @@ import logging
 import os
 from functools import lru_cache
 
+from fastapi import Depends
+
+from agents.orchestrator import ChatOrchestrator
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
 from store.base import VectorStore
@@ -34,3 +37,10 @@ def get_store() -> VectorStore:
             "data will not persist"
         )
     return ChromaVectorStore(path=path)
+
+
+def get_orchestrator(
+    llm: LLMClient = Depends(get_llm),
+    store: VectorStore = Depends(get_store),
+) -> ChatOrchestrator:
+    return ChatOrchestrator(llm, store)

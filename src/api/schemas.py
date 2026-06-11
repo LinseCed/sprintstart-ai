@@ -233,6 +233,25 @@ class CitationEvent(BaseModel):
     ] = None
 
 
+class ToolUseEvent(BaseModel):
+    type: Literal["tool_use"]
+    name: Annotated[
+        str,
+        Field(
+            description="Name of the invoked capability.",
+            examples=["retrieve"],
+        ),
+    ]
+    kind: Annotated[
+        Literal["agent", "tool"],
+        Field(
+            description=(
+                "Whether the invoked capability is a leaf 'tool' or a sub-'agent'."
+            ),
+        ),
+    ]
+
+
 class DoneEvent(BaseModel):
     type: Literal["done"]
 

@@ -10,7 +10,7 @@ from llm.base import Message
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
 from tests.conftest import llm_required, parse_sse_events
-from tests.stubs.llm import StubLLMClient
+from tests.stubs.llm import ScriptedLLMClient, StubLLMClient
 from tests.stubs.store import StubVectorStore
 
 
@@ -72,7 +72,15 @@ def test_chat_emits_citation_when_chunks_exist(
     http_client, _, store = client
     # Use a non-zero embedding so cosine similarity is > 0
     embedding = [1.0] + [0.0] * 767
-    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
+    script = [
+        '<tool_call>{"name": "synthesis", "args": {"task": "blockers"}}</tool_call>',
+        '<tool_call>{"name": "retrieve", "args": {"query": "blockers"}}</tool_call>',
+        "READY",
+        "READY",
+    ]
+    app.dependency_overrides[get_llm] = lambda: ScriptedLLMClient(
+        script, embedding=embedding
+    )
 
     store.add(
         [
@@ -92,12 +100,22 @@ def test_chat_emits_citation_when_chunks_exist(
         json={"prompt": "What were the blockers?", "min_score": 0.0},
     )
 
-    citation_events = [
-        e for e in parse_sse_events(response.text) if e["type"] == "citation"
-    ]
+    events = parse_sse_events(response.text)
+    citation_events = [e for e in events if e["type"] == "citation"]
     assert len(citation_events) == 1
     assert citation_events[0]["filename"] == "retro.md"
     assert citation_events[0]["chunk_id"] == "chunk-1"
+
+    tool_uses = [
+        {"name": e["name"], "kind": e["kind"]}
+        for e in events
+        if e["type"] == "tool_use"
+    ]
+    assert tool_uses == [
+        {"name": "synthesis", "kind": "agent"},
+        {"name": "retrieve", "kind": "tool"},
+    ]
+    assert events[-1] == {"type": "done"}
 
 
 def test_chat_with_history_succeeds(

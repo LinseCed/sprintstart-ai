@@ -25,3 +25,32 @@ class StubLLMClient:
 
     def caption_image(self, image_bytes: bytes) -> str:
         return self.caption
+
+
+class ScriptedLLMClient:
+    def __init__(
+        self,
+        responses: list[str],
+        *,
+        answer: str = "final answer",
+        embedding: list[float] | None = None,
+    ) -> None:
+        self._responses = list(responses)
+        self.answer = answer
+        self.embedding = embedding or [0.0] * 768
+        self.generate_calls: list[list[Message]] = []
+
+    def generate(self, messages: list[Message]) -> str:
+        self.generate_calls.append(messages)
+        if self._responses:
+            return self._responses.pop(0)
+        return "READY"
+
+    def stream(self, messages: list[Message]) -> Iterator[str]:
+        yield self.answer
+
+    def embed(self, text: str) -> list[float]:
+        return self.embedding
+
+    def caption_image(self, image_bytes: bytes) -> str:
+        return "stub caption"
