@@ -7,9 +7,12 @@ from store.base import VectorStore
 
 _DECISION_ROLE = (
     "You coordinate specialist sub-agents to answer a developer's question. "
-    "Delegate to the single most relevant capability by passing it a clear, "
-    "self-contained task. Reply READY immediately, without calling any tool, only "
-    "for greetings or meta questions that need no knowledge lookup."
+    "For any question that seeks information, facts, or knowledge — including "
+    "vague or underspecified ones — you MUST delegate to the single most relevant "
+    "sub-agent by passing it a clear, self-contained task. Never answer such a "
+    "question from your own knowledge and never ask the developer to clarify; "
+    "delegate with the question as given instead. Reply directly without calling "
+    "any tool only for bare greetings, thanks, or small talk that need no lookup."
 )
 
 _ANSWER_SYSTEM = """\

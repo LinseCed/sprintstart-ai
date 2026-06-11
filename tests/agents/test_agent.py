@@ -85,6 +85,26 @@ def test_gather_stops_when_no_tool_call() -> None:
     assert state.usages == []
 
 
+def test_gather_retries_once_when_first_decision_skips_tools() -> None:
+    agent = _agent(ScriptedLLMClient([[], [_GIVE], []]))
+
+    state = agent.gather("question")
+
+    assert [c.id for c in state.chunks] == ["c1"]
+    assert state.usages == [Invocation(kind="tool", name="give")]
+
+
+def test_gather_nudges_at_most_once_when_model_keeps_skipping_tools() -> None:
+    llm = ScriptedLLMClient([[], []])
+    agent = _agent(llm)
+
+    state = agent.gather("hi there")
+
+    assert state.chunks == []
+    assert state.usages == []
+    assert len(llm.chat_calls) == 2
+
+
 def test_gather_respects_step_budget() -> None:
     agent = _agent(ScriptedLLMClient([[_GIVE], [_GIVE], [_GIVE]]), max_steps=2)
 
