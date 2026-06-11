@@ -114,6 +114,7 @@ def test_chat_emits_citation_when_chunks_exist(
     assert tool_uses == [
         {"name": "synthesis", "kind": "agent"},
         {"name": "retrieve", "kind": "tool"},
+        {"name": "retrieve", "kind": "tool"},
     ]
     assert events[-1] == {"type": "done"}
 

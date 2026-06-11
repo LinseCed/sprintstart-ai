@@ -49,7 +49,8 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     ]
     assert tool_uses == [
         {"name": "synthesis", "kind": "agent"},
-        {"name": "retrieve", "kind": "tool"},
+        {"name": "retrieve", "kind": "tool"},  # seed retrieval, before the loop
+        {"name": "retrieve", "kind": "tool"},  # the agent's own in-loop retrieve
     ]
     assert types.index("tool_use") < types.index("token")
 

@@ -1,7 +1,10 @@
+from collections.abc import Generator
+
 from pydantic import BaseModel
 
 from agents.base import (
     Agent,
+    AgentRunState,
     _merge_into,  # pyright: ignore[reportPrivateUsage]
     _wrap_user_query,  # pyright: ignore[reportPrivateUsage]
 )
@@ -11,6 +14,7 @@ from rag.types import ScoredChunk
 from tests.stubs.llm import ScriptedLLMClient
 
 _GIVE: tuple[str, dict[str, object]] = ("give", {})
+_DUP: tuple[str, dict[str, object]] = ("dup", {})
 
 
 def _scored(chunk_id: str) -> ScoredChunk:
@@ -36,15 +40,45 @@ class _ChunkTool(Tool[_Args]):
         return ToolResult(summary="gave", chunks=[_scored(f"c{self._calls}")])
 
 
+class _DupTool(Tool[_Args]):
+    name = "dup"
+    description = "gives the same chunk every time"
+    args_model = _Args
+
+    def run(self, args: _Args) -> ToolResult:  # noqa: ARG002
+        return ToolResult(summary="dup", chunks=[_scored("dup")])
+
+
+class _SeedingAgent(Agent):
+    def _seed(
+        self, task: str, state: AgentRunState
+    ) -> Generator[Invocation, None, None]:
+        state.chunks.append(_scored("seed"))
+        invocation = Invocation(kind="tool", name="retrieve")
+        state.usages.append(invocation)
+        yield invocation
+
+
 def _agent(llm: ScriptedLLMClient, **kwargs: object) -> Agent:
     return Agent(
+        name="t",
+        description="d",
+        llm=llm,
+        tools=ToolRegistry([_ChunkTool(), _DupTool()]),
+        decision_role="r",
+        answer_system="s",
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def _seeding_agent(llm: ScriptedLLMClient) -> Agent:
+    return _SeedingAgent(
         name="t",
         description="d",
         llm=llm,
         tools=ToolRegistry([_ChunkTool()]),
         decision_role="r",
         answer_system="s",
-        **kwargs,  # type: ignore[arg-type]
     )
 
 
@@ -113,6 +147,42 @@ def test_gather_respects_step_budget() -> None:
     assert [c.id for c in state.chunks] == ["c1", "c2"]
 
 
+def test_gather_stops_when_a_step_adds_no_new_context() -> None:
+    # The tool returns the same chunk twice; the second step surfaces nothing
+    # new, so the loop stops without making the third scripted call.
+    llm = ScriptedLLMClient([[_DUP], [_DUP], [_DUP]])
+    agent = _agent(llm)
+
+    state = agent.gather("question")
+
+    assert [c.id for c in state.chunks] == ["dup"]
+    assert len(state.usages) == 2  # stopped after the no-new-context step
+
+
+def test_seed_context_lets_model_answer_without_a_forced_tool_call() -> None:
+    # With seed context present, a no-tool-call reply is accepted immediately —
+    # the cold-start nudge does not fire, so there is only one decision call.
+    llm = ScriptedLLMClient([[]])
+    agent = _seeding_agent(llm)
+
+    state = agent.gather("question")
+
+    assert [c.id for c in state.chunks] == ["seed"]
+    assert state.usages == [Invocation(kind="tool", name="retrieve")]
+    assert len(llm.chat_calls) == 1
+
+
+def test_seed_invocations_are_yielded_before_the_loop() -> None:
+    agent = _seeding_agent(ScriptedLLMClient([[_GIVE], []]))
+
+    streamed = list(agent.gather_stream("question"))
+
+    assert streamed == [
+        Invocation(kind="tool", name="retrieve"),  # seed, before the loop
+        Invocation(kind="tool", name="give"),  # in-loop tool call
+    ]
+
+
 def test_run_returns_answer_and_context() -> None:
     agent = _agent(ScriptedLLMClient([[_GIVE], []], answer="done"))
 
@@ -155,7 +225,6 @@ def test_agent_tool_delegates_to_subagent() -> None:
 
     assert result.summary == "sub answer"
     assert [c.id for c in result.chunks] == ["c1"]
-    # The sub-agent's internal tool use bubbles up through the result.
     assert result.usages == [Invocation(kind="tool", name="give")]
 
 
@@ -183,12 +252,10 @@ def test_multiple_delegations_synthesise_from_answers_not_raw_chunks() -> None:
     assert [d.name for d in state.delegations] == ["a", "b"]
     assert answer == "combined"
 
-    # The parent synthesises exactly once, over the sub-agents' answers...
     assert len(parent_llm.stream_calls) == 1
     prompt = str(parent_llm.stream_calls[0][-1]["content"])
     assert "answer A" in prompt
     assert "answer B" in prompt
-    # ...not over the raw chunks they read (those stay below for citations only).
     assert "hello" not in prompt
     assert [c.id for c in state.chunks] == ["c1"]
 

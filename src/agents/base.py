@@ -91,6 +91,9 @@ class Agent:
             Message(role="user", content=_wrap_user_query(task)),
         ]
 
+        for invocation in self._seed(task, state):
+            yield invocation
+
         nudged = False
         for step in range(self._max_steps):
             result = self._llm.chat(messages, tools=specs)
@@ -100,7 +103,7 @@ class Agent:
                 f"tool_calls={[(c.name, c.arguments) for c in result.tool_calls]}",
             )
             if not result.tool_calls:
-                if nudged or state.delegations or state.observations:
+                if nudged or state.chunks or state.delegations or state.observations:
                     break
                 nudged = True
                 messages.append(Message(role="assistant", content=result.text))
@@ -115,6 +118,7 @@ class Agent:
                 )
             )
 
+            added_this_step = 0
             for call in result.tool_calls:
                 tool = self._tools.get(call.name)
                 if tool is None:
@@ -130,7 +134,7 @@ class Agent:
                     else:
                         tool_result = tool.execute(call.arguments)
 
-                _merge_into(state.chunks, tool_result.chunks)
+                added_this_step += _merge_into(state.chunks, tool_result.chunks)
                 if tool_result.delegation is not None:
                     state.delegations.append(tool_result.delegation)
                 elif tool_result.summary:
@@ -145,10 +149,18 @@ class Agent:
                     )
                 )
 
+            if added_this_step == 0 and state.chunks:
+                break
+
         return state
 
+    def _seed(
+        self, task: str, state: AgentRunState
+    ) -> Generator[Invocation, None, None]:
+        return
+        yield  # pragma: no cover — makes this a generator
+
     def gather(self, task: str, history: list[Message] | None = None) -> AgentRunState:
-        """Drain `gather_stream` for callers that don't need live invocations."""
         return _drain(self.gather_stream(task, history))
 
     def answer_stream(
