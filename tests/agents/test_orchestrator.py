@@ -58,6 +58,34 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     assert events[-1] == {"type": "done"}
 
 
+def test_orchestrator_streams_single_delegation_without_re_synthesising() -> None:
+    embedding = [1.0] + [0.0] * 767
+    store = StubVectorStore()
+    store.add(
+        [
+            Chunk(
+                id="c1",
+                artifact_id="d1",
+                filename="retro.md",
+                text="missing designs blocked auth",
+                embedding=embedding,
+                heading_path="Blockers",
+            )
+        ]
+    )
+    llm = ScriptedLLMClient(
+        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
+        answer="Missing designs.",
+        embedding=embedding,
+    )
+
+    events = _events(ChatOrchestrator(llm, store), "What were the blockers?")
+    tokens = "".join(str(e["content"]) for e in events if e["type"] == "token")
+
+    assert tokens == "Missing designs."
+    assert len(llm.stream_calls) == 1
+
+
 def test_orchestrator_answers_directly_when_no_delegation() -> None:
     llm = ScriptedLLMClient([], answer="hello there")
 

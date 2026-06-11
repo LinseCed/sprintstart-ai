@@ -1,5 +1,6 @@
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, Protocol
+from uuid import uuid4
 
 import ollama
 
@@ -43,15 +44,14 @@ def _to_ollama_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
 
 def _from_ollama_response(response: ollama.ChatResponse) -> ChatResult:
     message = response.message
-    calls: list[ToolCall] = []
-    for i, call in enumerate(message.tool_calls or []):
-        calls.append(
-            ToolCall(
-                id=f"call_{i}",
-                name=call.function.name,
-                arguments=dict(call.function.arguments),
-            )
+    calls = [
+        ToolCall(
+            id=f"call_{uuid4().hex}",
+            name=call.function.name,
+            arguments=dict(call.function.arguments),
         )
+        for call in message.tool_calls or []
+    ]
     return ChatResult(text=message.content or "", tool_calls=calls)
 
 

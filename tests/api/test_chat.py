@@ -97,7 +97,7 @@ def test_chat_emits_citation_when_chunks_exist(
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"prompt": "What were the blockers?", "min_score": 0.0},
+        json={"prompt": "What were the blockers?"},
     )
 
     events = parse_sse_events(response.text)

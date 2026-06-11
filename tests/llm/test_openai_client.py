@@ -248,9 +248,7 @@ def test_chat_sends_tools_and_parses_tool_calls() -> None:
 
     client = make_client(handler)
 
-    result = client.chat(
-        [Message(role="user", content="hi")], tools=[_TOOL_SPEC]
-    )
+    result = client.chat([Message(role="user", content="hi")], tools=[_TOOL_SPEC])
 
     assert result.text == ""
     assert [(c.name, c.arguments) for c in result.tool_calls] == [

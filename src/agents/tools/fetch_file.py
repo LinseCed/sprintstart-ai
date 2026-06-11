@@ -14,6 +14,13 @@ def _stem(filename: str) -> str:
     return _EXTENSION_RE.sub("", filename.lower())
 
 
+def _matches(filename: str, query: str, query_has_ext: bool) -> bool:
+    name = filename.lower()
+    if name == query:
+        return True
+    return not query_has_ext and _stem(name) == query
+
+
 class FetchFileArgs(BaseModel):
     filename: str
 
@@ -30,8 +37,8 @@ class FetchFileTool(Tool[FetchFileArgs]):
         self._store = store
 
     def run(self, args: FetchFileArgs) -> ToolResult:
-        target = args.filename.lower()
-        target_stem = _stem(args.filename)
+        query = args.filename.strip().lower()
+        query_has_ext = bool(_EXTENSION_RE.search(query))
         results = [
             ScoredChunk(
                 id=chunk.id,
@@ -44,7 +51,7 @@ class FetchFileTool(Tool[FetchFileArgs]):
                 kind=chunk.kind,
             )
             for chunk in self._store.all_chunks()
-            if chunk.filename.lower() == target or _stem(chunk.filename) == target_stem
+            if _matches(chunk.filename, query, query_has_ext)
         ]
         return ToolResult(
             summary=f"fetch_file({args.filename!r}): {len(results)} chunk(s).",

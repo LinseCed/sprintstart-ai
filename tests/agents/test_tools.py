@@ -84,6 +84,22 @@ def test_fetch_file_tool_matches_by_name_and_stem() -> None:
     assert {c.id for c in by_stem.chunks} == {"c1", "c2"}
 
 
+def test_fetch_file_with_extension_does_not_match_other_extensions() -> None:
+    store = StubVectorStore()
+    store.add(
+        [
+            _chunk("c1", "auth.py", "code", [0.0] * 768),
+            _chunk("c2", "auth.md", "docs", [0.0] * 768),
+        ]
+    )
+
+    with_ext = FetchFileTool(store).execute({"filename": "auth.py"})
+    bare = FetchFileTool(store).execute({"filename": "auth"})
+
+    assert {c.id for c in with_ext.chunks} == {"c1"}
+    assert {c.id for c in bare.chunks} == {"c1", "c2"}
+
+
 class _NoArgs(BaseModel):
     pass
 

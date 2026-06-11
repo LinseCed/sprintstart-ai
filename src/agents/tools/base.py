@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -18,10 +18,17 @@ class Invocation:
 
 
 @dataclass(frozen=True)
+class Delegation:
+    name: str
+    answer: Callable[[], Iterator[str]]
+
+
+@dataclass(frozen=True)
 class ToolResult:
     summary: str
     chunks: list[ScoredChunk] = field(default_factory=list[ScoredChunk])
     usages: list[Invocation] = field(default_factory=list[Invocation])
+    delegation: Delegation | None = None
 
     @classmethod
     def empty(cls, summary: str) -> "ToolResult":
@@ -35,7 +42,6 @@ class Tool[ArgsT: BaseModel](ABC):
     kind: CapabilityKind = "tool"
 
     def execute(self, raw_args: dict[str, object]) -> ToolResult:
-        """Validate raw LLM-supplied arguments, then run. Never raises."""
         try:
             args = self.args_model.model_validate(raw_args)
         except ValidationError:

@@ -3,10 +3,25 @@ from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
-from agents.tools.base import Invocation, Tool, ToolResult
+from agents.tools.base import Delegation, Invocation, Tool, ToolResult
+from rag.types import ScoredChunk
 
 if TYPE_CHECKING:
     from agents.base import AgentResult, AgentRunState
+
+_SUMMARY_FILES = 5
+
+
+def _delegation_summary(name: str, chunks: list[ScoredChunk]) -> str:
+    if not chunks:
+        return f"{name}: gathered no sources."
+    files = sorted({c.filename for c in chunks})
+    shown = ", ".join(files[:_SUMMARY_FILES])
+    more = "" if len(files) <= _SUMMARY_FILES else ", …"
+    return (
+        f"{name}: gathered {len(chunks)} chunk(s) from {shown}{more} "
+        "and prepared an answer."
+    )
 
 
 class SubAgent(Protocol):
@@ -51,6 +66,16 @@ class AgentTool(Tool[AgentTaskArgs]):
         except ValidationError:
             return ToolResult.empty(f"Invalid arguments for tool {self.name!r}.")
 
-        state = yield from self._agent.gather_stream(args.task)
-        answer = "".join(self._agent.answer_stream(args.task, state))
-        return ToolResult(summary=answer, chunks=state.chunks, usages=state.usages)
+        agent = self._agent
+        task = args.task
+        state = yield from agent.gather_stream(task)
+        delegation = Delegation(
+            name=agent.name,
+            answer=lambda: agent.answer_stream(task, state),
+        )
+        return ToolResult(
+            summary=_delegation_summary(agent.name, state.chunks),
+            chunks=state.chunks,
+            usages=state.usages,
+            delegation=delegation,
+        )

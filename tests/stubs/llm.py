@@ -2,9 +2,6 @@ from collections.abc import Iterator, Mapping, Sequence
 
 from llm.base import ChatResult, Message, ToolCall, ToolSpec
 
-# A scripted turn: the tool calls (name + args) the model should request. An empty
-# turn means "no tool call" — i.e. the agent is done gathering. Covariant element
-# types let tests pass plain dict literals without annotating them.
 Turn = Sequence[tuple[str, Mapping[str, object]]]
 
 
@@ -22,7 +19,6 @@ class StubLLMClient:
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
     ) -> ChatResult:
-        # Never requests a tool, so agents answer directly.
         return ChatResult(text=self.generate_response, tool_calls=[])
 
     def generate(self, messages: list[Message]) -> str:
@@ -58,6 +54,7 @@ class ScriptedLLMClient:
         self.answer = answer
         self.embedding = embedding or [0.0] * 768
         self.chat_calls: list[list[Message]] = []
+        self.stream_calls: list[list[Message]] = []
 
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
@@ -74,6 +71,7 @@ class ScriptedLLMClient:
         return self.answer
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
+        self.stream_calls.append(messages)
         yield self.answer
 
     def embed(self, text: str) -> list[float]:

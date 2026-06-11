@@ -187,6 +187,16 @@ class TestChat:
             ("retrieve", {"query": "x"})
         ]
 
+    def test_synthesises_unique_ids_across_calls(self) -> None:
+        fake = _FakeOllamaClient(tool_calls=[("retrieve", {"query": "x"})])
+        client = _make_client(inner_client=fake)
+        messages = [Message(role="user", content="hi")]
+
+        first = client.chat(messages, tools=[_TOOL_SPEC])
+        second = client.chat(messages, tools=[_TOOL_SPEC])
+
+        assert first.tool_calls[0].id != second.tool_calls[0].id
+
     def test_wraps_backend_errors(self) -> None:
         fake = _FakeOllamaClient(chat_error=ConnectionError("refused"))
         client = _make_client(inner_client=fake)

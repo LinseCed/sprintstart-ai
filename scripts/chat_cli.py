@@ -59,18 +59,14 @@ def _iter_sse(response: httpx.Response) -> Iterator[dict[str, object]]:
 
 
 class Client:
-    def __init__(self, base_url: str, top_k: int, min_score: float) -> None:
+    def __init__(self, base_url: str) -> None:
         self._base = base_url.rstrip("/")
-        self._top_k = top_k
-        self._min_score = min_score
         self._http = httpx.Client(timeout=httpx.Timeout(None, connect=5.0))
         self.history: list[dict[str, str]] = []
 
     def ask(self, prompt: str) -> None:
         payload = {
             "prompt": prompt,
-            "top_k": self._top_k,
-            "min_score": self._min_score,
             "context": self.history,
         }
 
@@ -136,7 +132,6 @@ class Client:
             section = c.get("section_path")
             suffix = f" › {section}" if section else ""
             print(C.dim(f"  - {c.get('filename')}{suffix}"))
-
 
     def ingest_path(self, raw_path: str, artifact_id: str | None) -> None:
         path = Path(raw_path).expanduser()
@@ -204,7 +199,6 @@ class Client:
         else:
             detail = self._detail(response)
             print(C.red(f"  fail {path.name}: {response.status_code} {detail}"))
-
 
     def health(self) -> tuple[str, str | None] | None:
         try:
@@ -283,13 +277,9 @@ def main() -> int:
         default=os.environ.get("SPRINTSTART_URL", "http://localhost:8000"),
         help="Base URL of the service (default: %(default)s).",
     )
-    parser.add_argument("--top-k", type=int, default=5, help="Chunks to retrieve.")
-    parser.add_argument(
-        "--min-score", type=float, default=0.3, help="Minimum retrieval score."
-    )
     args = parser.parse_args()
 
-    client = Client(args.base_url, args.top_k, args.min_score)
+    client = Client(args.base_url)
 
     print(C.bold("SprintStart AI — terminal client"))
     print(C.dim(f"connected to {args.base_url}"))
