@@ -77,6 +77,7 @@ The `/api/v1/chat` endpoint streams newline-delimited JSON events:
 
 | Event type | Description |
 |---|---|
+| `tool_use` | A capability the orchestrator invoked, in order. Has `name` and `kind` (`agent` for a sub-agent, `tool` for a leaf tool) |
 | `token` | A single token fragment of the answer |
 | `citation` | A source chunk used to generate the answer |
 | `done` | Signals the end of the stream |
