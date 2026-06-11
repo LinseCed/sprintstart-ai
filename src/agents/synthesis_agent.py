@@ -6,10 +6,16 @@ from agents.tools.retrieve import RetrieveTool
 from llm.base import LLMClient
 from store.base import VectorStore
 
+_MAX_STEPS = 3
+
 _DECISION_ROLE = (
     "You decide whether you have enough context to answer a developer's question "
-    "about their team's knowledge base. Prefer retrieve for conceptual questions, "
-    "grep for exact identifiers, and fetch_file when a filename is known."
+    "about their team's knowledge base. Prefer retrieve for conceptual questions "
+    "and grep for exact identifiers. Only use fetch_file for a filename that "
+    "appeared in an earlier search result — never guess or invent a filename. "
+    "Do not repeat a search you have already run. As soon as any tool returns "
+    "matches, stop calling tools and answer from what you have; do not keep "
+    "searching for a more perfect source."
 )
 
 _ANSWER_SYSTEM = """\
@@ -39,4 +45,5 @@ class SynthesisAgent(Agent):
             tools=tools,
             decision_role=_DECISION_ROLE,
             answer_system=_ANSWER_SYSTEM,
+            max_steps=_MAX_STEPS,
         )
