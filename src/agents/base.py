@@ -28,12 +28,6 @@ _QUERY_FENCE_NOTE = (
 
 
 def _wrap_user_query(task: str) -> str:
-    """Fence the untrusted query with an unguessable marker.
-
-    A static delimiter (e.g. ``<user_query>``) can be closed by the query itself
-    to break out and inject instructions. A per-request random marker can't be
-    predicted, so embedded delimiters stay inside the data frame.
-    """
     marker = secrets.token_hex(8)
     return f"--{marker}--\n{task}\n--{marker}--"
 
