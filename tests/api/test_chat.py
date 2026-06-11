@@ -10,7 +10,7 @@ from llm.base import Message
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
 from tests.conftest import llm_required, parse_sse_events
-from tests.stubs.llm import ScriptedLLMClient, StubLLMClient
+from tests.stubs.llm import ScriptedLLMClient, StubLLMClient, Turn
 from tests.stubs.store import StubVectorStore
 
 
@@ -72,11 +72,11 @@ def test_chat_emits_citation_when_chunks_exist(
     http_client, _, store = client
     # Use a non-zero embedding so cosine similarity is > 0
     embedding = [1.0] + [0.0] * 767
-    script = [
-        '<tool_call>{"name": "synthesis", "args": {"task": "blockers"}}</tool_call>',
-        '<tool_call>{"name": "retrieve", "args": {"query": "blockers"}}</tool_call>',
-        "READY",
-        "READY",
+    script: list[Turn] = [
+        [("synthesis", {"task": "blockers"})],
+        [("retrieve", {"query": "blockers"})],
+        [],
+        [],
     ]
     app.dependency_overrides[get_llm] = lambda: ScriptedLLMClient(
         script, embedding=embedding

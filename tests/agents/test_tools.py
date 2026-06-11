@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import BaseModel
 
@@ -89,20 +91,26 @@ class _NoArgs(BaseModel):
 class _FakeTool(Tool[_NoArgs]):
     name = "fake"
     description = "does nothing"
-    args_schema = "{}"
     args_model = _NoArgs
 
     def run(self, args: _NoArgs) -> ToolResult:  # noqa: ARG002
         return ToolResult.empty("ran")
 
 
-def test_registry_renders_each_tool() -> None:
+def test_tool_spec_exposes_json_schema() -> None:
+    spec = FetchFileTool(StubVectorStore()).tool_spec()
+
+    assert spec["name"] == "fetch_file"
+    assert spec["description"]
+    assert "filename" in json.dumps(spec["parameters"])
+
+
+def test_registry_specs_lists_each_tool() -> None:
     registry = ToolRegistry([FetchFileTool(StubVectorStore())])
 
-    rendered = registry.render()
+    names = [spec["name"] for spec in registry.specs()]
 
-    assert "fetch_file" in rendered
-    assert "filename" in rendered
+    assert names == ["fetch_file"]
 
 
 def test_registry_dispatches_by_name() -> None:

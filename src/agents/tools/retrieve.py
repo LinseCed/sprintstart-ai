@@ -19,7 +19,6 @@ class RetrieveTool(Tool[RetrieveArgs]):
         "Semantic + keyword search over the knowledge base. "
         "Use for conceptual or open-ended questions."
     )
-    args_schema = '{"query": "natural language search"}'
     args_model = RetrieveArgs
 
     def __init__(

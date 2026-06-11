@@ -1,6 +1,11 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 
-from llm.base import Message
+from llm.base import ChatResult, Message, ToolCall, ToolSpec
+
+# A scripted turn: the tool calls (name + args) the model should request. An empty
+# turn means "no tool call" — i.e. the agent is done gathering. Covariant element
+# types let tests pass plain dict literals without annotating them.
+Turn = Sequence[tuple[str, Mapping[str, object]]]
 
 
 class StubLLMClient:
@@ -13,6 +18,12 @@ class StubLLMClient:
         self.generate_response = generate_response
         self.embedding = embedding or [0.0] * 768
         self.caption = caption
+
+    def chat(
+        self, messages: list[Message], tools: list[ToolSpec] | None = None
+    ) -> ChatResult:
+        # Never requests a tool, so agents answer directly.
+        return ChatResult(text=self.generate_response, tool_calls=[])
 
     def generate(self, messages: list[Message]) -> str:
         return self.generate_response
@@ -28,23 +39,39 @@ class StubLLMClient:
 
 
 class ScriptedLLMClient:
+    """
+    Drives the tool-calling loop deterministically.
+
+    Each `chat` call pops the next scripted turn and returns those tool calls. Once
+    the script is exhausted it returns no tool calls (the agent stops gathering).
+    `stream` always yields the fixed answer.
+    """
+
     def __init__(
         self,
-        responses: list[str],
+        turns: Sequence[Turn],
         *,
         answer: str = "final answer",
         embedding: list[float] | None = None,
     ) -> None:
-        self._responses = list(responses)
+        self._turns: list[Turn] = list(turns)
         self.answer = answer
         self.embedding = embedding or [0.0] * 768
-        self.generate_calls: list[list[Message]] = []
+        self.chat_calls: list[list[Message]] = []
+
+    def chat(
+        self, messages: list[Message], tools: list[ToolSpec] | None = None
+    ) -> ChatResult:
+        self.chat_calls.append(messages)
+        turn: Turn = self._turns.pop(0) if self._turns else []
+        calls = [
+            ToolCall(id=f"call_{i}", name=name, arguments=dict(args))
+            for i, (name, args) in enumerate(turn)
+        ]
+        return ChatResult(text="" if calls else self.answer, tool_calls=calls)
 
     def generate(self, messages: list[Message]) -> str:
-        self.generate_calls.append(messages)
-        if self._responses:
-            return self._responses.pop(0)
-        return "READY"
+        return self.answer
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
         yield self.answer

@@ -1,10 +1,58 @@
-from collections.abc import Iterator, Sequence
-from typing import Protocol
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any, Protocol
 
 import ollama
 
-from llm.base import Message
+from llm.base import ChatResult, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+
+
+def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        item: dict[str, Any] = {
+            "role": message["role"],
+            "content": message["content"],
+        }
+        tool_calls = message.get("tool_calls")
+        if tool_calls:
+            item["tool_calls"] = [
+                {"function": {"name": call.name, "arguments": call.arguments}}
+                for call in tool_calls
+            ]
+        name = message.get("name")
+        if name:
+            item["tool_name"] = name
+        out.append(item)
+    return out
+
+
+def _to_ollama_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"],
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _from_ollama_response(response: ollama.ChatResponse) -> ChatResult:
+    message = response.message
+    calls: list[ToolCall] = []
+    for i, call in enumerate(message.tool_calls or []):
+        calls.append(
+            ToolCall(
+                id=f"call_{i}",
+                name=call.function.name,
+                arguments=dict(call.function.arguments),
+            )
+        )
+    return ChatResult(text=message.content or "", tool_calls=calls)
 
 
 class OllamaBackend(Protocol):
@@ -12,6 +60,13 @@ class OllamaBackend(Protocol):
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
+    ) -> ollama.ChatResponse: ...
+
+    def chat_tools(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
     ) -> ollama.ChatResponse: ...
 
     def chat_stream(
@@ -48,6 +103,18 @@ class _OllamaAdapter:
         # ollama.Client.chat uses @overload and pyright cannot resolve the member type
         return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
             model=model, messages=list(messages or [])
+        )
+
+    def chat_tools(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+    ) -> ollama.ChatResponse:
+        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+            model=model,
+            messages=list(messages or []),
+            tools=list(tools) if tools else None,
         )
 
     def chat_stream(
@@ -96,6 +163,21 @@ class OllamaClient:
         self._client: OllamaBackend = (
             client if client is not None else _OllamaAdapter(host=host)
         )
+
+    def chat(
+        self, messages: list[Message], tools: list[ToolSpec] | None = None
+    ) -> ChatResult:
+        if self._model is None:
+            raise ValueError("No model specified")
+        try:
+            response = self._client.chat_tools(
+                model=self._model,
+                messages=_to_ollama_messages(messages),
+                tools=_to_ollama_tools(tools) if tools else None,
+            )
+            return _from_ollama_response(response)
+        except (ollama.ResponseError, ConnectionError, OSError) as exc:
+            raise LLMUnavailableError(self._host, cause=exc) from exc
 
     def generate(self, messages: list[Message]) -> str:
         if self._model is None:

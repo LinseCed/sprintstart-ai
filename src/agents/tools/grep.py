@@ -22,7 +22,6 @@ class GrepTool(Tool[GrepArgs]):
         "Exact (case-insensitive) substring search for identifiers or string "
         "literals. Use when you know a function name, symbol or exact phrase."
     )
-    args_schema = '{"patterns": ["identifier", "function_name"]}'
     args_model = GrepArgs
 
     def __init__(self, store: VectorStore) -> None:

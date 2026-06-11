@@ -9,8 +9,8 @@ from tests.conftest import parse_sse_events
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 
-_SYNTH_CALL = '<tool_call>{"name": "synthesis", "args": {"task": "blockers"}}</tool_call>'  # noqa: E501
-_RETRIEVE_CALL = '<tool_call>{"name": "retrieve", "args": {"query": "blockers"}}</tool_call>'  # noqa: E501
+_SYNTH_CALL = ("synthesis", {"task": "blockers"})
+_RETRIEVE_CALL = ("retrieve", {"query": "blockers"})
 
 
 def _events(orchestrator: ChatOrchestrator, query: str) -> list[dict[str, object]]:
@@ -34,7 +34,7 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
         ]
     )
     llm = ScriptedLLMClient(
-        [_SYNTH_CALL, _RETRIEVE_CALL, "READY", "READY"],
+        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
         answer="Missing designs.",
         embedding=embedding,
     )

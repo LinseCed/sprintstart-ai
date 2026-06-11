@@ -5,9 +5,9 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ValidationError
 
+from llm.base import ToolSpec
 from rag.types import ScoredChunk
 
-# Whether an invoked capability is a leaf tool or another (sub-)agent.
 CapabilityKind = Literal["agent", "tool"]
 
 
@@ -31,7 +31,6 @@ class ToolResult:
 class Tool[ArgsT: BaseModel](ABC):
     name: str
     description: str
-    args_schema: str
     args_model: type[ArgsT]
     kind: CapabilityKind = "tool"
 
@@ -42,6 +41,13 @@ class Tool[ArgsT: BaseModel](ABC):
         except ValidationError:
             return ToolResult.empty(f"Invalid arguments for tool {self.name!r}.")
         return self.run(args)
+
+    def tool_spec(self) -> ToolSpec:
+        return ToolSpec(
+            name=self.name,
+            description=self.description,
+            parameters=self.args_model.model_json_schema(),
+        )
 
     @abstractmethod
     def run(self, args: ArgsT) -> ToolResult: ...
@@ -54,8 +60,6 @@ class StreamingTool(Protocol):
     ) -> Generator[Invocation, None, ToolResult]: ...
 
 
-# Tools are stored heterogeneously; their concrete arg models differ, so the
-# registry treats them as `Tool[Any]` to sidestep generic invariance.
 AnyTool = Tool[Any]
 
 
@@ -82,11 +86,8 @@ class ToolRegistry:
             return ToolResult.empty(f"Unknown tool: {name!r}.")
         return tool.execute(raw_args)
 
-    def render(self) -> str:
-        return "\n".join(
-            f"  {tool.name} — {tool.args_schema}\n      {tool.description}"
-            for tool in self._tools.values()
-        )
+    def specs(self) -> list[ToolSpec]:
+        return [tool.tool_spec() for tool in self._tools.values()]
 
     def __len__(self) -> int:
         return len(self._tools)

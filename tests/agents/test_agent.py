@@ -3,14 +3,13 @@ from pydantic import BaseModel
 from agents.base import (
     Agent,
     _merge_into,  # pyright: ignore[reportPrivateUsage]
-    _parse_tool_call,  # pyright: ignore[reportPrivateUsage]
 )
 from agents.tools.agent_tool import AgentTaskArgs, AgentTool
 from agents.tools.base import Invocation, Tool, ToolRegistry, ToolResult
 from rag.types import ScoredChunk
 from tests.stubs.llm import ScriptedLLMClient
 
-_GIVE_CALL = '<tool_call>{"name": "give", "args": {}}</tool_call>'
+_GIVE: tuple[str, dict[str, object]] = ("give", {})
 
 
 def _scored(chunk_id: str) -> ScoredChunk:
@@ -26,7 +25,6 @@ class _Args(BaseModel):
 class _ChunkTool(Tool[_Args]):
     name = "give"
     description = "gives a chunk"
-    args_schema = "{}"
     args_model = _Args
 
     def __init__(self) -> None:
@@ -49,54 +47,6 @@ def _agent(llm: ScriptedLLMClient, **kwargs: object) -> Agent:
     )
 
 
-def test_parse_tool_call_extracts_valid_call() -> None:
-    parsed = _parse_tool_call(_GIVE_CALL, frozenset({"give"}))
-    assert parsed == ("give", {})
-
-
-def test_parse_tool_call_rejects_unknown_name() -> None:
-    assert _parse_tool_call(_GIVE_CALL, frozenset({"other"})) is None
-
-
-def test_parse_tool_call_returns_none_without_call() -> None:
-    assert _parse_tool_call("READY", frozenset({"give"})) is None
-
-
-def test_parse_tool_call_accepts_bare_json_with_noise() -> None:
-    raw = 'EXC{"name": "synthesis", "args": {"task": "overview"}}ić'
-    assert _parse_tool_call(raw, frozenset({"synthesis"})) == (
-        "synthesis",
-        {"task": "overview"},
-    )
-
-
-def test_parse_tool_call_accepts_fenced_json() -> None:
-    raw = '```json\n{"name": "give", "args": {"x": 1}}\n```'
-    assert _parse_tool_call(raw, frozenset({"give"})) == ("give", {"x": 1})
-
-
-def test_parse_tool_call_ignores_json_without_a_known_tool() -> None:
-    assert _parse_tool_call('{"foo": "bar"}', frozenset({"give"})) is None
-    assert _parse_tool_call('{"name": "nope"}', frozenset({"give"})) is None
-
-
-def test_parse_tool_call_prefers_first_valid_object() -> None:
-    raw = 'noise {"name": "skip"} then {"name": "give", "args": {}}'
-    assert _parse_tool_call(raw, frozenset({"give"})) == ("give", {})
-
-
-def test_parse_tool_call_accepts_function_call_syntax() -> None:
-    raw = 'retrieve({"query": "sprintstart-ai"})'
-    assert _parse_tool_call(raw, frozenset({"retrieve", "grep"})) == (
-        "retrieve",
-        {"query": "sprintstart-ai"},
-    )
-
-
-def test_parse_function_call_ignores_unknown_name() -> None:
-    assert _parse_tool_call('search({"q": "x"})', frozenset({"retrieve"})) is None
-
-
 def test_merge_into_deduplicates_by_id() -> None:
     target = [_scored("a")]
     added = _merge_into(target, [_scored("a"), _scored("b")])
@@ -105,7 +55,7 @@ def test_merge_into_deduplicates_by_id() -> None:
 
 
 def test_gather_collects_chunks_observations_and_usages() -> None:
-    agent = _agent(ScriptedLLMClient([_GIVE_CALL, "READY"]))
+    agent = _agent(ScriptedLLMClient([[_GIVE], []]))
 
     state = agent.gather("question")
 
@@ -115,7 +65,7 @@ def test_gather_collects_chunks_observations_and_usages() -> None:
 
 
 def test_gather_stops_when_no_tool_call() -> None:
-    agent = _agent(ScriptedLLMClient(["just answering directly"]))
+    agent = _agent(ScriptedLLMClient([[]]))
 
     state = agent.gather("question")
 
@@ -124,9 +74,7 @@ def test_gather_stops_when_no_tool_call() -> None:
 
 
 def test_gather_respects_step_budget() -> None:
-    agent = _agent(
-        ScriptedLLMClient([_GIVE_CALL, _GIVE_CALL, _GIVE_CALL]), max_steps=2
-    )
+    agent = _agent(ScriptedLLMClient([[_GIVE], [_GIVE], [_GIVE]]), max_steps=2)
 
     state = agent.gather("question")
 
@@ -134,7 +82,7 @@ def test_gather_respects_step_budget() -> None:
 
 
 def test_run_returns_answer_and_context() -> None:
-    agent = _agent(ScriptedLLMClient([_GIVE_CALL, "READY"], answer="done"))
+    agent = _agent(ScriptedLLMClient([[_GIVE], []], answer="done"))
 
     result = agent.run("question")
 
@@ -151,8 +99,17 @@ def test_answer_stream_yields_tokens() -> None:
     assert "".join(tokens) == "streamed"
 
 
+def test_unknown_tool_call_is_handled_gracefully() -> None:
+    agent = _agent(ScriptedLLMClient([[("missing", {})], []]))
+
+    state = agent.gather("question")
+
+    assert state.chunks == []
+    assert state.usages == []
+
+
 def test_agent_tool_delegates_to_subagent() -> None:
-    sub = _agent(ScriptedLLMClient([_GIVE_CALL, "READY"], answer="sub answer"))
+    sub = _agent(ScriptedLLMClient([[_GIVE], []], answer="sub answer"))
     sub.name = "rag"
     sub.description = "knowledge base"
 
@@ -171,7 +128,7 @@ def test_agent_tool_delegates_to_subagent() -> None:
 
 
 def test_gather_stream_yields_invocations_live() -> None:
-    agent = _agent(ScriptedLLMClient([_GIVE_CALL, "READY"]))
+    agent = _agent(ScriptedLLMClient([[_GIVE], []]))
 
     streamed = list(agent.gather_stream("question"))
 
@@ -179,13 +136,12 @@ def test_gather_stream_yields_invocations_live() -> None:
 
 
 def test_gather_stream_forwards_nested_invocations_in_order() -> None:
-    sub = _agent(ScriptedLLMClient([_GIVE_CALL, "READY"]))
+    sub = _agent(ScriptedLLMClient([[_GIVE], []]))
     sub.name = "rag"
-    rag_call = '<tool_call>{"name": "rag", "args": {"task": "x"}}</tool_call>'
     parent = Agent(
         name="orchestrator",
         description="d",
-        llm=ScriptedLLMClient([rag_call, "READY"]),
+        llm=ScriptedLLMClient([[("rag", {"task": "x"})], []]),
         tools=ToolRegistry([AgentTool(sub)]),
         decision_role="r",
         answer_system="s",
@@ -193,6 +149,7 @@ def test_gather_stream_forwards_nested_invocations_in_order() -> None:
 
     streamed = list(parent.gather_stream("question"))
 
+    # Parent's delegation is yielded first, then the sub-agent's nested tool use.
     assert streamed == [
         Invocation(kind="agent", name="rag"),
         Invocation(kind="tool", name="give"),

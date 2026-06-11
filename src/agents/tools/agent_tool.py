@@ -1,7 +1,7 @@
 from collections.abc import Generator, Iterator
 from typing import TYPE_CHECKING, Protocol
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from agents.tools.base import Invocation, Tool, ToolResult
 
@@ -23,11 +23,10 @@ class SubAgent(Protocol):
 
 
 class AgentTaskArgs(BaseModel):
-    task: str
+    task: str = Field(description="A self-contained instruction for the sub-agent.")
 
 
 class AgentTool(Tool[AgentTaskArgs]):
-    args_schema = '{"task": "a self-contained instruction for the sub-agent"}'
     args_model = AgentTaskArgs
     kind = "agent"
 

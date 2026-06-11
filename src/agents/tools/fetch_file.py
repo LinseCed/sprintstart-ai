@@ -24,7 +24,6 @@ class FetchFileTool(Tool[FetchFileArgs]):
         "Return all indexed chunks from a specific file. "
         "Use when the relevant filename is already known."
     )
-    args_schema = '{"filename": "example.py"}'
     args_model = FetchFileArgs
 
     def __init__(self, store: VectorStore) -> None:

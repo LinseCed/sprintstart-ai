@@ -1,14 +1,17 @@
 import json
+from collections.abc import Callable
 
 import httpx
 import pytest
 
-from llm.base import Message
+from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
 from llm.openai_client import OpenAIClient
 
+Handler = Callable[[httpx.Request], httpx.Response]
 
-def make_client(handler) -> OpenAIClient:
+
+def make_client(handler: Handler) -> OpenAIClient:
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(transport=transport)
 
@@ -201,3 +204,80 @@ def test_errors_map_to_llm_unavailable_error() -> None:
 
     with pytest.raises(LLMUnavailableError):
         client.generate([Message(role="user", content="Hello")])
+
+
+_TOOL_SPEC: ToolSpec = {
+    "name": "retrieve",
+    "description": "search",
+    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+}
+
+
+def test_chat_sends_tools_and_parses_tool_calls() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["tools"][0]["function"]["name"] == "retrieve"
+
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "retrieve",
+                                        "arguments": '{"query": "x"}',
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+    client = make_client(handler)
+
+    result = client.chat(
+        [Message(role="user", content="hi")], tools=[_TOOL_SPEC]
+    )
+
+    assert result.text == ""
+    assert [(c.name, c.arguments) for c in result.tool_calls] == [
+        ("retrieve", {"query": "x"})
+    ]
+
+
+def test_chat_without_tool_calls_returns_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "done"},
+                    }
+                ],
+            },
+        )
+
+    client = make_client(handler)
+
+    result = client.chat([Message(role="user", content="hi")])
+
+    assert result.text == "done"
+    assert result.tool_calls == []

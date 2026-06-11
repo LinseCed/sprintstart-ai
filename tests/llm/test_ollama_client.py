@@ -1,12 +1,13 @@
 import base64
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
 
 import httpx
 import ollama
 import pytest
 
-from llm.base import Message
+from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
 from llm.ollama_client import OllamaBackend, OllamaClient
 from tests.conftest import vision_required
@@ -45,6 +46,7 @@ class _FakeOllamaClient:
         chat_error: Exception | None = None,
         embed_error: Exception | None = None,
         vision_error: Exception | None = None,
+        tool_calls: list[tuple[str, dict[str, object]]] | None = None,
     ) -> None:
         self._chat_content = chat_content
         self._stream_tokens = stream_tokens or [chat_content]
@@ -52,6 +54,8 @@ class _FakeOllamaClient:
         self._chat_error = chat_error
         self._embed_error = embed_error
         self._vision_error = vision_error
+        self._tool_calls = tool_calls or []
+        self.last_tools: list[Mapping[str, Any]] | None = None
         self.last_chat_model: str | None = None
         self.last_chat_messages: list[Message] | None = None
         self.last_embed_model: str | None = None
@@ -70,6 +74,30 @@ class _FakeOllamaClient:
             raise self._chat_error
         return ollama.ChatResponse(
             message=ollama.Message(role="assistant", content=self._chat_content)
+        )
+
+    def chat_tools(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+    ) -> ollama.ChatResponse:
+        self.last_chat_model = model
+        self.last_tools = list(tools) if tools is not None else None
+        if self._chat_error is not None:
+            raise self._chat_error
+        tool_calls = [
+            ollama.Message.ToolCall(
+                function=ollama.Message.ToolCall.Function(name=name, arguments=args)
+            )
+            for name, args in self._tool_calls
+        ]
+        return ollama.ChatResponse(
+            message=ollama.Message(
+                role="assistant",
+                content=self._chat_content,
+                tool_calls=tool_calls or None,
+            )
         )
 
     def chat_stream(
@@ -129,6 +157,42 @@ def _make_client(
         vision_model=vision_model,
         client=inner_client,
     )
+
+
+_TOOL_SPEC: ToolSpec = {
+    "name": "retrieve",
+    "description": "search",
+    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+}
+
+
+class TestChat:
+    def test_returns_text_when_no_tool_calls(self) -> None:
+        fake = _FakeOllamaClient(chat_content="hello")
+        client = _make_client(inner_client=fake)
+
+        result = client.chat([Message(role="user", content="hi")], tools=[_TOOL_SPEC])
+
+        assert result.text == "hello"
+        assert result.tool_calls == []
+        assert fake.last_tools is not None  # tool catalogue was forwarded
+
+    def test_parses_tool_calls(self) -> None:
+        fake = _FakeOllamaClient(tool_calls=[("retrieve", {"query": "x"})])
+        client = _make_client(inner_client=fake)
+
+        result = client.chat([Message(role="user", content="hi")], tools=[_TOOL_SPEC])
+
+        assert [(c.name, c.arguments) for c in result.tool_calls] == [
+            ("retrieve", {"query": "x"})
+        ]
+
+    def test_wraps_backend_errors(self) -> None:
+        fake = _FakeOllamaClient(chat_error=ConnectionError("refused"))
+        client = _make_client(inner_client=fake)
+
+        with pytest.raises(LLMUnavailableError):
+            client.chat([Message(role="user", content="hi")])
 
 
 class TestGenerateHappyPath:
