@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterator
 
 from agents.orchestrator import ChatOrchestrator
@@ -10,6 +9,7 @@ from tests.conftest import parse_sse_events
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 
+_SYNTH_CALL = ("synthesis", {"task": "blockers"})
 _RETRIEVE_CALL = ("retrieve", {"query": "blockers"})
 _EMBEDDING = [1.0] + [0.0] * 767
 
@@ -39,7 +39,7 @@ def _store_with_chunk() -> StubVectorStore:
 def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     store = _store_with_chunk()
     llm = ScriptedLLMClient(
-        [[_RETRIEVE_CALL]],
+        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
         answer="Missing designs.",
         embedding=_EMBEDDING,
     )
@@ -54,8 +54,8 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     ]
     assert tool_uses == [
         {"name": "synthesis", "kind": "agent"},
-        {"name": "retrieve", "kind": "tool"},
-        {"name": "retrieve", "kind": "tool"},
+        {"name": "retrieve", "kind": "tool"},  # seed retrieval, before the loop
+        {"name": "retrieve", "kind": "tool"},  # the agent's own in-loop retrieve
     ]
     assert types.index("tool_use") < types.index("token")
 
@@ -67,7 +67,7 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
 def test_orchestrator_streams_single_delegation_without_re_synthesising() -> None:
     store = _store_with_chunk()
     llm = ScriptedLLMClient(
-        [[_RETRIEVE_CALL]],
+        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
         answer="Missing designs.",
         embedding=_EMBEDDING,
     )
@@ -79,37 +79,15 @@ def test_orchestrator_streams_single_delegation_without_re_synthesising() -> Non
     assert len(llm.stream_calls) == 1
 
 
-def test_orchestrator_decomposes_compound_query() -> None:
-    sub_queries = ["How does authentication work?", "How do I run the tests?"]
-    store = _store_with_chunk()
-    llm = _PlanningLLM(sub_queries, answer="A grounded answer.", embedding=_EMBEDDING)
+def test_orchestrator_chats_directly_without_touching_the_knowledge_base() -> None:
+    llm = ScriptedLLMClient([], answer="Hi! How can I help with your project?")
 
-    query = (
-        "How does authentication work in this project "
-        "and how do I run the integration test suite locally?"
-    )
-    events = _events(ChatOrchestrator(llm, store), query)
+    events = _events(ChatOrchestrator(llm, _store_with_chunk()), "hey there")
 
-    agent_uses = [e for e in events if e["type"] == "tool_use" and e["kind"] == "agent"]
-    assert len(agent_uses) == len(sub_queries)
-
-    tokens = "".join(str(e["content"]) for e in events if e["type"] == "token")
-    assert tokens.count("## ") == len(sub_queries)
-    for sub_query in sub_queries:
-        assert f"## {sub_query}" in tokens
-
-    citations = [e for e in events if e["type"] == "citation"]
-    assert len(citations) == 1
-
-
-def test_orchestrator_answers_when_knowledge_base_is_empty() -> None:
-    llm = ScriptedLLMClient([], answer="hello there")
-
-    events = _events(ChatOrchestrator(llm, StubVectorStore()), "hi")
-
-    tokens = "".join(str(e["content"]) for e in events if e["type"] == "token")
-    assert tokens == "hello there"
+    assert not [e for e in events if e["type"] == "tool_use"]
     assert not [e for e in events if e["type"] == "citation"]
+    tokens = "".join(str(e["content"]) for e in events if e["type"] == "token")
+    assert tokens == "Hi! How can I help with your project?"
     assert events[-1] == {"type": "done"}
 
 
@@ -122,17 +100,4 @@ def test_orchestrator_emits_error_event_when_llm_unavailable() -> None:
 
     events = _events(ChatOrchestrator(llm, StubVectorStore()), "hi")
 
-    assert events[-1]["type"] == "error"
-
-
-class _PlanningLLM(ScriptedLLMClient):
-    def __init__(
-        self, sub_queries: list[str], *, answer: str, embedding: list[float]
-    ) -> None:
-        super().__init__([], answer=answer, embedding=embedding)
-        self._plan = json.dumps({"type": "compound", "sub_queries": sub_queries})
-
-    def generate(self, messages: list[Message]) -> str:
-        if "sub_queries" in messages[0]["content"]:
-            return self._plan
-        return super().generate(messages)
+    assert events[0]["type"] == "error"

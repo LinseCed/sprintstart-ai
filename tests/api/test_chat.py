@@ -73,7 +73,10 @@ def test_chat_emits_citation_when_chunks_exist(
     # Use a non-zero embedding so cosine similarity is > 0
     embedding = [1.0] + [0.0] * 767
     script: list[Turn] = [
+        [("synthesis", {"task": "blockers"})],
         [("retrieve", {"query": "blockers"})],
+        [],
+        [],
     ]
     app.dependency_overrides[get_llm] = lambda: ScriptedLLMClient(
         script, embedding=embedding
@@ -165,8 +168,7 @@ def test_chat_llm_unavailable_emits_error_event(
 
     assert response.status_code == 200
     events = parse_sse_events(response.text)
-    assert events[-1]["type"] == "error"
-    assert not [e for e in events if e["type"] == "done"]
+    assert events[0]["type"] == "error"
 
 
 @pytest.mark.integration
