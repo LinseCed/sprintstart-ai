@@ -52,35 +52,6 @@ _COMPOUND_SIGNALS = (
     "one more",
 )
 
-_GREETING_VOCAB = frozenset(
-    {
-        "hello",
-        "hi",
-        "hey",
-        "thanks",
-        "thank",
-        "you",
-        "good",
-        "morning",
-        "afternoon",
-        "evening",
-        "howdy",
-        "greetings",
-        "ok",
-        "okay",
-        "cool",
-        "great",
-        "nice",
-        "cheers",
-        "bye",
-        "goodbye",
-        "there",
-        "yo",
-        "sup",
-    }
-)
-
-_WORD_RE = re.compile(r"[a-z]+")
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
@@ -100,9 +71,6 @@ class OrchestratorAgent(Agent):
         self, task: str, history: list[Message] | None = None
     ) -> Generator[Invocation, None, AgentRunState]:
         state = AgentRunState()
-        if _is_greeting(task):
-            return state
-
         sub_queries = self._plan(task)
         seen: set[str] = set()
         for sub_query in sub_queries:
@@ -155,11 +123,6 @@ class OrchestratorAgent(Agent):
         except Exception:
             return [task]
         return _parse_sub_queries(raw, task)
-
-
-def _is_greeting(query: str) -> bool:
-    words = _WORD_RE.findall(query.lower())
-    return bool(words) and len(words) <= 5 and all(w in _GREETING_VOCAB for w in words)
 
 
 def _is_obviously_simple(query: str) -> bool:

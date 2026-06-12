@@ -102,12 +102,13 @@ def test_orchestrator_decomposes_compound_query() -> None:
     assert len(citations) == 1
 
 
-def test_orchestrator_answers_directly_when_no_delegation() -> None:
+def test_orchestrator_answers_when_knowledge_base_is_empty() -> None:
     llm = ScriptedLLMClient([], answer="hello there")
 
     events = _events(ChatOrchestrator(llm, StubVectorStore()), "hi")
 
-    assert not [e for e in events if e["type"] == "tool_use"]
+    tokens = "".join(str(e["content"]) for e in events if e["type"] == "token")
+    assert tokens == "hello there"
     assert not [e for e in events if e["type"] == "citation"]
     assert events[-1] == {"type": "done"}
 
@@ -121,7 +122,7 @@ def test_orchestrator_emits_error_event_when_llm_unavailable() -> None:
 
     events = _events(ChatOrchestrator(llm, StubVectorStore()), "hi")
 
-    assert events[0]["type"] == "error"
+    assert events[-1]["type"] == "error"
 
 
 class _PlanningLLM(ScriptedLLMClient):
