@@ -34,7 +34,7 @@ _NO_TOOL_NUDGE = (
 )
 
 
-def _wrap_user_query(task: str) -> str:
+def wrap_user_query(task: str) -> str:
     marker = secrets.token_hex(8)
     return f"--{marker}--\n{task}\n--{marker}--"
 
@@ -88,7 +88,7 @@ class Agent:
         messages: list[Message] = [
             Message(role="system", content=self._system_prompt()),
             *(history or []),
-            Message(role="user", content=_wrap_user_query(task)),
+            Message(role="user", content=wrap_user_query(task)),
         ]
 
         for invocation in self._seed(task, state):
@@ -209,7 +209,7 @@ class Agent:
             sections.append("## Context\n\n_No relevant context found._")
 
         user_content = (
-            "\n\n".join(sections) + f"\n\n## Question\n\n{_wrap_user_query(task)}"
+            "\n\n".join(sections) + f"\n\n## Question\n\n{wrap_user_query(task)}"
         )
 
         return [

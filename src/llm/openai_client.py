@@ -118,7 +118,7 @@ class OpenAIClient(LLMClient):
         base_url: str,
         api_key: str,
         chat_model: str,
-        embed_model: str,
+        embed_model: str | None,
         vision_model: str | None = None,
         http_client: Any | None = None,
     ) -> None:
@@ -203,6 +203,8 @@ class OpenAIClient(LLMClient):
             ) from exc
 
     def embed(self, text: str) -> list[float]:
+        if self.embed_model is None:
+            raise ValueError("No embed model specified")
         try:
             response = self.client.embeddings.create(
                 model=self.embed_model,

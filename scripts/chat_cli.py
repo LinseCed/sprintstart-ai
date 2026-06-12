@@ -202,7 +202,7 @@ class Client:
 
     def health(self) -> tuple[str, str | None] | None:
         try:
-            response = self._http.get(f"{self._base}/api/v1/health", timeout=5.0)
+            response = self._http.get(f"{self._base}/api/v1/health", timeout=20.0)
         except httpx.HTTPError:
             return None
         try:

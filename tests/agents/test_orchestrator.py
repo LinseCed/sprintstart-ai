@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 
 from agents.orchestrator import ChatOrchestrator
@@ -9,8 +10,8 @@ from tests.conftest import parse_sse_events
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 
-_SYNTH_CALL = ("synthesis", {"task": "blockers"})
 _RETRIEVE_CALL = ("retrieve", {"query": "blockers"})
+_EMBEDDING = [1.0] + [0.0] * 767
 
 
 def _events(orchestrator: ChatOrchestrator, query: str) -> list[dict[str, object]]:
@@ -18,8 +19,7 @@ def _events(orchestrator: ChatOrchestrator, query: str) -> list[dict[str, object
     return parse_sse_events("".join(orchestrator.stream(query, history)))
 
 
-def test_orchestrator_reports_nested_tool_use_in_order() -> None:
-    embedding = [1.0] + [0.0] * 767
+def _store_with_chunk() -> StubVectorStore:
     store = StubVectorStore()
     store.add(
         [
@@ -28,15 +28,20 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
                 artifact_id="d1",
                 filename="retro.md",
                 text="missing designs blocked auth",
-                embedding=embedding,
+                embedding=_EMBEDDING,
                 heading_path="Blockers",
             )
         ]
     )
+    return store
+
+
+def test_orchestrator_reports_nested_tool_use_in_order() -> None:
+    store = _store_with_chunk()
     llm = ScriptedLLMClient(
-        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
+        [[_RETRIEVE_CALL]],
         answer="Missing designs.",
-        embedding=embedding,
+        embedding=_EMBEDDING,
     )
 
     events = _events(ChatOrchestrator(llm, store), "What were the blockers?")
@@ -49,8 +54,8 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     ]
     assert tool_uses == [
         {"name": "synthesis", "kind": "agent"},
-        {"name": "retrieve", "kind": "tool"},  # seed retrieval, before the loop
-        {"name": "retrieve", "kind": "tool"},  # the agent's own in-loop retrieve
+        {"name": "retrieve", "kind": "tool"},
+        {"name": "retrieve", "kind": "tool"},
     ]
     assert types.index("tool_use") < types.index("token")
 
@@ -60,24 +65,11 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
 
 
 def test_orchestrator_streams_single_delegation_without_re_synthesising() -> None:
-    embedding = [1.0] + [0.0] * 767
-    store = StubVectorStore()
-    store.add(
-        [
-            Chunk(
-                id="c1",
-                artifact_id="d1",
-                filename="retro.md",
-                text="missing designs blocked auth",
-                embedding=embedding,
-                heading_path="Blockers",
-            )
-        ]
-    )
+    store = _store_with_chunk()
     llm = ScriptedLLMClient(
-        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
+        [[_RETRIEVE_CALL]],
         answer="Missing designs.",
-        embedding=embedding,
+        embedding=_EMBEDDING,
     )
 
     events = _events(ChatOrchestrator(llm, store), "What were the blockers?")
@@ -85,6 +77,29 @@ def test_orchestrator_streams_single_delegation_without_re_synthesising() -> Non
 
     assert tokens == "Missing designs."
     assert len(llm.stream_calls) == 1
+
+
+def test_orchestrator_decomposes_compound_query() -> None:
+    sub_queries = ["How does authentication work?", "How do I run the tests?"]
+    store = _store_with_chunk()
+    llm = _PlanningLLM(sub_queries, answer="A grounded answer.", embedding=_EMBEDDING)
+
+    query = (
+        "How does authentication work in this project "
+        "and how do I run the integration test suite locally?"
+    )
+    events = _events(ChatOrchestrator(llm, store), query)
+
+    agent_uses = [e for e in events if e["type"] == "tool_use" and e["kind"] == "agent"]
+    assert len(agent_uses) == len(sub_queries)
+
+    tokens = "".join(str(e["content"]) for e in events if e["type"] == "token")
+    assert tokens.count("## ") == len(sub_queries)
+    for sub_query in sub_queries:
+        assert f"## {sub_query}" in tokens
+
+    citations = [e for e in events if e["type"] == "citation"]
+    assert len(citations) == 1
 
 
 def test_orchestrator_answers_directly_when_no_delegation() -> None:
@@ -107,3 +122,16 @@ def test_orchestrator_emits_error_event_when_llm_unavailable() -> None:
     events = _events(ChatOrchestrator(llm, StubVectorStore()), "hi")
 
     assert events[0]["type"] == "error"
+
+
+class _PlanningLLM(ScriptedLLMClient):
+    def __init__(
+        self, sub_queries: list[str], *, answer: str, embedding: list[float]
+    ) -> None:
+        super().__init__([], answer=answer, embedding=embedding)
+        self._plan = json.dumps({"type": "compound", "sub_queries": sub_queries})
+
+    def generate(self, messages: list[Message]) -> str:
+        if "sub_queries" in messages[0]["content"]:
+            return self._plan
+        return super().generate(messages)
