@@ -2136,6 +2136,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pyyaml" },
     { name = "rank-bm25" },
+    { name = "rich" },
     { name = "ruff" },
 ]
 
@@ -2159,6 +2160,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rank-bm25" },
+    { name = "rich", specifier = ">=14.0" },
     { name = "ruff" },
 ]
 

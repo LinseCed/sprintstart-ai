@@ -9,6 +9,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
 
 TEXT_EXTENSIONS = {".txt", ".json", ".md", ".yaml", ".yml", ".toml"}
 CODE_EXTENSIONS = {".py", ".js", ".ts", ".go"}
@@ -48,6 +51,44 @@ class C:
         return cls._w("31", t)
 
 
+class MarkdownStream:
+    """Live-renders a streamed markdown answer with rich.
+
+    On a terminal the accumulated markdown is re-rendered in a Live region as
+    each token arrives. When output is redirected (a pipe, or a non-terminal),
+    tokens are written through verbatim so non-interactive output stays plain.
+    """
+
+    def __init__(self, console: Console) -> None:
+        self._console = console
+        self._buffer = ""
+        self._live: Live | None = None
+
+    def feed(self, text: str) -> None:
+        self._buffer += text
+        if not self._console.is_terminal:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            return
+        if self._live is None:
+            self._live = Live(
+                console=self._console,
+                auto_refresh=False,
+                vertical_overflow="visible",
+            )
+            self._live.start()
+        self._live.update(Markdown(self._buffer), refresh=True)
+
+    def close(self) -> None:
+        if self._live is not None:
+            self._live.update(Markdown(self._buffer), refresh=True)
+            self._live.stop()
+            self._live = None
+        elif not self._console.is_terminal:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
+
 def _iter_sse(response: httpx.Response) -> Iterator[dict[str, object]]:
     """Yield decoded JSON payloads from an SSE `data:` stream."""
     for line in response.iter_lines():
@@ -62,6 +103,7 @@ class Client:
     def __init__(self, base_url: str) -> None:
         self._base = base_url.rstrip("/")
         self._http = httpx.Client(timeout=httpx.Timeout(None, connect=5.0))
+        self._console = Console()
         self.history: list[dict[str, str]] = []
 
     def ask(self, prompt: str) -> None:
@@ -73,6 +115,7 @@ class Client:
         answer_parts: list[str] = []
         citations: list[dict[str, object]] = []
         printed_prefix = False
+        renderer = MarkdownStream(self._console)
 
         try:
             with self._http.stream(
@@ -91,11 +134,11 @@ class Client:
                         print(C.dim(f"  · {name} [{cap}]"))
                     elif kind == "token":
                         if not printed_prefix:
-                            sys.stdout.write(C.green("ai> "))
+                            sys.stdout.write(C.green("ai>") + "\n")
+                            sys.stdout.flush()
                             printed_prefix = True
                         content = str(event.get("content", ""))
-                        sys.stdout.write(content)
-                        sys.stdout.flush()
+                        renderer.feed(content)
                         answer_parts.append(content)
                     elif kind == "citation":
                         citations.append(event)
@@ -111,7 +154,7 @@ class Client:
             return
 
         if printed_prefix:
-            sys.stdout.write("\n")
+            renderer.close()
         self._print_citations(citations)
 
         answer = "".join(answer_parts).strip()
