@@ -3,7 +3,7 @@ from src.rag.hybrid import (
     hybrid_retrieve,
     reciprocal_rank_fusion,
 )
-from src.rag.types import Chunk
+from src.rag.types import Chunk, ScoredChunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -18,10 +18,20 @@ def make_chunk(chunk_id: str, text: str, embedding: list[float]) -> Chunk:
     )
 
 
+def make_scored_chunk(chunk_id: str, text: str) -> ScoredChunk:
+    return ScoredChunk(
+        id=chunk_id,
+        artifact_id="artifact-1",
+        filename="doc.md",
+        text=text,
+        score=0.0,
+    )
+
+
 def test_rrf_merge_with_known_rankings() -> None:
-    chunk_a = make_chunk("a", "alpha", [1.0, 0.0])
-    chunk_b = make_chunk("b", "beta", [0.0, 1.0])
-    chunk_c = make_chunk("c", "gamma", [0.5, 0.5])
+    chunk_a = make_scored_chunk("a", "alpha")
+    chunk_b = make_scored_chunk("b", "beta")
+    chunk_c = make_scored_chunk("c", "gamma")
 
     semantic_results = [chunk_a, chunk_b]
     bm25_results = [chunk_b, chunk_c]

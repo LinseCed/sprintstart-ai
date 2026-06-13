@@ -60,8 +60,10 @@ The service runs on port `8000`.
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text:latest` | Embedding model to use for ingestion and retrieval. |
 | `OLLAMA_VISION_MODEL` | `llava:7b` (dev) / `qwen2-vl:7b` (prod) | Vision model for image captioning. Optional — if unset, image files are accepted but produce no chunks (`chunk_count=0`). |
 | `CHROMA_PATH` | `./data/chroma` | Path for ChromaDB persistent storage. If unset, an in-memory store is used and data will not persist. |
+| `AGENT_DEBUG` | `0` | When set to a truthy value, logs each agent's reasoning step (LLM text and tool calls) to stderr. Disabled by default and for `0`/`false`/`no`/`off`/empty. |
 | `CHUNK_SIZE` | `512` | Maximum number of characters per chunk
 | `CHUNK_OVERLAP` | `64` | Number of characters reused between consecutive chunks to preserve context when splitting large chunks
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -77,6 +79,7 @@ The `/api/v1/chat` endpoint streams newline-delimited JSON events:
 
 | Event type | Description |
 |---|---|
+| `tool_use` | A capability the orchestrator invoked, in order. Has `name` and `kind` (`agent` for a sub-agent, `tool` for a leaf tool) |
 | `token` | A single token fragment of the answer |
 | `citation` | A source chunk used to generate the answer |
 | `done` | Signals the end of the stream |
