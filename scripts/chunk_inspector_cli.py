@@ -7,18 +7,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ingestion.models import ParsedChunk
-from ingestion.parser import parse
-from scripts.chat_cli import C
+from chat_cli import C
+from rich.console import Console
 
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
+
+sys.path.insert(0, str(SRC))
+
+from ingestion.models import ParsedChunk  # noqa: E402
+from ingestion.parser import parse  # noqa: E402
+
+console = Console()
 
 def main() -> int:
+    
     args = _parse_args()
 
     path = Path(args.filepath)
 
     if not path.exists():
-        C.red(f"[error] file does not exist: {path}")
+        print(C.red(f"[error] file does not exist: {path}"))
         return 1
 
     try:
@@ -26,7 +35,7 @@ def main() -> int:
         chunks = parse(filename, content)
 
         if not chunks:
-            C.yellow("[warn] no chunks generated")
+            print(C.yellow("[warn] no chunks generated"))
             return 0
 
         report = _analyze_chunks(chunks)
@@ -34,7 +43,7 @@ def main() -> int:
         _render(chunks, report, args)
 
     except Exception as exc:
-        C.red(f"[error] failed to process file: {exc}")
+        print(C.red(f"[error] failed to process file: {exc}"))
         return 1
 
     return 0
@@ -50,9 +59,9 @@ def _parse_args() -> argparse.Namespace:
         help="Path to file to inspect",
     )
 
-    group = parser.add_argument_group()
+    group =parser.add_mutually_exclusive_group(required=True)
 
-    group.add_argument(
+    parser.add_argument(
         "--show-overlap",
         action="store_true",
         help="Show overlap between adjacent chunks",
@@ -140,7 +149,23 @@ def _render(
     - raw
     - json
     """
-    raise NotImplementedError
+    if args.raw:
+        console.rule(title="Raw Chunks",characters="=")
+        print("")
+        print_chunks(chunks)
+    elif args.json:
+        pass
+
+    else:
+        pass
+
+
+def print_chunks(chunks: list[ParsedChunk]) -> None:
+    for chunk in chunks:
+        print(C.dim(chunk.content))
+        print("")
+        console.rule(characters="=")
+        print("")
 
 if __name__ == "__main__":
     raise SystemExit(main())
