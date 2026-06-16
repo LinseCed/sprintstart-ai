@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from chat_cli import C
+from rich.align import Align
 from rich.console import Console
+from rich.table import Table
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -59,7 +61,7 @@ def _parse_args() -> argparse.Namespace:
         help="Path to file to inspect",
     )
 
-    group =parser.add_mutually_exclusive_group(required=True)
+    group =parser.add_mutually_exclusive_group()
 
     parser.add_argument(
         "--show-overlap",
@@ -151,21 +153,58 @@ def _render(
     """
     if args.raw:
         console.rule(title="Raw Chunks",characters="=")
-        print("")
-        print_chunks(chunks)
+        print_chunks(chunks, pretty=False, show_overlap=args.show_overlap)
+
     elif args.json:
-        pass
+        data = [chunk_to_dict(chunk) for chunk in chunks]
+        print(json.dumps(data, indent=2, ensure_ascii=False))
 
     else:
-        pass
+        console.rule(title="Detailed Chunks",characters="=")
+        print_chunks(chunks, pretty=True, show_overlap=args.show_overlap)
+
+    console.rule(title="Overall Report",characters="=")
+    report_table = Table(expand=False)
+    report_table.add_column("Total Chunks", justify="center")
+    report_table.add_column("Avg. Chunk Size", justify="center")
+    report_table.add_column("Min Chunk Size", justify="center")
+    report_table.add_column("Max Chunk Size", justify="center")
+    report_table.add_row(f" {report.total}", f" {report.avg_size}",
+                          f" {report.min_size}", f" {report.max_size}")
+    
+    console.print(Align.center(report_table))
+    print("")
 
 
-def print_chunks(chunks: list[ParsedChunk]) -> None:
+def print_chunks(chunks: list[ParsedChunk], pretty: bool=True, show_overlap: bool=False) -> None:
     for chunk in chunks:
+        print("")
+        console.rule(title= f"Chunk {chunk.metadata['chunk_index']}", characters="=")
+        if pretty:
+            metadata_table = Table(expand=False)
+            metadata_table.add_column("chunk kind", justify="center")
+            metadata_table.add_column("filename", justify="center")
+            metadata_table.add_column("type", justify="center")
+            metadata_table.add_column("character count", justify="center")
+            metadata_table.add_row(f" {chunk.kind}", f" {chunk.metadata["filename"]}",
+            f" {chunk.metadata["type"]}", str(len(chunk.content)))
+            console.print(Align.center(metadata_table))
+        print("")
+        print(C.bold("content:"))
         print(C.dim(chunk.content))
         print("")
-        console.rule(characters="=")
-        print("")
+        
+def chunk_to_dict(chunk: ParsedChunk) -> dict[str, Any]:
+    result = {}
+    result["content"] = chunk.content
+    result["kind"] = chunk.kind
+    result["metadata"] = {}
+    result["metadata"]["filename"] = chunk.metadata["filename"]
+    result["metadata"]["type"] = chunk.metadata["type"]
+    result["metadata"]["chunk_index"] = chunk.metadata["chunk_index"]
+    result["metadata"]["total_chunks"] = chunk.metadata["total_chunks"]
+
+    return result # type: ignore
 
 if __name__ == "__main__":
     raise SystemExit(main())
