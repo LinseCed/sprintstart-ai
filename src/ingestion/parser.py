@@ -17,15 +17,6 @@ CODE_EXTENSIONS = {
     ".go",
 }
 
-# TODO: discuss what to add
-TEXT_EXTENSIONS = {
-    ".txt",
-    ".json",
-    ".md",
-    ".yaml",
-    ".toml",
-}
-
 PDF_EXTENSION = {".pdf"}
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
@@ -62,9 +53,6 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     if file_suffix in CODE_EXTENSIONS:
         return parse_code(filename, content)
 
-    elif file_suffix in TEXT_EXTENSIONS:
-        return parse_text(filename, content)
-
     elif file_suffix in PDF_EXTENSION:
         return parse_pdf(filename, content)
 
@@ -72,6 +60,4 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
         return parse_image(filename, content)
 
     else:
-        # unsupported file type
-        logger.warning(f"Unsupported file type was given: {filename}")
-        return []
+        return parse_text(filename, content)
