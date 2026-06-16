@@ -5,6 +5,7 @@ from functools import lru_cache
 from fastapi import Depends
 
 from agents.orchestrator import ChatOrchestrator
+from llm.anthropic_client import AnthropicClient
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
 from llm.openai_client import OpenAIClient
@@ -27,13 +28,22 @@ def _build_client(backend: str) -> LLMClient:
             temperature=float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
         )
 
-    if backend in {"openai", "openai-compatible"}:
+    if backend in {"openai", "openai-compatible", "litellm"}:
         return OpenAIClient(
             base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             api_key=os.getenv("OPENAI_API_KEY") or "unused",
             chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
             embed_model=os.getenv("OPENAI_EMBED_MODEL"),
             vision_model=os.getenv("OPENAI_VISION_MODEL"),
+        )
+
+    if backend in {"anthropic", "claude"}:
+        return AnthropicClient(
+            api_key=os.getenv("ANTHROPIC_API_KEY") or "",
+            chat_model=os.getenv("ANTHROPIC_CHAT_MODEL", "claude-haiku-4-5"),
+            vision_model=os.getenv("ANTHROPIC_VISION_MODEL"),
+            base_url=os.getenv("ANTHROPIC_BASE_URL") or None,
+            max_tokens=int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096")),
         )
 
     raise ValueError(f"Unknown LLM backend: {backend!r}")
