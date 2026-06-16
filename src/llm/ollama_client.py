@@ -1,10 +1,58 @@
-from collections.abc import Iterator, Sequence
-from typing import Protocol
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any, Protocol
+from uuid import uuid4
 
 import ollama
 
-from llm.base import Message
+from llm.base import ChatResult, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+
+
+def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        item: dict[str, Any] = {
+            "role": message["role"],
+            "content": message["content"],
+        }
+        tool_calls = message.get("tool_calls")
+        if tool_calls:
+            item["tool_calls"] = [
+                {"function": {"name": call.name, "arguments": call.arguments}}
+                for call in tool_calls
+            ]
+        name = message.get("name")
+        if name:
+            item["tool_name"] = name
+        out.append(item)
+    return out
+
+
+def _to_ollama_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"],
+            },
+        }
+        for tool in tools
+    ]
+
+
+def _from_ollama_response(response: ollama.ChatResponse) -> ChatResult:
+    message = response.message
+    calls = [
+        ToolCall(
+            id=f"call_{uuid4().hex}",
+            name=call.function.name,
+            arguments=dict(call.function.arguments),
+        )
+        for call in message.tool_calls or []
+    ]
+    return ChatResult(text=message.content or "", tool_calls=calls)
 
 
 class OllamaBackend(Protocol):
@@ -12,6 +60,13 @@ class OllamaBackend(Protocol):
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
+    ) -> ollama.ChatResponse: ...
+
+    def chat_tools(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
     ) -> ollama.ChatResponse: ...
 
     def chat_stream(
@@ -26,21 +81,39 @@ class OllamaBackend(Protocol):
         prompt: str = "",
     ) -> ollama.EmbeddingsResponse: ...
 
+    def chat_with_images(
+        self,
+        model: str = "",
+        prompt: str = "",
+        images: list[bytes] | None = None,
+    ) -> ollama.ChatResponse: ...
+
 
 class _OllamaAdapter:
-    """Wraps ollama.Client to satisfy the OllamaBackend protocol."""
-
-    def __init__(self, host: str | None) -> None:
+    def __init__(self, host: str | None, temperature: float) -> None:
         self._client = ollama.Client(host=host)
+        self._options = {"temperature": temperature}
 
     def chat(
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse:
-        # ollama.Client.chat uses @overload and pyright cannot resolve the member type
         return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
-            model=model, messages=list(messages or [])
+            model=model, messages=list(messages or []), options=self._options
+        )
+
+    def chat_tools(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+    ) -> ollama.ChatResponse:
+        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+            model=model,
+            messages=list(messages or []),
+            tools=list(tools) if tools else None,
+            options=self._options,
         )
 
     def chat_stream(
@@ -48,10 +121,11 @@ class _OllamaAdapter:
         model: str = "",
         messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]:
-        # stream=True makes ollama return Iterator[ChatResponse] at runtime, but the
-        # @overload stubs are too coarse for pyright to narrow the return type
         return self._client.chat(  # type: ignore[return-value]
-            model=model, messages=list(messages or []), stream=True
+            model=model,
+            messages=list(messages or []),
+            stream=True,
+            options=self._options,
         )
 
     def embeddings(
@@ -61,6 +135,21 @@ class _OllamaAdapter:
     ) -> ollama.EmbeddingsResponse:
         return self._client.embeddings(model=model, prompt=prompt)
 
+    def chat_with_images(
+        self,
+        model: str = "",
+        prompt: str = "",
+        images: list[bytes] | None = None,
+    ) -> ollama.ChatResponse:
+        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+            model=model,
+            messages=[{"role": "user", "content": prompt, "images": images or []}],
+            options=self._options,
+        )
+
+
+_DEFAULT_TEMPERATURE = 0.1
+
 
 class OllamaClient:
     def __init__(
@@ -68,14 +157,34 @@ class OllamaClient:
         host: str | None = None,
         model: str | None = None,
         embed_model: str | None = None,
+        vision_model: str | None = None,
         client: OllamaBackend | None = None,
+        temperature: float = _DEFAULT_TEMPERATURE,
     ) -> None:
         self._host = host
         self._model = model
         self._embed_model = embed_model
+        self._vision_model = vision_model
         self._client: OllamaBackend = (
-            client if client is not None else _OllamaAdapter(host=host)
+            client
+            if client is not None
+            else _OllamaAdapter(host=host, temperature=temperature)
         )
+
+    def chat(
+        self, messages: list[Message], tools: list[ToolSpec] | None = None
+    ) -> ChatResult:
+        if self._model is None:
+            raise ValueError("No model specified")
+        try:
+            response = self._client.chat_tools(
+                model=self._model,
+                messages=_to_ollama_messages(messages),
+                tools=_to_ollama_tools(tools) if tools else None,
+            )
+            return _from_ollama_response(response)
+        except (ollama.ResponseError, ConnectionError, OSError) as exc:
+            raise LLMUnavailableError(self._host, cause=exc) from exc
 
     def generate(self, messages: list[Message]) -> str:
         if self._model is None:
@@ -101,5 +210,18 @@ class OllamaClient:
         try:
             response = self._client.embeddings(model=self._embed_model, prompt=text)
             return list(response.embedding or [])
+        except (ollama.ResponseError, ConnectionError, OSError) as exc:
+            raise LLMUnavailableError(self._host, cause=exc) from exc
+
+    def caption_image(self, image_bytes: bytes) -> str:
+        if self._vision_model is None:
+            raise LLMUnavailableError(self._host)
+        try:
+            response = self._client.chat_with_images(
+                model=self._vision_model,
+                prompt="Describe this image concisely.",
+                images=[image_bytes],
+            )
+            return response.message.content or ""
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc

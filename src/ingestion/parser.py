@@ -1,7 +1,10 @@
 import logging
 from pathlib import Path
 
+from ingestion.code_parser import parse_code
+from ingestion.image_parser import parse_image
 from ingestion.models import ParsedChunk
+from ingestion.pdf_parser import parse_pdf
 from ingestion.text_parser import parse_text
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,8 @@ TEXT_EXTENSIONS = {
 
 PDF_EXTENSION = {".pdf"}
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
 
 def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     """Parse a file into structured chunks based on its file extension.
@@ -36,6 +41,7 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     - Source code files (.py, .js, .ts, .go) -> parsed into code chunks
     - Text-based files (.txt, .json, .md) -> single text chunk
     - PDF files (.pdf) -> extracted text chunk
+    - Image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) -> image chunk
 
     Unsupported file types return an empty list and log a warning
     instead of raising an exception.
@@ -54,13 +60,16 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     file_suffix = Path(filename).suffix
 
     if file_suffix in CODE_EXTENSIONS:
-        raise NotImplementedError
+        return parse_code(filename, content)
 
     elif file_suffix in TEXT_EXTENSIONS:
         return parse_text(filename, content)
 
     elif file_suffix in PDF_EXTENSION:
-        raise NotImplementedError
+        return parse_pdf(filename, content)
+
+    elif file_suffix in IMAGE_EXTENSIONS:
+        return parse_image(filename, content)
 
     else:
         # unsupported file type

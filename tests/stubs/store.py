@@ -55,3 +55,9 @@ class StubVectorStore:
             for chunk in self.chunks
             if chunk.artifact_id != artifact_id or chunk.id in (exclude_ids or [])
         ]
+
+    def all_chunks(self) -> list[Chunk]:
+        return list(self.chunks)
+
+    def count(self) -> int:
+        return len(self.chunks)

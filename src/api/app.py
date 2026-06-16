@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         get_llm().embed("ping")
+    except ValueError as exc:
+        logger.error("Embedding model is not configured: %s", exc)
+        raise
     except LLMUnavailableError as exc:
         logger.warning("LLM backend unreachable at startup: %s", exc)
     yield

@@ -1,5 +1,7 @@
+import json
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -21,6 +23,17 @@ def _llm_is_reachable() -> bool:
 llm_required = pytest.mark.skipif(
     not _llm_is_reachable(), reason="LLM backend not reachable - skipping"
 )
+
+vision_required = pytest.mark.skipif(
+    not _llm_is_reachable() or os.environ.get("OLLAMA_VISION_MODEL") is None,
+    reason="Vision model not configured or Ollama not reachable - skipping",
+)
+
+
+def parse_sse_events(text: str) -> list[dict[str, Any]]:
+    return [
+        json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")
+    ]
 
 
 @pytest.fixture(autouse=True)

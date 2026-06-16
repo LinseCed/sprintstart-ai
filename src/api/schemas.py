@@ -24,7 +24,14 @@ class IngestRequest(BaseModel):
         ),
     ]
     content: str = Field(
-        description="Full plain-text or Markdown content of the document."
+        description=(
+            "Document content as a string. "
+            "For text-based files (.txt, .md, .json, .yaml, .toml) send the raw text. "
+            "For image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) send the file "
+            "as a standard base64-encoded string. "
+            "If a vision model is not configured, image chunks are silently skipped "
+            "and chunk_count will be 0."
+        )
     )
 
     @field_validator("filename")
@@ -47,7 +54,13 @@ class IngestRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     artifact_id: str
-    chunk_count: int = Field(description="Number of chunks stored.")
+    chunk_count: int = Field(
+        description=(
+            "Number of chunks stored. "
+            "0 indicates the file was recognised but produced no storable content "
+            "(e.g. an image file when no vision model is configured)."
+        )
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -75,17 +88,6 @@ class HistoryEntry(BaseModel):
 
 class ChatRequest(BaseModel):
     prompt: str = Field(examples=["What were the main blockers in sprint 42?"])
-    top_k: Annotated[
-        int, Field(ge=1, le=20, description="Maximum number of chunks to retrieve.")
-    ] = 5
-    min_score: Annotated[
-        float,
-        Field(
-            ge=0.0,
-            le=1.0,
-            description="Minimum cosine similarity score for a chunk to be included.",
-        ),
-    ] = 0.7
     context: Annotated[
         list[HistoryEntry],
         Field(
@@ -102,8 +104,6 @@ class ChatRequest(BaseModel):
         "json_schema_extra": {
             "example": {
                 "prompt": "Can you summarize that?",
-                "top_k": 5,
-                "min_score": 0.7,
                 "context": [
                     {
                         "role": "user",
@@ -218,6 +218,25 @@ class CitationEvent(BaseModel):
             "Null if not available."
         ),
     ] = None
+
+
+class ToolUseEvent(BaseModel):
+    type: Literal["tool_use"]
+    name: Annotated[
+        str,
+        Field(
+            description="Name of the invoked capability.",
+            examples=["retrieve"],
+        ),
+    ]
+    kind: Annotated[
+        Literal["agent", "tool"],
+        Field(
+            description=(
+                "Whether the invoked capability is a leaf 'tool' or a sub-'agent'."
+            ),
+        ),
+    ]
 
 
 class DoneEvent(BaseModel):

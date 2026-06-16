@@ -1,18 +1,27 @@
+import base64
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
 
 import httpx
 import ollama
 import pytest
 
-from llm.base import Message
+from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
 from llm.ollama_client import OllamaBackend, OllamaClient
+from tests.conftest import vision_required
 
-_LOCAL_HOST = os.environ.get("OLLAMA_HOST")
+# Minimal 1×1 red PNG
+_TINY_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+    "/5+hHgAHggJ/PchI6QAAAABJRU5ErkJggg=="
+)
+_TINY_PNG_BYTES = base64.b64decode(_TINY_PNG_B64)
+
 _TEST_MODEL = os.environ.get("OLLAMA_MODEL", "test-model")
 _EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "test-embed-model")
-_OLLAMA_BASE = _LOCAL_HOST or "http://localhost:11434"
+_OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
 def _ollama_is_reachable() -> bool:
@@ -36,16 +45,23 @@ class _FakeOllamaClient:
         embed_vector: list[float] | None = None,
         chat_error: Exception | None = None,
         embed_error: Exception | None = None,
+        vision_error: Exception | None = None,
+        tool_calls: list[tuple[str, dict[str, object]]] | None = None,
     ) -> None:
         self._chat_content = chat_content
         self._stream_tokens = stream_tokens or [chat_content]
         self._embed_vector = embed_vector or []
         self._chat_error = chat_error
         self._embed_error = embed_error
+        self._vision_error = vision_error
+        self._tool_calls = tool_calls or []
+        self.last_tools: list[Mapping[str, Any]] | None = None
         self.last_chat_model: str | None = None
         self.last_chat_messages: list[Message] | None = None
         self.last_embed_model: str | None = None
         self.last_embed_prompt: str | None = None
+        self.last_vision_model: str | None = None
+        self.last_vision_images: list[bytes] | None = None
 
     def chat(
         self,
@@ -58,6 +74,30 @@ class _FakeOllamaClient:
             raise self._chat_error
         return ollama.ChatResponse(
             message=ollama.Message(role="assistant", content=self._chat_content)
+        )
+
+    def chat_tools(
+        self,
+        model: str = "",
+        messages: Sequence[Mapping[str, Any]] | None = None,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+    ) -> ollama.ChatResponse:
+        self.last_chat_model = model
+        self.last_tools = list(tools) if tools is not None else None
+        if self._chat_error is not None:
+            raise self._chat_error
+        tool_calls = [
+            ollama.Message.ToolCall(
+                function=ollama.Message.ToolCall.Function(name=name, arguments=args)
+            )
+            for name, args in self._tool_calls
+        ]
+        return ollama.ChatResponse(
+            message=ollama.Message(
+                role="assistant",
+                content=self._chat_content,
+                tool_calls=tool_calls or None,
+            )
         )
 
     def chat_stream(
@@ -85,16 +125,84 @@ class _FakeOllamaClient:
             raise self._embed_error
         return ollama.EmbeddingsResponse(embedding=self._embed_vector)
 
+    def chat_with_images(
+        self,
+        model: str = "",
+        prompt: str = "",
+        images: list[bytes] | None = None,
+    ) -> ollama.ChatResponse:
+        self.last_vision_model = model
+        self.last_vision_images = images
+        if self._vision_error is not None:
+            raise self._vision_error
+        return ollama.ChatResponse(
+            message=ollama.Message(role="assistant", content=self._chat_content)
+        )
+
+
+_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "test-vision-model")
+
 
 def _make_client(
-    host: str | None = _LOCAL_HOST,
+    host: str | None = _OLLAMA_BASE,
     model: str | None = _TEST_MODEL,
     embed_model: str | None = _EMBED_MODEL,
+    vision_model: str | None = _VISION_MODEL,
     inner_client: OllamaBackend | None = None,
 ) -> OllamaClient:
     return OllamaClient(
-        host=host, model=model, embed_model=embed_model, client=inner_client
+        host=host,
+        model=model,
+        embed_model=embed_model,
+        vision_model=vision_model,
+        client=inner_client,
     )
+
+
+_TOOL_SPEC: ToolSpec = {
+    "name": "retrieve",
+    "description": "search",
+    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+}
+
+
+class TestChat:
+    def test_returns_text_when_no_tool_calls(self) -> None:
+        fake = _FakeOllamaClient(chat_content="hello")
+        client = _make_client(inner_client=fake)
+
+        result = client.chat([Message(role="user", content="hi")], tools=[_TOOL_SPEC])
+
+        assert result.text == "hello"
+        assert result.tool_calls == []
+        assert fake.last_tools is not None  # tool catalogue was forwarded
+
+    def test_parses_tool_calls(self) -> None:
+        fake = _FakeOllamaClient(tool_calls=[("retrieve", {"query": "x"})])
+        client = _make_client(inner_client=fake)
+
+        result = client.chat([Message(role="user", content="hi")], tools=[_TOOL_SPEC])
+
+        assert [(c.name, c.arguments) for c in result.tool_calls] == [
+            ("retrieve", {"query": "x"})
+        ]
+
+    def test_synthesises_unique_ids_across_calls(self) -> None:
+        fake = _FakeOllamaClient(tool_calls=[("retrieve", {"query": "x"})])
+        client = _make_client(inner_client=fake)
+        messages = [Message(role="user", content="hi")]
+
+        first = client.chat(messages, tools=[_TOOL_SPEC])
+        second = client.chat(messages, tools=[_TOOL_SPEC])
+
+        assert first.tool_calls[0].id != second.tool_calls[0].id
+
+    def test_wraps_backend_errors(self) -> None:
+        fake = _FakeOllamaClient(chat_error=ConnectionError("refused"))
+        client = _make_client(inner_client=fake)
+
+        with pytest.raises(LLMUnavailableError):
+            client.chat([Message(role="user", content="hi")])
 
 
 class TestGenerateHappyPath:
@@ -205,3 +313,51 @@ class TestLLMUnavailableError:
         client = _make_client(inner_client=fake)
         with pytest.raises(LLMUnavailableError):
             client.embed("hello")
+
+    def test_caption_image_raises_when_vision_model_not_configured(self) -> None:
+        fake = _FakeOllamaClient()
+        client = _make_client(vision_model=None, inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.caption_image(b"\x89PNG")
+
+    def test_caption_image_raises_on_connection_error(self) -> None:
+        fake = _FakeOllamaClient(vision_error=ConnectionError("refused"))
+        client = _make_client(host="http://localhost:1", inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.caption_image(b"\x89PNG")
+
+    def test_caption_image_raises_on_ollama_response_error(self) -> None:
+        fake = _FakeOllamaClient(vision_error=ollama.ResponseError("model not found"))
+        client = _make_client(inner_client=fake)
+        with pytest.raises(LLMUnavailableError):
+            client.caption_image(b"\x89PNG")
+
+
+class TestCaptionImageHappyPath:
+    def test_returns_caption_string(self) -> None:
+        fake = _FakeOllamaClient(chat_content="A red circle on a white background.")
+        client = _make_client(inner_client=fake)
+        image_bytes = b"\x89PNG\r\n\x1a\n"
+
+        result = client.caption_image(image_bytes)
+
+        assert result == "A red circle on a white background."
+        assert fake.last_vision_model == _VISION_MODEL
+        assert fake.last_vision_images == [image_bytes]
+
+    def test_passes_correct_model(self) -> None:
+        fake = _FakeOllamaClient(chat_content="desc")
+        client = _make_client(vision_model="llava:latest", inner_client=fake)
+
+        client.caption_image(b"img")
+
+        assert fake.last_vision_model == "llava:latest"
+
+
+@vision_required
+class TestCaptionImageIntegration:
+    def test_returns_a_non_empty_string(self) -> None:
+        client = _make_client()
+        result = client.caption_image(_TINY_PNG_BYTES)
+        assert isinstance(result, str)
+        assert len(result) > 0

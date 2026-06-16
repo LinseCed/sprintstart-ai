@@ -5,7 +5,7 @@ from ingestion.models import ChunkKind
 
 
 def is_chunk_kind(value: str) -> TypeGuard[ChunkKind]:
-    return value in ("text", "code", "pdf")
+    return value in ("text", "code", "pdf", "image")
 
 
 @dataclass(frozen=True)

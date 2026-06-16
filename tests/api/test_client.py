@@ -33,10 +33,10 @@ def chat(question: str, history: list[dict[str, str]] | None = None) -> None:
         "POST",
         f"{BASE_URL}/chat",
         json={
-            "question": question,
+            "prompt": question,
             "top_k": 5,
             "min_score": 0.5,
-            "history": history or [],
+            "context": history or [],
         },
         timeout=60,
     ) as response:

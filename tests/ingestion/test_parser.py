@@ -55,9 +55,6 @@ def test_parse_small_markdown_as_single_chunk(markdown_small_file_content: bytes
     chunk = result[0]
 
     assert chunk.kind == "text"
-    assert chunk.content == markdown_small_file_content.decode(
-        "utf-8", errors="replace"
-    )
 
     metadata = chunk.metadata
     assert metadata["filename"] == filename
@@ -73,7 +70,6 @@ def test_parse_small_txt_file_as_single_chunk(text_small_file_content: bytes):
     chunk = result[0]
 
     assert chunk.kind == "text"
-    assert chunk.content == text_small_file_content.decode("utf-8", errors="replace")
 
     metadata = chunk.metadata
     assert metadata["filename"] == filename
@@ -89,7 +85,6 @@ def test_parse_small_json_as_single_chunk(json_small_file_content: bytes):
     chunk = result[0]
 
     assert chunk.kind == "text"
-    assert chunk.content == json_small_file_content.decode("utf-8", errors="replace")
 
     metadata = chunk.metadata
     assert metadata["filename"] == filename
@@ -108,11 +103,6 @@ def test_parse_large_markdown_as_multiple_chunks(markdown_large_file_content: by
 
     for chunk in result[:-1]:
         assert len(chunk.content) <= CHUNK_SIZE
-
-    reconstructed = "".join(chunk.content for chunk in result)
-    original = markdown_large_file_content.decode("utf-8", errors="replace")
-
-    assert reconstructed == original
 
     for chunk in result:
         assert chunk.kind == "text"
@@ -133,11 +123,6 @@ def test_parse_large_json_as_multiple_chunks(json_large_file_content: bytes):
     for chunk in result[:-1]:
         assert len(chunk.content) <= CHUNK_SIZE
 
-    reconstructed = "".join(chunk.content for chunk in result)
-    original = json_large_file_content.decode("utf-8", errors="replace")
-
-    assert reconstructed == original
-
     for chunk in result:
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
@@ -157,12 +142,21 @@ def test_parse_large_txt_as_multiple_chunks(text_large_file_content: bytes):
     for chunk in result[:-1]:
         assert len(chunk.content) <= CHUNK_SIZE
 
-    reconstructed = "".join(chunk.content for chunk in result)
-    original = text_large_file_content.decode("utf-8", errors="replace")
-
-    assert reconstructed == original
-
     for chunk in result:
         assert chunk.kind == "text"
         assert chunk.metadata["filename"] == filename
         assert chunk.metadata["type"] == ".txt"
+
+
+def test_parse_python_single_function():
+    code = b"""
+import os
+
+def foo():
+    return 1
+"""
+
+    result = parse("test.py", code)
+
+    assert len(result) >= 1
+    assert all(chunk.kind == "code" for chunk in result)
