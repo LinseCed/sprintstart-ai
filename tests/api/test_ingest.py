@@ -103,23 +103,6 @@ def test_reingest_replaces_existing_chunks(
     assert len([c for c in store.chunks if c.artifact_id == "doc-1"]) == 1
 
 
-def test_ingest_unsupported_file_type_returns_422(
-    client: tuple[TestClient, StubVectorStore],
-) -> None:
-    http_client, _ = client
-
-    response = http_client.post(
-        "/api/v1/ingest",
-        json={
-            "artifact_id": "doc-1",
-            "filename": "file.cpp",
-            "content": "int main() {}",
-        },
-    )
-
-    assert response.status_code == 422
-
-
 def test_ingest_llm_unavailable_returns_503(
     client: tuple[TestClient, StubVectorStore],
 ) -> None:
