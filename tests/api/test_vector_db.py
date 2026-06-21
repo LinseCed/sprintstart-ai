@@ -13,13 +13,17 @@ class StubVectorStore:
             Chunk(
                 id="chunk-1",
                 artifact_id="artifact-1",
+                filename="config.md",
                 text="Set OLLAMA_EMBED_MODEL for embeddings.",
+                embedding=[1.0, 0.0, 0.0],
                 heading_path=["Configuration"],
             ),
             Chunk(
                 id="chunk-2",
                 artifact_id="artifact-2",
+                filename="storage.md",
                 text="CHROMA_PATH controls vector database persistence.",
+                embedding=[0.0, 1.0, 0.0],
                 heading_path=["Storage"],
             ),
         ]
