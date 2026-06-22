@@ -13,5 +13,4 @@ def to_chunk(parsed: ParsedChunk, artifact_id: str, embedding: list[float]) -> C
         embedding=embedding,
         kind=parsed.kind,
         position=int(parsed.metadata.get("chunk_index", "0")),
-        heading_path=None,
     )

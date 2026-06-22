@@ -29,7 +29,6 @@ def _store_with_chunk() -> StubVectorStore:
                 filename="retro.md",
                 text="missing designs blocked auth",
                 embedding=_EMBEDDING,
-                heading_path="Blockers",
             )
         ]
     )

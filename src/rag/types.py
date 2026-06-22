@@ -15,7 +15,6 @@ class Chunk:
     filename: str
     text: str
     embedding: list[float]
-    heading_path: str | None = None
     position: int | None = None
     kind: ChunkKind = "text"
 
@@ -27,7 +26,6 @@ class ScoredChunk:
     filename: str
     text: str
     score: float
-    heading_path: str | None = None
     position: int | None = None
     kind: ChunkKind = "text"
 
@@ -35,5 +33,4 @@ class ScoredChunk:
 @dataclass(frozen=True)
 class Citation:
     filename: str
-    section_path: str | None
     chunk_id: str

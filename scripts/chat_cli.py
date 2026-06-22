@@ -165,16 +165,14 @@ class Client:
     def _print_citations(self, citations: list[dict[str, object]]) -> None:
         if not citations:
             return
-        seen: set[tuple[object, object]] = set()
+        seen: set[object] = set()
         print(C.dim("sources:"))
         for c in citations:
-            key = (c.get("filename"), c.get("section_path"))
-            if key in seen:
+            filename = c.get("filename")
+            if filename in seen:
                 continue
-            seen.add(key)
-            section = c.get("section_path")
-            suffix = f" › {section}" if section else ""
-            print(C.dim(f"  - {c.get('filename')}{suffix}"))
+            seen.add(filename)
+            print(C.dim(f"  - {filename}"))
 
     def ingest_path(self, raw_path: str, artifact_id: str | None) -> None:
         path = Path(raw_path).expanduser()

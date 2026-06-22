@@ -46,7 +46,6 @@ class FetchFileTool(Tool[FetchFileArgs]):
                 filename=chunk.filename,
                 text=chunk.text,
                 score=_FETCH_SCORE,
-                heading_path=chunk.heading_path,
                 position=chunk.position,
                 kind=chunk.kind,
             )

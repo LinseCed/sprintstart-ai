@@ -14,7 +14,7 @@ def test_retrieve_returns_chunks_above_min_score() -> None:
                 id="chunk-1",
                 artifact_id="artifact-1",
                 filename="doc.md",
-                heading_path="Intro",
+
                 text="Relevant text",
                 embedding=[1.0, 0.0],
             ),
@@ -22,7 +22,7 @@ def test_retrieve_returns_chunks_above_min_score() -> None:
                 id="chunk-2",
                 artifact_id="artifact-1",
                 filename="doc.md",
-                heading_path="Other",
+
                 text="Irrelevant text",
                 embedding=[0.0, 1.0],
             ),
@@ -51,7 +51,7 @@ def test_retrieve_returns_empty_list_when_no_chunk_passes_threshold() -> None:
                 id="chunk-1",
                 artifact_id="artifact-1",
                 filename="doc.md",
-                heading_path="Intro",
+
                 text="Not similar",
                 embedding=[0.0, 1.0],
             )
