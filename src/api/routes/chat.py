@@ -48,7 +48,7 @@ router = APIRouter()
                             "summary": "Citation event",
                             "value": (
                                 'data: {"type": "citation", "chunk_id": "chunk-1",'
-                                ' "filename": "retro.md", "section_path": "Retro > Blockers"}\n\n'  # noqa: E501
+                                ' "filename": "retro.md"}\n\n'
                             ),
                         },
                         "done": {

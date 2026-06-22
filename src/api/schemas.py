@@ -211,13 +211,6 @@ class CitationEvent(BaseModel):
     type: Literal["citation"]
     chunk_id: str
     filename: str
-    section_path: Annotated[
-        str | None,
-        Field(
-            description='Heading breadcrumb, e.g. "Retro > Blockers". '
-            "Null if not available."
-        ),
-    ] = None
 
 
 class ToolUseEvent(BaseModel):

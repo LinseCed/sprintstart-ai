@@ -90,7 +90,6 @@ def test_chat_emits_citation_when_chunks_exist(
                 filename="retro.md",
                 text="Missing designs blocked the auth feature.",
                 embedding=embedding,
-                heading_path="Blockers",
             )
         ]
     )

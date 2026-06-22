@@ -30,7 +30,6 @@ class StubVectorStore:
                 id=chunk.id,
                 artifact_id=chunk.artifact_id,
                 filename=chunk.filename,
-                heading_path=chunk.heading_path,
                 position=chunk.position,
                 kind=chunk.kind,
                 text=chunk.text,
