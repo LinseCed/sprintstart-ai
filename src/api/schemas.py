@@ -200,6 +200,89 @@ class ValidationErrorResponse(BaseModel):
     detail: str
 
 
+class VectorDbChunkResponse(BaseModel):
+    id: str = Field(description="Chunk identifier.")
+    artifact_id: str = Field(description="Artifact/document this chunk belongs to.")
+    filename: str = Field(description="Original source filename.")
+    text: str = Field(description="Stored chunk text.")
+    position: int | None = Field(
+        default=None,
+        description="Optional chunk position within the source artifact.",
+    )
+    kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "id": "chunk-1",
+                "artifact_id": "artifact-123",
+                "filename": "notes.md",
+                "text": "Stored chunk text...",
+                "position": 0,
+                "kind": "text",
+            }
+        }
+    }
+
+
+class VectorDbScoredChunkResponse(VectorDbChunkResponse):
+    score: float = Field(description="Similarity score returned by vector search.")
+
+
+class VectorDbChunkListResponse(BaseModel):
+    items: list[VectorDbChunkResponse]
+    limit: int
+    offset: int
+    total: int
+
+
+class VectorDbStatusResponse(BaseModel):
+    backend: str = Field(description="Configured vector store backend.")
+    chunk_count: int = Field(description="Number of chunks currently stored.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "backend": "chroma",
+                "chunk_count": 128,
+            }
+        }
+    }
+
+
+class VectorDbSearchRequest(BaseModel):
+    query: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Query text to embed and search in the vector database.",
+            examples=["Where is OLLAMA_EMBED_MODEL configured?"],
+        ),
+    ]
+    top_k: Annotated[
+        int,
+        Field(ge=1, le=50, description="Maximum number of chunks to return."),
+    ] = 5
+    min_score: Annotated[
+        float,
+        Field(ge=0.0, description="Minimum similarity score to include."),
+    ] = 0.0
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "query": "Where is OLLAMA_EMBED_MODEL configured?",
+                "top_k": 5,
+                "min_score": 0.0,
+            }
+        }
+    }
+
+
+class VectorDbSearchResponse(BaseModel):
+    items: list[VectorDbScoredChunkResponse]
+
+
 class TokenEvent(BaseModel):
     type: Literal["token"]
     content: str = Field(

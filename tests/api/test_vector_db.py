@@ -124,10 +124,10 @@ def test_list_chunks_by_artifact() -> None:
     assert body[0]["artifact_id"] == "artifact-1"
 
 
-def test_delete_artifact_chunks() -> None:
-    response = client.delete("/api/v1/vector-db/artifacts/artifact-1")
+def test_delete_unknown_artifact_returns_404() -> None:
+    response = client.delete("/api/v1/vector-db/artifacts/missing-artifact")
 
-    assert response.status_code == 200
+    assert response.status_code == 404
 
     body = response.json()
     assert body["artifact_id"] == "artifact-1"
