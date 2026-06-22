@@ -19,7 +19,6 @@ def test_chroma_query_returns_chunks_above_min_score() -> None:
                 id="chunk-1",
                 artifact_id="artifact-1",
                 filename="doc.md",
-
                 position=1,
                 kind="text",
                 text="Relevant text",
@@ -29,7 +28,6 @@ def test_chroma_query_returns_chunks_above_min_score() -> None:
                 id="chunk-2",
                 artifact_id="artifact-1",
                 filename="doc.md",
-
                 position=2,
                 kind="text",
                 text="Irrelevant text",
