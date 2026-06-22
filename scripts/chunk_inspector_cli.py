@@ -177,21 +177,36 @@ def _render(
 
 
 def print_chunks(chunks: list[ParsedChunk], pretty: bool=True, show_overlap: bool=False) -> None:
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
         print("")
         console.rule(title= f"Chunk {chunk.metadata['chunk_index']}", characters="=")
+        # compute overlap
+        try:
+            start_overlap: int = get_overlap_count(chunks[index-1].content, chunks[index].content)
+        except IndexError:
+            start_overlap = 0
+        try:
+            end_overlap: int = get_overlap_count(chunks[index].content, chunks[index+1].content)
+        except IndexError:
+            end_overlap = 0
+
         if pretty:
             metadata_table = Table(expand=False)
             metadata_table.add_column("chunk kind", justify="center")
             metadata_table.add_column("filename", justify="center")
             metadata_table.add_column("type", justify="center")
             metadata_table.add_column("character count", justify="center")
+            metadata_table.add_column("front-overlap-count", justify="center")
+            metadata_table.add_column("end-overlap-count", justify="center")
             metadata_table.add_row(f" {chunk.kind}", f" {chunk.metadata["filename"]}",
-            f" {chunk.metadata["type"]}", str(len(chunk.content)))
+            f" {chunk.metadata["type"]}", str(len(chunk.content)), f" {start_overlap}", f" {end_overlap}")
             console.print(Align.center(metadata_table))
         print("")
         print(C.bold("content:"))
-        print(C.dim(chunk.content))
+        print(C.green(chunk.content[:start_overlap]), end="")
+        print(C.dim(chunk.content[start_overlap:len(chunk.content) - end_overlap]), end="")
+        print(C.green(chunk.content[len(chunk.content) - end_overlap:]), end="")
+        
         print("")
         
 def chunk_to_dict(chunk: ParsedChunk) -> dict[str, Any]:
@@ -205,6 +220,16 @@ def chunk_to_dict(chunk: ParsedChunk) -> dict[str, Any]:
     result["metadata"]["total_chunks"] = chunk.metadata["total_chunks"]
 
     return result # type: ignore
+
+
+def get_overlap_count(firstString: str, secondString: str) -> int:
+    max_len = min(len(firstString), len(secondString))
+
+    for size in range(max_len, 0, -1):
+        if firstString[-size:] == secondString[:size]:
+            return len(firstString[-size:])
+
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
