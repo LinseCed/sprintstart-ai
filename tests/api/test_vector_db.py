@@ -17,7 +17,6 @@ class StubVectorStore:
                 filename="config.md",
                 text="Set OLLAMA_EMBED_MODEL for embeddings.",
                 embedding=[1.0, 0.0, 0.0],
-                heading_path="Configuration",
                 position=0,
                 kind="text",
             ),
@@ -27,7 +26,6 @@ class StubVectorStore:
                 filename="storage.md",
                 text="CHROMA_PATH controls vector database persistence.",
                 embedding=[0.0, 1.0, 0.0],
-                heading_path="Storage",
                 position=1,
                 kind="text",
             ),
@@ -49,7 +47,6 @@ class StubVectorStore:
                 filename=chunk.filename,
                 text=chunk.text,
                 score=0.95,
-                heading_path=chunk.heading_path,
                 position=chunk.position,
                 kind=chunk.kind,
             )
@@ -62,13 +59,36 @@ class StubVectorStore:
         self,
         artifact_id: str,
         exclude_ids: list[str] | None = None,
-    ) -> None:
+    ) -> int:
         excluded = set(exclude_ids or [])
+        chunks_to_delete = [
+            chunk
+            for chunk in self.chunks
+            if chunk.artifact_id == artifact_id and chunk.id not in excluded
+        ]
+
         self.chunks = [
             chunk
             for chunk in self.chunks
             if chunk.artifact_id != artifact_id or chunk.id in excluded
         ]
+
+        return len(chunks_to_delete)
+
+    def list_chunks(self, limit: int, offset: int = 0) -> list[Chunk]:
+        return self.chunks[offset : offset + limit]
+
+    def list_chunks_by_artifact(
+        self,
+        artifact_id: str,
+        limit: int,
+        offset: int = 0,
+    ) -> list[Chunk]:
+        chunks = [chunk for chunk in self.chunks if chunk.artifact_id == artifact_id]
+        return chunks[offset : offset + limit]
+
+    def count_by_artifact(self, artifact_id: str) -> int:
+        return len([chunk for chunk in self.chunks if chunk.artifact_id == artifact_id])
 
     def all_chunks(self) -> list[Chunk]:
         return self.chunks
@@ -139,6 +159,7 @@ def test_list_chunks_with_pagination() -> None:
     body = response.json()
     assert body["limit"] == 1
     assert body["offset"] == 1
+    assert body["total"] == 2
     assert len(body["items"]) == 1
     assert body["items"][0]["id"] == "chunk-2"
 
@@ -149,9 +170,11 @@ def test_list_chunks_by_artifact() -> None:
     assert response.status_code == 200
 
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["artifact_id"] == "artifact-1"
-    assert body[0]["id"] == "chunk-1"
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["artifact_id"] == "artifact-1"
+    assert body["items"][0]["id"] == "chunk-1"
+    assert "heading_path" not in body["items"][0]
 
 
 def test_delete_artifact_chunks() -> None:
@@ -187,4 +210,5 @@ def test_search_vector_db() -> None:
     assert len(body["items"]) == 1
     assert body["items"][0]["id"] == "chunk-1"
     assert body["items"][0]["score"] == 0.95
+    assert "heading_path" not in body["items"][0]
     assert "embedding" not in body["items"][0]

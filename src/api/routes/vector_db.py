@@ -58,7 +58,7 @@ def _store_backend_name(store: VectorStore) -> str:
     "/status",
     response_model=VectorDbStatusResponse,
     summary="Get vector database status",
-    description="Returns the configured vector store backend and number of chunks.",
+    description="Returns the configured vector store backend and chunk count.",
 )
 def get_vector_db_status(
     store: Annotated[VectorStore, Depends(get_store)],
@@ -79,7 +79,10 @@ def get_vector_db_status(
     "/chunks",
     response_model=VectorDbChunkListResponse,
     summary="List vector database chunks",
-    description="Lists stored chunks with pagination. Embeddings are not returned.",
+    description=(
+        "Lists stored chunks with pagination. Embeddings and internal Chroma "
+        "objects are not returned."
+    ),
 )
 def list_chunks(
     store: Annotated[VectorStore, Depends(get_store)],
@@ -87,28 +90,30 @@ def list_chunks(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> VectorDbChunkListResponse:
     try:
-        chunks = store.all_chunks()
+        chunks = store.list_chunks(limit=limit, offset=offset)
+        total = store.count()
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list vector database chunks: {exc}",
         ) from exc
 
-    paginated_chunks = chunks[offset : offset + limit]
-
     return VectorDbChunkListResponse(
-        items=[_chunk_to_response(chunk) for chunk in paginated_chunks],
+        items=[_chunk_to_response(chunk) for chunk in chunks],
         limit=limit,
         offset=offset,
-        total=len(chunks),
+        total=total,
     )
 
 
 @router.get(
     "/artifacts/{artifact_id}/chunks",
-    response_model=list[VectorDbChunkResponse],
+    response_model=VectorDbChunkListResponse,
     summary="List chunks for an artifact",
-    description="Returns all vector database chunks belonging to one artifact.",
+    description=(
+        "Returns paginated vector database chunks belonging to one artifact. "
+        "Embeddings and internal Chroma objects are not returned."
+    ),
     responses={
         404: {
             "model": ValidationErrorResponse,
@@ -119,24 +124,37 @@ def list_chunks(
 def list_chunks_by_artifact(
     artifact_id: str,
     store: Annotated[VectorStore, Depends(get_store)],
-) -> list[VectorDbChunkResponse]:
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> VectorDbChunkListResponse:
     try:
-        chunks = [
-            chunk for chunk in store.all_chunks() if chunk.artifact_id == artifact_id
-        ]
+        total = store.count_by_artifact(artifact_id)
+
+        if total == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No chunks found for artifact_id {artifact_id!r}.",
+            )
+
+        chunks = store.list_chunks_by_artifact(
+            artifact_id=artifact_id,
+            limit=limit,
+            offset=offset,
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list chunks for artifact {artifact_id!r}: {exc}",
         ) from exc
 
-    if not chunks:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No chunks found for artifact_id {artifact_id!r}.",
-        )
-
-    return [_chunk_to_response(chunk) for chunk in chunks]
+    return VectorDbChunkListResponse(
+        items=[_chunk_to_response(chunk) for chunk in chunks],
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
 
 
 @router.delete(
@@ -145,7 +163,7 @@ def list_chunks_by_artifact(
     summary="Delete chunks for an artifact",
     description=(
         "Deletes all vector database chunks belonging to the given artifact_id. "
-        "Returns 204 when chunks were deleted and 404 when the artifact has no chunks."
+        "Returns 204 when chunks were deleted and 404 when no chunks exist."
     ),
     responses={
         204: {"description": "Artifact chunks deleted successfully."},
@@ -160,28 +178,18 @@ def delete_artifact_chunks(
     store: Annotated[VectorStore, Depends(get_store)],
 ) -> Response:
     try:
-        chunks = [
-            chunk for chunk in store.all_chunks() if chunk.artifact_id == artifact_id
-        ]
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to inspect artifact {artifact_id!r}: {exc}",
-        ) from exc
-
-    if not chunks:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No chunks found for artifact_id {artifact_id!r}.",
-        )
-
-    try:
-        store.delete(artifact_id)
+        deleted_count = store.delete(artifact_id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete chunks for artifact {artifact_id!r}: {exc}",
         ) from exc
+
+    if deleted_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No chunks found for artifact_id {artifact_id!r}.",
+        )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -191,8 +199,8 @@ def delete_artifact_chunks(
     response_model=VectorDbSearchResponse,
     summary="Search vector database",
     description=(
-        "Embeds the query with the configured LLM backend and searches the configured "
-        "vector store directly. This is intended for debugging and admin use."
+        "Embeds the query with the configured LLM backend and searches the "
+        "configured vector store directly. Intended for debugging and admin use."
     ),
     responses={
         503: {
