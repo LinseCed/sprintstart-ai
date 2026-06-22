@@ -162,9 +162,6 @@ class ChromaVectorStore:
             embeddings,
             strict=True,
         ):
-            raw_heading_path = metadata.get("heading_path")
-            heading_path = str(raw_heading_path) if raw_heading_path else None
-
             raw_position = metadata.get("position")
             position = (
                 None
@@ -182,7 +179,6 @@ class ChromaVectorStore:
                     id=str(chunk_id),
                     artifact_id=str(metadata["artifact_id"]),
                     filename=str(metadata["filename"]),
-                    heading_path=heading_path,
                     position=position,
                     kind=kind_str,
                     text=str(text),
@@ -221,9 +217,6 @@ class ChromaVectorStore:
             embeddings,
             strict=True,
         ):
-            raw_heading_path = metadata.get("heading_path")
-            heading_path = str(raw_heading_path) if raw_heading_path else None
-
             raw_position = metadata.get("position")
             position = (
                 None
@@ -241,7 +234,6 @@ class ChromaVectorStore:
                     id=str(chunk_id),
                     artifact_id=str(metadata["artifact_id"]),
                     filename=str(metadata["filename"]),
-                    heading_path=heading_path,
                     position=position,
                     kind=kind_str,
                     text=str(text),
