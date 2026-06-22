@@ -28,7 +28,7 @@ class C:
     @classmethod
     def yellow(cls, t: str) -> str:
         return cls._w("33", t)
-    
+
     @classmethod
     def red(cls, t: str) -> str:
         return cls._w("31", t)

@@ -19,6 +19,7 @@ CODE_EXTENSIONS = {".py", ".js", ".ts", ".go"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 INGESTABLE = TEXT_EXTENSIONS | CODE_EXTENSIONS | IMAGE_EXTENSIONS
 
+
 class MarkdownStream:
     """Live-renders a streamed markdown answer with rich.
 
