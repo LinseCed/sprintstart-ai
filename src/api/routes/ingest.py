@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from api.schemas import IngestRequest, ValidationErrorResponse
@@ -48,7 +48,6 @@ class IngestChunkResponse(BaseModel):
     artifact_id: str
     filename: str
     text: str
-    heading_path: list[str] = Field(default_factory=list)
     chunk_index: int
     vector_store_id: str
     kind: str
@@ -68,12 +67,6 @@ def _utc_now() -> str:
 def _content_type_for_filename(filename: str) -> str:
     content_type, _ = mimetypes.guess_type(filename)
     return content_type or "application/octet-stream"
-
-
-def _heading_path_to_list(heading_path: str | None) -> list[str]:
-    if heading_path is None:
-        return []
-    return [heading_path]
 
 
 def _artifact_to_response(artifact: ArtifactRecord) -> IngestArtifactResponse:
@@ -101,7 +94,6 @@ def _chunk_to_record(
         artifact_id=chunk.artifact_id,
         filename=chunk.filename,
         text=chunk.text,
-        heading_path=_heading_path_to_list(chunk.heading_path),
         chunk_index=chunk_index,
         vector_store_id=chunk.id,
         kind=chunk.kind,
@@ -115,7 +107,6 @@ def _chunk_to_response(chunk: ArtifactChunkRecord) -> IngestChunkResponse:
         artifact_id=chunk.artifact_id,
         filename=chunk.filename,
         text=chunk.text,
-        heading_path=chunk.heading_path,
         chunk_index=chunk.chunk_index,
         vector_store_id=chunk.vector_store_id,
         kind=chunk.kind,

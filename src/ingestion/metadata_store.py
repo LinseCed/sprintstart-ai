@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +28,6 @@ class ArtifactChunkRecord:
     artifact_id: str
     filename: str
     text: str
-    heading_path: list[str]
     chunk_index: int
     vector_store_id: str
     kind: str
@@ -68,22 +66,93 @@ class IngestionMetadataStore:
                 )
                 """
             )
+            self._ensure_artifact_chunks_schema(connection)
+
+    def _ensure_artifact_chunks_schema(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        if not self._table_exists(connection, "artifact_chunks"):
+            self._create_artifact_chunks_table(connection)
+            return
+
+        columns = self._table_columns(connection, "artifact_chunks")
+
+        if "heading_path" not in columns:
+            return
+
+        connection.execute(
+            "ALTER TABLE artifact_chunks RENAME TO artifact_chunks_legacy"
+        )
+        self._create_artifact_chunks_table(connection)
+
+        legacy_columns = self._table_columns(connection, "artifact_chunks_legacy")
+        columns_to_copy = [
+            "id",
+            "artifact_id",
+            "filename",
+            "text",
+            "chunk_index",
+            "vector_store_id",
+            "kind",
+            "created_at",
+        ]
+
+        if all(column in legacy_columns for column in columns_to_copy):
+            columns_sql = ", ".join(columns_to_copy)
             connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS artifact_chunks (
-                    id TEXT PRIMARY KEY,
-                    artifact_id TEXT NOT NULL,
-                    filename TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    heading_path TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    vector_store_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (artifact_id) REFERENCES artifacts(id)
-                )
+                f"""
+                INSERT OR REPLACE INTO artifact_chunks ({columns_sql})
+                SELECT {columns_sql}
+                FROM artifact_chunks_legacy
                 """
             )
+
+        connection.execute("DROP TABLE artifact_chunks_legacy")
+
+    def _table_exists(
+        self,
+        connection: sqlite3.Connection,
+        table_name: str,
+    ) -> bool:
+        cursor = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            """,
+            (table_name,),
+        )
+        return cursor.fetchone() is not None
+
+    def _table_columns(
+        self,
+        connection: sqlite3.Connection,
+        table_name: str,
+    ) -> set[str]:
+        cursor = connection.execute(f"PRAGMA table_info({table_name})")
+        rows = cast(list[sqlite3.Row], cursor.fetchall())
+        return {str(row["name"]) for row in rows}
+
+    def _create_artifact_chunks_table(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        connection.execute(
+            """
+            CREATE TABLE artifact_chunks (
+                id TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                text TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                vector_store_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (artifact_id) REFERENCES artifacts(id)
+            )
+            """
+        )
 
     def save_artifact(self, artifact: ArtifactRecord) -> None:
         with self._connect() as connection:
@@ -109,13 +178,12 @@ class IngestionMetadataStore:
                     artifact_id,
                     filename,
                     text,
-                    heading_path,
                     chunk_index,
                     vector_store_id,
                     kind,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -123,7 +191,6 @@ class IngestionMetadataStore:
                         chunk.artifact_id,
                         chunk.filename,
                         chunk.text,
-                        json.dumps(chunk.heading_path),
                         chunk.chunk_index,
                         chunk.vector_store_id,
                         chunk.kind,
@@ -200,7 +267,6 @@ class IngestionMetadataStore:
                     artifact_id,
                     filename,
                     text,
-                    heading_path,
                     chunk_index,
                     vector_store_id,
                     kind,
@@ -250,25 +316,12 @@ class IngestionMetadataStore:
             ),
         )
 
-    def _decode_heading_path(self, heading_path_raw: str) -> list[str]:
-        try:
-            heading_path_data: object = json.loads(heading_path_raw)
-        except json.JSONDecodeError:
-            return []
-
-        if not isinstance(heading_path_data, list):
-            return []
-
-        typed_heading_path = cast(list[object], heading_path_data)
-        return [str(item) for item in typed_heading_path]
-
     def _chunk_from_row(self, row: sqlite3.Row) -> ArtifactChunkRecord:
         return ArtifactChunkRecord(
             id=str(row["id"]),
             artifact_id=str(row["artifact_id"]),
             filename=str(row["filename"]),
             text=str(row["text"]),
-            heading_path=self._decode_heading_path(str(row["heading_path"])),
             chunk_index=int(row["chunk_index"]),
             vector_store_id=str(row["vector_store_id"]),
             kind=str(row["kind"]),
