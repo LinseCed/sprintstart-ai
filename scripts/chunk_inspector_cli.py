@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chat_cli import C
+from cli_colors import C
 from rich.align import Align
 from rich.console import Console
 from rich.table import Table
@@ -203,11 +203,11 @@ def print_chunks(
         print("")
         console.rule(title=f"Chunk {chunk.metadata['chunk_index']}", characters="=")
         # compute overlap
-        try:
+        if index > 0:
             start_overlap: int = get_overlap_count(
                 chunks[index - 1].content, chunks[index].content
             )
-        except IndexError:
+        else:
             start_overlap = 0
         try:
             end_overlap: int = get_overlap_count(
@@ -262,7 +262,7 @@ def chunk_to_dict(chunk: ParsedChunk) -> dict[str, Any]:
     return result  # type: ignore
 
 
-def get_overlap_count(firstString: str, secondString: str) -> int:
+def get_overlap_count(first_string: str, second_string: str) -> int:
     """Compute the overlap length between two chunk contents.
 
     The function searches for the largest suffix of the first string
@@ -282,11 +282,11 @@ def get_overlap_count(firstString: str, secondString: str) -> int:
             Length of the largest matching overlap in characters.
             Returns 0 if no overlap exists.
     """
-    max_len = min(len(firstString), len(secondString))
+    max_len = min(len(first_string), len(second_string))
 
     for size in range(max_len, 0, -1):
-        if firstString[-size:] == secondString[:size]:
-            return len(firstString[-size:])
+        if first_string[-size:] == second_string[:size]:
+            return len(first_string[-size:])
 
     return 0
 
