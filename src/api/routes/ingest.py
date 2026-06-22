@@ -8,10 +8,15 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
-from api.schemas import IngestRequest, ValidationErrorResponse
+from api.schemas import (
+    IngestArtifactResponse,
+    IngestChunkResponse,
+    IngestRequest,
+    IngestResponse,
+    ValidationErrorResponse,
+)
 from ingestion.mapper import to_chunk
 from ingestion.metadata_store import (
     ArtifactChunkRecord,
@@ -28,36 +33,6 @@ from store.base import VectorStore
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-class IngestArtifactResponse(BaseModel):
-    id: str
-    filename: str
-    content_type: str
-    source_type: str
-    size_bytes: int
-    chunk_count: int
-    status: str
-    created_at: str
-    updated_at: str
-    error_message: str | None = None
-
-
-class IngestChunkResponse(BaseModel):
-    id: str
-    artifact_id: str
-    filename: str
-    text: str
-    chunk_index: int
-    vector_store_id: str
-    kind: str
-
-
-class IngestResponse(BaseModel):
-    artifact_id: str
-    chunk_count: int
-    artifact: IngestArtifactResponse
-    chunks: list[IngestChunkResponse]
 
 
 def _utc_now() -> str:
