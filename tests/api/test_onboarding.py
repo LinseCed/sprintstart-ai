@@ -273,9 +273,7 @@ def test_yaml_endpoint_returns_valid_yaml(
     assert path["working_area"] == "backend"
     assert path["experience"] == "junior"
     assert any(
-        s["id"] == "account-setup"
-        for phase in path["phases"]
-        for s in phase["steps"]
+        s["id"] == "account-setup" for phase in path["phases"] for s in phase["steps"]
     )
 
 
@@ -302,8 +300,6 @@ def test_yaml_endpoint_missing_field_returns_422(
 ) -> None:
     http, _, _ = client
 
-    response = http.post(
-        "/api/v1/onboarding/path/yaml", json={"experience": "junior"}
-    )
+    response = http.post("/api/v1/onboarding/path/yaml", json={"experience": "junior"})
 
     assert response.status_code == 422
