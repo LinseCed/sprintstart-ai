@@ -199,9 +199,14 @@ def print_chunks(
             Whether overlap regions should be highlighted in the chunk
             content output. Defaults to False.
     """
+    
     for index, chunk in enumerate(chunks):
         print("")
-        console.rule(title=f"Chunk {chunk.metadata['chunk_index']}", characters="=")
+        isPdf: bool = (chunk.kind == "pdf")
+        if isPdf:
+            console.rule(title=f"Chunk {chunk.metadata['chunk_index']}-Page {chunk.metadata['page_number']}", characters="=")
+        else:
+            console.rule(title=f"Chunk {chunk.metadata['chunk_index']}", characters="=")
         # compute overlap
         if index > 0:
             start_overlap: int = get_overlap_count(
@@ -221,17 +226,29 @@ def print_chunks(
             metadata_table.add_column("chunk kind", justify="center")
             metadata_table.add_column("filename", justify="center")
             metadata_table.add_column("type", justify="center")
+            if isPdf:
+                metadata_table.add_column("global-chunk-index", justify="center")
             metadata_table.add_column("character count", justify="center")
-            metadata_table.add_column("front-overlap-count", justify="center")
-            metadata_table.add_column("end-overlap-count", justify="center")
-            metadata_table.add_row(
-                f" {chunk.kind}",
-                f" {chunk.metadata['filename']}",
-                f" {chunk.metadata['type']}",
-                str(len(chunk.content)),
-                f" {start_overlap}",
-                f" {end_overlap}",
+            metadata_table.add_column("front-overlap", justify="center")
+            metadata_table.add_column("end-overlap", justify="center")
+            row = [
+                chunk.kind,
+                chunk.metadata["filename"],
+                chunk.metadata["type"],
+            ]
+
+            if isPdf:
+                row.append(str(chunk.metadata["global_pdf_chunk_index"]))
+
+            row.extend(
+                [
+                    str(len(chunk.content)),
+                    str(start_overlap),
+                    str(end_overlap),
+                ]
             )
+
+            metadata_table.add_row(*row)
             console.print(Align.center(metadata_table))
         print("")
         print(C.bold("content:"))
