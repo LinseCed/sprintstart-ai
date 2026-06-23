@@ -10,6 +10,7 @@ sub-directories and are invisible to the serve path.
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +24,21 @@ logger = logging.getLogger(__name__)
 
 ChangeKind = Literal["added", "removed", "modified", "downgraded", "unchanged"]
 
+_SAFE_SCOPE_RE = re.compile(r"^(global|area:[a-z0-9_-]{1,64})$")
+_SAFE_VERSION_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+def _validate_scope(scope: str) -> str:
+    if not _SAFE_SCOPE_RE.match(scope):
+        raise ValueError(f"Invalid scope: {scope!r}")
+    return scope
+
+
+def _validate_version(version: str) -> str:
+    if not _SAFE_VERSION_RE.match(version):
+        raise ValueError(f"Invalid version: {version!r}")
+    return version
+
 
 class StepChange(BaseModel):
     id: str
@@ -35,7 +51,7 @@ class BlueprintDiff(BaseModel):
     scope: str
     active_version: str | None
     draft_version: str
-    changes: list[StepChange] = Field(default_factory=list[StepChange])
+    changes: list[StepChange] = Field(default_factory=list)
     # True when a protected step would be removed or downgraded.
     blocked: bool = False
 
@@ -44,7 +60,10 @@ class BlueprintDiff(BaseModel):
 
 
 def _scope_stem(scope: str) -> str:
-    """``global`` -> ``global``; ``area:backend`` -> ``area-backend``."""
+    """``global`` -> ``global``; ``area:backend`` -> ``area-backend``.
+
+    Caller must validate ``scope`` before calling this function.
+    """
     if scope.startswith("area:"):
         return "area-" + scope.split(":", 1)[1]
     return scope
@@ -95,6 +114,7 @@ def _read(path: Path) -> Blueprint | None:
 
 def active_blueprint(scope: str) -> Blueprint | None:
     """The currently served blueprint for a scope, if any."""
+    _validate_scope(scope)
     for blueprint in load_blueprints():
         if blueprint.scope == scope:
             return blueprint
@@ -105,10 +125,12 @@ def active_blueprint(scope: str) -> Blueprint | None:
 
 
 def save_draft(blueprint: Blueprint) -> None:
+    _validate_scope(blueprint.scope)
     _write(_draft_path(blueprint.scope), blueprint)
 
 
 def get_draft(scope: str) -> Blueprint | None:
+    _validate_scope(scope)
     return _read(_draft_path(scope))
 
 
@@ -125,6 +147,7 @@ def list_drafts() -> list[Blueprint]:
 
 
 def discard_draft(scope: str) -> bool:
+    _validate_scope(scope)
     path = _draft_path(scope)
     if path.is_file():
         path.unlink()
@@ -136,6 +159,8 @@ def discard_draft(scope: str) -> bool:
 
 
 def _version_path(scope: str, version: str) -> Path:
+    _validate_scope(scope)
+    _validate_version(version)
     return _versions_dir() / _scope_stem(scope) / f"{version}.yaml"
 
 
@@ -145,6 +170,7 @@ def _snapshot(blueprint: Blueprint) -> None:
 
 
 def list_versions(scope: str) -> list[str]:
+    _validate_scope(scope)
     directory = _versions_dir() / _scope_stem(scope)
     if not directory.is_dir():
         return []
@@ -157,6 +183,7 @@ def get_version(scope: str, version: str) -> Blueprint | None:
 
 def approve_draft(scope: str) -> Blueprint:
     """Promote a draft to active, retaining the outgoing version for rollback."""
+    _validate_scope(scope)
     draft = get_draft(scope)
     if draft is None:
         raise FileNotFoundError(f"no draft for scope {scope!r}")
@@ -172,6 +199,8 @@ def approve_draft(scope: str) -> Blueprint:
 
 def rollback(scope: str, version: str) -> Blueprint:
     """Restore a retained version as the active blueprint."""
+    _validate_scope(scope)
+    _validate_version(version)
     target = get_version(scope, version)
     if target is None:
         raise FileNotFoundError(f"no version {version!r} for scope {scope!r}")

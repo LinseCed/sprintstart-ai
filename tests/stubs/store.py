@@ -17,7 +17,8 @@ class StubVectorStore:
         self.chunks: list[Chunk] = []
 
     def add(self, chunks: list[Chunk]) -> None:
-        self.chunks = self.chunks + chunks
+        new_ids = {c.id for c in chunks}
+        self.chunks = [c for c in self.chunks if c.id not in new_ids] + chunks
 
     def query(
         self,

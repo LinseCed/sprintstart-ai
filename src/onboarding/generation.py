@@ -31,6 +31,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from llm.base import LLMClient, Message
+from llm.parsing import extract_json_object
 from onboarding import drafts
 from onboarding.blueprints import load_blueprints
 from onboarding.models import (
@@ -62,7 +63,7 @@ class GenerationOutcome(BaseModel):
     chunks_retrieved: int = 0
     steps_drafted: int = 0
     model: str | None = None
-    notes: list[str] = Field(default_factory=list[str])
+    notes: list[str] = Field(default_factory=list)
 
 
 # --- LLM payload -----------------------------------------------------------
@@ -73,12 +74,12 @@ class _GenStep(BaseModel):
     title: str
     description: str = ""
     requirement: Literal["required", "recommended"] = "recommended"
-    tags: list[str] = Field(default_factory=list[str])
-    chunk_ids: list[str] = Field(default_factory=list[str])
+    tags: list[str] = Field(default_factory=list)
+    chunk_ids: list[str] = Field(default_factory=list)
 
 
 class _GenPayload(BaseModel):
-    steps: list[_GenStep] = Field(default_factory=list[_GenStep])
+    steps: list[_GenStep] = Field(default_factory=list)
 
 
 # --- corpus fingerprint (idempotency) --------------------------------------
@@ -166,14 +167,6 @@ def _build_prompt(
     ]
 
 
-def _extract_json(text: str) -> str:
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise GenerationError("no JSON object found in LLM output")
-    return text[start : end + 1]
-
-
 def _draft_steps(
     scope: str,
     chunks: list[ScoredChunk],
@@ -183,8 +176,8 @@ def _draft_steps(
     """Ask the LLM for steps and keep only those grounded in the evidence."""
     raw = llm.generate(_build_prompt(scope, chunks, global_steps))
     try:
-        payload = _GenPayload.model_validate_json(_extract_json(raw))
-    except (ValidationError, json.JSONDecodeError) as exc:
+        payload = _GenPayload.model_validate_json(extract_json_object(raw))
+    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         raise GenerationError(f"invalid generation output: {exc}") from exc
 
     chunks_by_id = {c.id: c for c in chunks}
@@ -205,9 +198,12 @@ def _draft_steps(
         citations = resolve(item.chunk_ids)
         if not citations:
             continue  # grounding gate: drop ungrounded steps
-        step_id = _slugify(item.id or item.title, fallback=f"gen-{i}")
+        base_id = _slugify(item.id or item.title, fallback=f"gen-{i}")
+        step_id = base_id
+        collision = 1
         while step_id in used_ids:
-            step_id = f"{step_id}-{i}"
+            step_id = f"{base_id}-{collision}"
+            collision += 1
         used_ids.add(step_id)
         steps.append(
             BlueprintStep(
@@ -233,25 +229,29 @@ def _enforce_invariants(
     Protected = ``required`` or ``invariant`` in the active blueprint. Such
     steps are never silently dropped: they are restored from the active
     blueprint and the change is reported as an escalation.
+
+    Returns a *new* Blueprint — the input ``draft`` is never mutated.
     """
     if active is None:
         return draft, []
 
-    by_id = {s.id: s for s in draft.steps}
+    patched_steps = [s.model_copy(deep=True) for s in draft.steps]
+    by_id = {s.id: s for s in patched_steps}
     notes: list[str] = []
     for prev in active.steps:
         protected = prev.requirement == "required" or prev.invariant
         if not protected:
             continue
-        new = by_id.get(prev.id)
-        if new is None:
-            draft.steps.append(prev.model_copy(deep=True))
+        existing = by_id.get(prev.id)
+        if existing is None:
+            patched_steps.append(prev.model_copy(deep=True))
             notes.append(f"re-injected protected step removed by draft: {prev.id}")
-        elif new.requirement != prev.requirement:
-            new.requirement = prev.requirement
-            new.invariant = new.invariant or prev.invariant
+        elif existing.requirement != prev.requirement:
+            existing.requirement = prev.requirement
+            existing.invariant = existing.invariant or prev.invariant
             notes.append(f"restored requirement of protected step: {prev.id}")
-    return draft, notes
+    patched = draft.model_copy(update={"steps": patched_steps})
+    return patched, notes
 
 
 # --- job -------------------------------------------------------------------

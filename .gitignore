@@ -221,3 +221,6 @@ __marimo__/
 
 
 data/
+
+# Generated blueprints (runtime output from the generation job)
+blueprints/

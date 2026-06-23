@@ -17,6 +17,7 @@ import logging
 from pydantic import BaseModel, Field, ValidationError
 
 from llm.base import LLMClient, Message
+from llm.parsing import extract_json_object
 from onboarding.models import (
     BlueprintStep,
     CitationRef,
@@ -35,27 +36,27 @@ class SynthesisError(Exception):
 class SynthesisResult(BaseModel):
     # step id -> resolved citations the LLM attached to that blueprint step
     enrichments: dict[str, list[CitationRef]] = Field(
-        default_factory=dict[str, list[CitationRef]]
+        default_factory=dict
     )
     # LLM-proposed steps (origin="llm"); ungrounded ones are dropped by the gate
-    added_steps: list[PathStep] = Field(default_factory=list[PathStep])
+    added_steps: list[PathStep] = Field(default_factory=list)
 
 
 class _Enrichment(BaseModel):
     id: str
-    chunk_ids: list[str] = Field(default_factory=list[str])
+    chunk_ids: list[str] = Field(default_factory=list)
 
 
 class _AddedStep(BaseModel):
     title: str
     description: str = ""
-    tags: list[str] = Field(default_factory=list[str])
-    chunk_ids: list[str] = Field(default_factory=list[str])
+    tags: list[str] = Field(default_factory=list)
+    chunk_ids: list[str] = Field(default_factory=list)
 
 
 class _Payload(BaseModel):
-    enriched: list[_Enrichment] = Field(default_factory=list[_Enrichment])
-    added: list[_AddedStep] = Field(default_factory=list[_AddedStep])
+    enriched: list[_Enrichment] = Field(default_factory=list)
+    added: list[_AddedStep] = Field(default_factory=list)
 
 
 def _verbosity(profile: PersonProfile) -> str:
@@ -107,15 +108,6 @@ def _build_prompt(
     ]
 
 
-def _extract_json(text: str) -> str:
-    """Best-effort extraction of a JSON object from an LLM response."""
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise SynthesisError("no JSON object found in LLM output")
-    return text[start : end + 1]
-
-
 def synthesize(
     profile: PersonProfile,
     steps: list[BlueprintStep],
@@ -126,8 +118,8 @@ def synthesize(
     raw = llm.generate(messages)
 
     try:
-        payload = _Payload.model_validate_json(_extract_json(raw))
-    except (ValidationError, json.JSONDecodeError) as exc:
+        payload = _Payload.model_validate_json(extract_json_object(raw))
+    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         raise SynthesisError(f"invalid synthesis output: {exc}") from exc
 
     chunks_by_id = {c.id: c for c in chunks}

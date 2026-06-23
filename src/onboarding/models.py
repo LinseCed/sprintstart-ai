@@ -45,8 +45,8 @@ class PersonProfile(BaseModel):
 
     working_area: str = Field(description="e.g. backend, frontend, devops")
     experience: str = Field(description="Coarse experience level, e.g. junior")
-    skills: list[str] = Field(default_factory=list[str])
-    tags: list[str] = Field(default_factory=list[str])
+    skills: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class Resource(BaseModel):
@@ -68,13 +68,13 @@ class BlueprintStep(BaseModel):
     title: str
     description: str = ""
     requirement: Requirement = "recommended"
-    audience: list[str] = Field(default_factory=list[str])
+    audience: list[str] = Field(default_factory=list)
     min_experience: str | None = None
-    tags: list[str] = Field(default_factory=list[str])
-    resources: list[Resource] = Field(default_factory=list[Resource])
+    tags: list[str] = Field(default_factory=list)
+    resources: list[Resource] = Field(default_factory=list)
     # Intrinsic grounding for AI-generated steps (issue #110); authored steps
     # leave this empty and rely on the serve-time enrichment layer instead.
-    citations: list[CitationRef] = Field(default_factory=list[CitationRef])
+    citations: list[CitationRef] = Field(default_factory=list)
     # Human-owned protection flag. An ``invariant`` step may not be removed or
     # downgraded by the generation job; such changes are blocked or escalated.
     invariant: bool = False
@@ -92,7 +92,7 @@ class BlueprintProvenance(BaseModel):
     corpus_fingerprint: str | None = None
     generated_at: str | None = None
     model: str | None = None
-    notes: list[str] = Field(default_factory=list[str])
+    notes: list[str] = Field(default_factory=list)
 
 
 class Blueprint(BaseModel):
@@ -106,7 +106,7 @@ class Blueprint(BaseModel):
     scope: str = Field(description="'global' or 'area:<name>'")
     version: str = "0"
     source: Source = "authored"
-    steps: list[BlueprintStep] = Field(default_factory=list[BlueprintStep])
+    steps: list[BlueprintStep] = Field(default_factory=list)
     provenance: BlueprintProvenance | None = None
 
 
@@ -116,13 +116,14 @@ class PathStep(BaseModel):
     description: str = ""
     requirement: Requirement = "recommended"
     origin: Origin = "blueprint"
-    tags: list[str] = Field(default_factory=list[str])
-    citations: list[CitationRef] = Field(default_factory=list[CitationRef])
+    tags: list[str] = Field(default_factory=list)
+    citations: list[CitationRef] = Field(default_factory=list)
 
 
 class PathPhase(BaseModel):
     title: str
-    steps: list[PathStep] = Field(default_factory=list[PathStep])
+    scope: str | None = Field(default=None, exclude=True)
+    steps: list[PathStep] = Field(default_factory=list)
 
 
 class QualityReport(BaseModel):
@@ -132,15 +133,15 @@ class QualityReport(BaseModel):
     grounded_ratio: float = Field(description="LLM steps cited / LLM steps")
     ordering_valid: bool
     score: float
-    notes: list[str] = Field(default_factory=list[str])
+    notes: list[str] = Field(default_factory=list)
 
 
 class OnboardingPath(BaseModel):
     working_area: str
     experience: str
-    phases: list[PathPhase] = Field(default_factory=list[PathPhase])
+    phases: list[PathPhase] = Field(default_factory=list)
     # Identifiable versions so onboarding outcomes can later be attributed.
-    blueprint_versions: dict[str, str] = Field(default_factory=dict[str, str])
+    blueprint_versions: dict[str, str] = Field(default_factory=dict)
     quality: QualityReport
 
     def to_yaml(self) -> str:

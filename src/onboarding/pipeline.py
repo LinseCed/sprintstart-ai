@@ -204,6 +204,7 @@ def _build_phases(
         phases.append(
             PathPhase(
                 title=_phase_title(blueprint.scope),
+                scope=blueprint.scope,
                 steps=[
                     PathStep(
                         id=s.id,
@@ -277,11 +278,15 @@ def _enforce_coverage(
 
 
 def _phase_for_scope(phases: list[PathPhase], scope: str) -> PathPhase:
+    for phase in phases:
+        if phase.scope == scope:
+            return phase
+    # Fallback: match by title for phases without a scope (e.g. "Recommended").
     title = _phase_title(scope)
     for phase in phases:
-        if phase.title == title:
+        if phase.scope is None and phase.title == title:
             return phase
-    phase = PathPhase(title=title, steps=[])
+    phase = PathPhase(title=title, scope=scope, steps=[])
     phases.insert(0, phase)
     return phase
 

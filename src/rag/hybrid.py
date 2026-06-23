@@ -1,4 +1,5 @@
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, cast
 
@@ -99,15 +100,17 @@ class BM25IndexCache:
     def __init__(self) -> None:
         self._index: BM25Index | None = None
         self._chunk_count: int | None = None
+        self._lock = threading.Lock()
 
     def get(self, store: VectorStore) -> BM25Index:
-        current_count = store.count()
+        with self._lock:
+            current_count = store.count()
 
-        if self._index is None or self._chunk_count != current_count:
-            self._index = BM25Index(store.all_chunks())
-            self._chunk_count = current_count
+            if self._index is None or self._chunk_count != current_count:
+                self._index = BM25Index(store.all_chunks())
+                self._chunk_count = current_count
 
-        return self._index
+            return self._index
 
 
 def hybrid_retrieve(
