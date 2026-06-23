@@ -10,6 +10,7 @@ from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
 from llm.openai_client import OpenAIClient
 from llm.split_client import SplitLLMClient
+from onboarding.orchestrator import OnboardingOrchestrator
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
 
@@ -77,3 +78,10 @@ def get_orchestrator(
     store: VectorStore = Depends(get_store),
 ) -> ChatOrchestrator:
     return ChatOrchestrator(llm, store)
+
+
+def get_onboarding_orchestrator(
+    llm: LLMClient = Depends(get_llm),
+    store: VectorStore = Depends(get_store),
+) -> OnboardingOrchestrator:
+    return OnboardingOrchestrator(llm, store)

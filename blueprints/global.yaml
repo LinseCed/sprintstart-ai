@@ -1,0 +1,30 @@
+# Global blueprint: applies to everyone, every working area.
+# Authored data — edit freely; no code change required to add or change steps.
+scope: global
+version: "1"
+source: authored
+steps:
+  - id: security-policy-ack
+    title: Read and acknowledge the security policy
+    description: >-
+      Review the organization's security and data-handling policy and record
+      your acknowledgement. This step is a hard onboarding invariant.
+    requirement: required
+    tags: [security, compliance, policy]
+  - id: account-setup
+    title: Set up your accounts and access
+    description: >-
+      Create your SSO account, enable MFA, and request access to the systems
+      your team uses.
+    requirement: required
+    tags: [accounts, access, sso]
+  - id: code-of-conduct
+    title: Read the code of conduct
+    description: Understand expected behaviour and how to report concerns.
+    requirement: required
+    tags: [conduct, culture]
+  - id: team-intro
+    title: Meet your team and onboarding buddy
+    description: Introduce yourself and pair with your assigned onboarding buddy.
+    requirement: recommended
+    tags: [people, culture]

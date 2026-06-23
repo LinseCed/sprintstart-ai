@@ -1,6 +1,9 @@
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from onboarding.models import PersonProfile
 
 
 class IngestRequest(BaseModel):
@@ -322,3 +325,76 @@ class DoneEvent(BaseModel):
 class ErrorEvent(BaseModel):
     type: Literal["error"]
     message: str
+
+
+class OnboardingPathRequest(BaseModel):
+    working_area: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="The person's working area, e.g. backend, frontend, devops.",
+            examples=["backend"],
+        ),
+    ]
+    experience: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description=(
+                "Coarse experience level, e.g. junior, mid, senior. Not a fixed "
+                "enum: unknown values are handled gracefully."
+            ),
+            examples=["junior"],
+        ),
+    ]
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Optional skill tags; forward-compatible with a richer profile.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Optional free-form tags used for step targeting.",
+    )
+
+    def to_profile(self) -> "PersonProfile":
+        from onboarding.models import PersonProfile
+
+        return PersonProfile(
+            working_area=self.working_area,
+            experience=self.experience,
+            skills=self.skills,
+            tags=self.tags,
+        )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "working_area": "backend",
+                "experience": "junior",
+                "skills": [],
+                "tags": [],
+            }
+        }
+    }
+
+
+class StageEvent(BaseModel):
+    type: Literal["stage"]
+    name: Annotated[
+        str,
+        Field(
+            description="The pipeline stage that just started.",
+            examples=["retrieve"],
+        ),
+    ]
+
+
+class PathEvent(BaseModel):
+    type: Literal["path"]
+    path: dict[str, object] = Field(
+        description="The structured onboarding path (OnboardingPath model)."
+    )
+    path_yaml: str = Field(description="The onboarding path serialized to YAML.")
+    quality: dict[str, object] = Field(
+        description="The deterministic quality report for the path."
+    )

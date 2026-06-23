@@ -1,0 +1,28 @@
+# Backend area blueprint: applies to everyone working in the backend area.
+scope: area:backend
+version: "1"
+source: authored
+steps:
+  - id: local-db-setup
+    title: Set up the local database
+    description: >-
+      Install and seed the local database so you can run services against
+      realistic data.
+    requirement: required
+    tags: [database, local-dev, setup]
+  - id: run-services-locally
+    title: Run the backend services locally
+    description: Build and start the core services and confirm health checks pass.
+    requirement: required
+    tags: [local-dev, services]
+  - id: api-tour
+    title: Tour the API surface
+    description: Read the API reference and trace a request end to end.
+    requirement: recommended
+    tags: [api, architecture]
+  - id: data-model-deep-dive
+    title: Deep-dive the data model
+    description: Study the core domain entities and their relationships.
+    requirement: recommended
+    min_experience: senior
+    tags: [data-model, architecture]

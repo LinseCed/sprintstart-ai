@@ -1,0 +1,20 @@
+# Frontend area blueprint: applies to everyone working in the frontend area.
+scope: area:frontend
+version: "1"
+source: authored
+steps:
+  - id: run-dev-server
+    title: Run the frontend dev server
+    description: Install dependencies and start the local development server.
+    requirement: required
+    tags: [local-dev, setup]
+  - id: component-library
+    title: Explore the component library
+    description: Browse the shared components and how they are documented.
+    requirement: required
+    tags: [components, ui]
+  - id: design-system
+    title: Learn the design system
+    description: Understand design tokens, theming, and accessibility guidelines.
+    requirement: recommended
+    tags: [design-system, accessibility]

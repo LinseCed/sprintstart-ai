@@ -9,7 +9,14 @@ from fastapi.responses import JSONResponse
 load_dotenv()
 
 from api.dependencies import get_llm  # noqa: E402
-from api.routes import chat, health, ingest, title, vector_db  # noqa: E402
+from api.routes import (  # noqa: E402
+    chat,
+    health,
+    ingest,
+    onboarding,
+    title,
+    vector_db,
+)
 from llm.errors import LLMUnavailableError  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -50,5 +57,6 @@ api_router.include_router(chat.router)
 api_router.include_router(ingest.router)
 api_router.include_router(title.router)
 api_router.include_router(vector_db.router)
+api_router.include_router(onboarding.router)
 
 app.include_router(api_router)

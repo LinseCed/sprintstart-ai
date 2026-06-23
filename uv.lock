@@ -2153,6 +2153,7 @@ dependencies = [
     { name = "openai" },
     { name = "pypdf" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "rank-bm25" },
     { name = "uvicorn" },
 ]
@@ -2178,6 +2179,7 @@ requires-dist = [
     { name = "openai", specifier = ">=2.41.0" },
     { name = "pypdf", specifier = ">=6.13.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "rank-bm25", specifier = ">=0.2.2" },
     { name = "uvicorn", specifier = ">=0.48.0" },
 ]
