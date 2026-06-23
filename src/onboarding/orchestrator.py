@@ -42,6 +42,15 @@ class OnboardingOrchestrator:
     def __init__(self, llm: LLMClient, store: VectorStore) -> None:
         self._pipeline = OnboardingPipeline(llm, store)
 
+    def run(self, profile: PersonProfile) -> OnboardingPath:
+        """Run the pipeline synchronously and return the finished path."""
+        gen = self._pipeline.run(profile)
+        try:
+            while True:
+                next(gen)
+        except StopIteration as stop:
+            return stop.value  # type: ignore[return-value]
+
     def stream(self, profile: PersonProfile) -> Iterator[str]:
         try:
             path = yield from _emit_stages(self._pipeline.run(profile))

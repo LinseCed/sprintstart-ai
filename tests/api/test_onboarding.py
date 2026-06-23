@@ -249,3 +249,61 @@ def test_missing_request_field_returns_422(
     response = http.post("/api/v1/onboarding/path", json={"experience": "junior"})
 
     assert response.status_code == 422
+
+
+# --- /path/yaml (synchronous YAML endpoint) ---
+
+
+def test_yaml_endpoint_returns_valid_yaml(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, _, _ = client
+
+    response = http.post(
+        "/api/v1/onboarding/path/yaml",
+        json={"working_area": "backend", "experience": "junior"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/x-yaml"
+
+    import yaml
+
+    path = yaml.safe_load(response.text)
+    assert path["working_area"] == "backend"
+    assert path["experience"] == "junior"
+    assert any(
+        s["id"] == "account-setup"
+        for phase in path["phases"]
+        for s in phase["steps"]
+    )
+
+
+def test_yaml_endpoint_includes_quality_report(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, _, _ = client
+
+    response = http.post(
+        "/api/v1/onboarding/path/yaml",
+        json={"working_area": "backend", "experience": "junior"},
+    )
+
+    import yaml
+
+    path = yaml.safe_load(response.text)
+    assert "quality" in path
+    assert "coverage" in path["quality"]
+    assert "score" in path["quality"]
+
+
+def test_yaml_endpoint_missing_field_returns_422(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, _, _ = client
+
+    response = http.post(
+        "/api/v1/onboarding/path/yaml", json={"experience": "junior"}
+    )
+
+    assert response.status_code == 422

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from api.dependencies import get_onboarding_orchestrator
 from api.schemas import OnboardingPathRequest, ValidationErrorResponse
@@ -71,3 +71,34 @@ def onboarding_path(
         orchestrator.stream(body.to_profile()),
         media_type="text/event-stream",
     )
+
+
+@router.post(
+    "/path/yaml",
+    summary="Generate a personalized onboarding path (YAML)",
+    description=(
+        "Runs the same deterministic pipeline as the SSE endpoint but returns "
+        "the finished onboarding path as a single YAML document."
+    ),
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Onboarding path as YAML",
+            "content": {"application/x-yaml": {"schema": {"type": "string"}}},
+        },
+        422: {
+            "model": ValidationErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {"detail": "'working_area' is required"}
+                }
+            },
+        },
+    },
+)
+def onboarding_path_yaml(
+    body: OnboardingPathRequest,
+    orchestrator: OnboardingOrchestrator = Depends(get_onboarding_orchestrator),
+) -> Response:
+    path = orchestrator.run(body.to_profile())
+    return Response(content=path.to_yaml(), media_type="application/x-yaml")
