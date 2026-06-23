@@ -32,7 +32,10 @@ def _emit_stages(
             stage = next(gen)
         except StopIteration as stop:
             return stop.value
-        yield _sse({"type": "stage", "name": stage.name})
+        event: dict[str, object] = {"type": "stage", "name": stage.name}
+        if stage.detail:
+            event["detail"] = stage.detail
+        yield _sse(event)
 
 
 class OnboardingOrchestrator:

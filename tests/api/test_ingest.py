@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_llm, get_store
 from llm.errors import LLMUnavailableError
+from store.chroma_store import ChromaVectorStore
 from tests.conftest import llm_required
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -30,6 +31,8 @@ def client() -> Generator[tuple[TestClient, StubVectorStore], Any, None]:
 
 @pytest.fixture
 def real_client() -> Generator[TestClient, Any, None]:
+    store = ChromaVectorStore(collection_name="ingest-integration-test")
+    app.dependency_overrides[get_store] = lambda: store
     yield TestClient(app)
     app.dependency_overrides.clear()
 

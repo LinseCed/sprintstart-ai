@@ -59,6 +59,9 @@ class GenerationOutcome(BaseModel):
     scope: str
     status: OutcomeStatus
     draft_version: str | None = None
+    chunks_retrieved: int = 0
+    steps_drafted: int = 0
+    model: str | None = None
     notes: list[str] = Field(default_factory=list[str])
 
 
@@ -126,8 +129,20 @@ def _slugify(text: str, fallback: str) -> str:
     return slug or fallback
 
 
-def _build_prompt(scope: str, chunks: list[ScoredChunk]) -> list[Message]:
+def _build_prompt(
+    scope: str,
+    chunks: list[ScoredChunk],
+    global_steps: list[BlueprintStep] | None = None,
+) -> list[Message]:
     evidence = "\n".join(f"[{c.id}] ({c.filename}) {c.text}" for c in chunks)
+    exclusion = ""
+    if global_steps:
+        covered = "\n".join(f"- {s.id}: {s.title}" for s in global_steps)
+        exclusion = (
+            "\n4. The global blueprint already covers these steps. Do NOT "
+            "duplicate or rephrase them; only propose steps specific to this "
+            f"area:\n{covered}\n"
+        )
     system = (
         "You draft an onboarding blueprint for a software team from its knowledge "
         "base. You are given evidence snippets, each prefixed with its chunk id in "
@@ -138,7 +153,8 @@ def _build_prompt(scope: str, chunks: list[ScoredChunk]) -> list[Message]:
         "not invent sources.\n"
         "2. Mark foundational/mandatory steps as 'required', others as "
         "'recommended'.\n"
-        "3. Give each step a short kebab-case 'id'.\n\n"
+        "3. Give each step a short kebab-case 'id'.\n"
+        f"{exclusion}\n"
         'JSON schema: {"steps": [{"id": str, "title": str, "description": str, '
         '"requirement": "required"|"recommended", "tags": [str], '
         '"chunk_ids": [str]}]}'
@@ -159,10 +175,13 @@ def _extract_json(text: str) -> str:
 
 
 def _draft_steps(
-    scope: str, chunks: list[ScoredChunk], llm: LLMClient
+    scope: str,
+    chunks: list[ScoredChunk],
+    llm: LLMClient,
+    global_steps: list[BlueprintStep] | None = None,
 ) -> list[BlueprintStep]:
     """Ask the LLM for steps and keep only those grounded in the evidence."""
-    raw = llm.generate(_build_prompt(scope, chunks))
+    raw = llm.generate(_build_prompt(scope, chunks, global_steps))
     try:
         payload = _GenPayload.model_validate_json(_extract_json(raw))
     except (ValidationError, json.JSONDecodeError) as exc:
@@ -263,6 +282,7 @@ def _generate_scope(
     store: VectorStore,
     bm25_cache: BM25IndexCache,
     model: str | None,
+    global_steps: list[BlueprintStep] | None = None,
 ) -> GenerationOutcome:
     active = drafts.active_blueprint(scope)
 
@@ -296,7 +316,7 @@ def _generate_scope(
             scope=scope, status="skipped", notes=["no grounding evidence retrieved"]
         )
 
-    steps = _draft_steps(scope, chunks, llm)
+    steps = _draft_steps(scope, chunks, llm, global_steps)
     if not steps:
         return GenerationOutcome(
             scope=scope, status="skipped", notes=["no grounded steps proposed"]
@@ -328,7 +348,13 @@ def _generate_scope(
     else:
         status = "updated"
     return GenerationOutcome(
-        scope=scope, status=status, draft_version=draft.version, notes=invariant_notes
+        scope=scope,
+        status=status,
+        draft_version=draft.version,
+        chunks_retrieved=len(chunks),
+        steps_drafted=len(steps),
+        model=model,
+        notes=invariant_notes,
     )
 
 
@@ -344,18 +370,30 @@ def generate_blueprints(
     model = _model_name(llm)
 
     outcomes: list[GenerationOutcome] = []
-    for scope in scopes or default_scopes():
+    resolved_scopes = scopes or default_scopes()
+
+    # Generate global first so area scopes can exclude its steps.
+    if "global" in resolved_scopes:
+        resolved_scopes = ["global"] + [s for s in resolved_scopes if s != "global"]
+
+    global_steps: list[BlueprintStep] | None = None
+    for scope in resolved_scopes:
         try:
-            outcomes.append(
-                _generate_scope(
-                    scope,
-                    fingerprint=fingerprint,
-                    llm=llm,
-                    store=store,
-                    bm25_cache=bm25_cache,
-                    model=model,
-                )
+            outcome = _generate_scope(
+                scope,
+                fingerprint=fingerprint,
+                llm=llm,
+                store=store,
+                bm25_cache=bm25_cache,
+                model=model,
+                global_steps=global_steps if scope != "global" else None,
             )
+            outcomes.append(outcome)
+            # After global is generated, collect its steps for area scopes.
+            if scope == "global" and global_steps is None:
+                bp = drafts.get_draft("global") or drafts.active_blueprint("global")
+                if bp is not None:
+                    global_steps = bp.steps
         except GenerationError as exc:
             logger.warning("Generation failed for scope %s: %s", scope, exc)
             outcomes.append(

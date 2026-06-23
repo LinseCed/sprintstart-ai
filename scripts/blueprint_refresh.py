@@ -51,7 +51,15 @@ def run(args: argparse.Namespace) -> int:
             "skipped": C.dim,
         }.get(outcome.status, C.dim)
         version = f" v{outcome.draft_version}" if outcome.draft_version else ""
-        print(f"  {colour(outcome.status):<12} {outcome.scope}{version}")
+        detail_parts: list[str] = []
+        if outcome.chunks_retrieved:
+            detail_parts.append(f"{outcome.chunks_retrieved} chunks")
+        if outcome.steps_drafted:
+            detail_parts.append(f"{outcome.steps_drafted} steps")
+        if outcome.model:
+            detail_parts.append(outcome.model)
+        detail = C.dim(f"  ({', '.join(detail_parts)})") if detail_parts else ""
+        print(f"  {colour(outcome.status):<12} {outcome.scope}{version}{detail}")
         for note in outcome.notes:
             print(C.dim(f"      · {note}"))
 
@@ -67,7 +75,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--scope",
         action="append",
         default=[],
-        help="Scope to (re)generate; repeatable. Default: all known scopes.",
+        help=(
+            "Scope to (re)generate, e.g. global, area:backend, area:frontend. "
+            "Repeatable. Default: global + any active blueprint scopes."
+        ),
     )
 
 

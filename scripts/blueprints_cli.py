@@ -44,12 +44,18 @@ def _generate(client: ServiceClient, args: argparse.Namespace) -> int:
     table.add_column("status", no_wrap=True)
     table.add_column("scope")
     table.add_column("version", justify="right")
+    table.add_column("chunks", justify="right")
+    table.add_column("steps", justify="right")
+    table.add_column("model")
     table.add_column("notes")
     for o in outcomes:
         table.add_row(
             str(o.get("status", "")),
             str(o.get("scope", "")),
             str(o.get("draft_version") or "—"),
+            str(o.get("chunks_retrieved", 0) or "—"),
+            str(o.get("steps_drafted", 0) or "—"),
+            C.dim(str(o.get("model") or "—")),
             C.dim("; ".join(o.get("notes", [])) or "—"),
         )
     console.print(table)
@@ -164,7 +170,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
     p_gen = sub.add_parser("generate", help="Draft/update blueprints from the corpus.")
     p_gen.add_argument(
-        "--scope", action="append", default=[], help="Scope to generate; repeatable."
+        "--scope",
+        action="append",
+        default=[],
+        help=(
+            "Scope to generate, e.g. global, area:backend, area:frontend. "
+            "Repeatable. Default: global + any active blueprint scopes."
+        ),
     )
 
     sub.add_parser("drafts", help="List pending drafts.")

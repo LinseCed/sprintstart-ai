@@ -382,8 +382,8 @@ class GenerateBlueprintsRequest(BaseModel):
     scopes: list[str] | None = Field(
         default=None,
         description=(
-            "Scopes to (re)generate, e.g. ['global', 'area:backend']. Omit to "
-            "refresh every scope present among existing blueprints plus 'global'."
+            "Scopes to (re)generate, e.g. ['global', 'area:backend', 'area:frontend']. "
+            "Omit to refresh 'global' plus any active blueprint scopes."
         ),
     )
 

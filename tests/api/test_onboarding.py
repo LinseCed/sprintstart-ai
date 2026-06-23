@@ -1,5 +1,6 @@
 import json
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,33 @@ from tests.stubs.store import StubVectorStore
 
 # Non-zero embedding so the stub store returns a perfect cosine match.
 _EMBED = [1.0] + [0.0] * 767
+
+_GLOBAL_YAML = """\
+scope: global
+version: "1"
+source: authored
+steps:
+  - id: account-setup
+    title: Set up your accounts and access
+    requirement: required
+"""
+
+_BACKEND_YAML = """\
+scope: "area:backend"
+version: "1"
+source: authored
+steps:
+  - id: local-db-setup
+    title: Set up your local database
+    requirement: required
+"""
+
+
+@pytest.fixture(autouse=True)
+def _test_blueprints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "global.yaml").write_text(_GLOBAL_YAML)
+    (tmp_path / "area-backend.yaml").write_text(_BACKEND_YAML)
+    monkeypatch.setenv("BLUEPRINTS_PATH", str(tmp_path))
 
 
 @pytest.fixture
@@ -65,7 +93,6 @@ def test_required_steps_always_present(
     path = _path_event(events)["path"]
     ids = _all_step_ids(path)
 
-    # Required global + backend steps from the seed blueprints.
     assert "account-setup" in ids
     assert "local-db-setup" in ids
 

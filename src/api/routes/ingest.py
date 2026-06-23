@@ -72,10 +72,8 @@ def ingest(
         ) from NotImplementedError
 
     if not parsed_chunks:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported file type: {body.filename}",
-        )
+        store.delete(body.artifact_id, exclude_ids=[])
+        return IngestResponse(artifact_id=body.artifact_id, chunk_count=0)
 
     enriched: list[ParsedChunk] = []
     for chunk in parsed_chunks:

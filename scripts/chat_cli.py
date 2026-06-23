@@ -33,15 +33,15 @@ class MarkdownStream:
             self._live = Live(
                 console=self._console,
                 auto_refresh=False,
-                vertical_overflow="visible",
+                transient=True,
             )
             self._live.start()
         self._live.update(Markdown(self._buffer), refresh=True)
 
     def close(self) -> None:
         if self._live is not None:
-            self._live.update(Markdown(self._buffer), refresh=True)
             self._live.stop()
+            self._console.print(Markdown(self._buffer))
             self._live = None
         elif not self._console.is_terminal:
             sys.stdout.write("\n")

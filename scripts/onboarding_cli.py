@@ -31,7 +31,9 @@ def _generate(
     for event in client.events("/api/v1/onboarding/path", payload):
         kind = event.get("type")
         if kind == "stage":
-            print(C.dim(f"  · {event.get('name')}…"))
+            detail = event.get("detail", "")
+            suffix = f" — {detail}" if detail else ""
+            print(C.dim(f"  · {event.get('name')}{suffix}"))
         elif kind == "path":
             result = dict(event)
         elif kind == "error":

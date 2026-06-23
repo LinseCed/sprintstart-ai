@@ -49,6 +49,7 @@ _INVARIANTS: list[PathStep] = []
 @dataclass(frozen=True)
 class StageProgress:
     name: str
+    detail: str = ""
 
 
 def _phase_title(scope: str) -> str:
@@ -103,37 +104,49 @@ class OnboardingPipeline:
         self, profile: PersonProfile
     ) -> Generator[StageProgress, None, OnboardingPath]:
         # (1) select
-        yield StageProgress("select")
-        selected = select_blueprints(load_blueprints(), profile)
+        all_blueprints = load_blueprints()
+        selected = select_blueprints(all_blueprints, profile)
+        total_steps = sum(len(b.steps) for b in selected)
+        scopes = ", ".join(b.scope for b in selected) or "none"
+        yield StageProgress("select", f"{len(selected)} blueprint(s) [{scopes}], {total_steps} step(s)")
         blueprint_versions = {b.scope: b.version for b in selected}
         required_ids = {
             s.id for b in selected for s in b.steps if s.requirement == "required"
         }
 
         # (2) filter / order
-        yield StageProgress("filter")
         phases, kept_steps = _build_phases(selected, profile)
+        yield StageProgress("filter", f"{len(kept_steps)} step(s) after filtering")
 
         # (3) retrieve grounding evidence across the corpus
-        yield StageProgress("retrieve")
         chunks = self._retrieve(profile, kept_steps)
+        yield StageProgress("retrieve", f"{len(chunks)} chunk(s) retrieved")
 
         # (4) synthesize the personalized layer (schema gate -> fallback)
-        yield StageProgress("synthesize")
         notes: list[str] = []
         try:
             result = synthesize(profile, kept_steps, chunks, self._llm)
+            enriched_count = len(result.enrichments)
+            added_count = len(result.added_steps)
+            yield StageProgress(
+                "synthesize",
+                f"{enriched_count} enriched, {added_count} added step(s)",
+            )
         except SynthesisError as exc:
             logger.warning("Synthesis failed, using blueprint-only fallback: %s", exc)
             result = SynthesisResult()
             notes.append("LLM synthesis unavailable; blueprint-only fallback")
+            yield StageProgress("synthesize", "fallback: LLM synthesis unavailable")
 
         # (5) validate & quality gates
-        yield StageProgress("validate")
         _apply_enrichments(phases, result.enrichments)
-        notes.extend(_apply_grounding_gate(phases, result.added_steps))
+        gate_notes = _apply_grounding_gate(phases, result.added_steps)
+        notes.extend(gate_notes)
         _enforce_coverage(phases, selected, profile)
         _enforce_invariants(phases)
+        total_out = sum(len(p.steps) for p in phases)
+        gate_summary = "; ".join(gate_notes) if gate_notes else "all gates passed"
+        yield StageProgress("validate", f"{total_out} step(s) in path; {gate_summary}")
 
         # (6) emit
         yield StageProgress("emit")

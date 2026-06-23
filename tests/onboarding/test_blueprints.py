@@ -75,11 +75,9 @@ def test_select_unknown_area_yields_global_only() -> None:
     assert [b.scope for b in selected] == ["global"]
 
 
-def test_repo_seed_blueprints_are_valid() -> None:
+def test_no_repo_seed_blueprints_shipped() -> None:
     repo_blueprints = Path(__file__).resolve().parents[2] / "blueprints"
 
     blueprints = load_blueprints(repo_blueprints)
 
-    scopes = {b.scope for b in blueprints}
-    assert "global" in scopes
-    assert "area:backend" in scopes
+    assert blueprints == []
