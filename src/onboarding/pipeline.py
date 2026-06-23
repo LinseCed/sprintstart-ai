@@ -199,6 +199,7 @@ def _build_phases(
                         requirement=s.requirement,
                         origin="blueprint",
                         tags=s.tags,
+                        citations=s.citations,
                     )
                     for s in applicable
                 ],
@@ -256,6 +257,7 @@ def _enforce_coverage(
                     requirement="required",
                     origin="blueprint",
                     tags=step.tags,
+                    citations=step.citations,
                 ),
             )
             present.add(step.id)

@@ -378,6 +378,23 @@ class OnboardingPathRequest(BaseModel):
     }
 
 
+class GenerateBlueprintsRequest(BaseModel):
+    scopes: list[str] | None = Field(
+        default=None,
+        description=(
+            "Scopes to (re)generate, e.g. ['global', 'area:backend']. Omit to "
+            "refresh every scope present among existing blueprints plus 'global'."
+        ),
+    )
+
+
+class RollbackBlueprintRequest(BaseModel):
+    version: Annotated[
+        str,
+        Field(min_length=1, description="The retained version to restore as active."),
+    ]
+
+
 class StageEvent(BaseModel):
     type: Literal["stage"]
     name: Annotated[

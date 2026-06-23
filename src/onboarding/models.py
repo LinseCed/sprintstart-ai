@@ -72,20 +72,42 @@ class BlueprintStep(BaseModel):
     min_experience: str | None = None
     tags: list[str] = Field(default_factory=list[str])
     resources: list[Resource] = Field(default_factory=list[Resource])
+    # Intrinsic grounding for AI-generated steps (issue #110); authored steps
+    # leave this empty and rely on the serve-time enrichment layer instead.
+    citations: list[CitationRef] = Field(default_factory=list[CitationRef])
+    # Human-owned protection flag. An ``invariant`` step may not be removed or
+    # downgraded by the generation job; such changes are blocked or escalated.
+    invariant: bool = False
+
+
+class BlueprintProvenance(BaseModel):
+    """Why a generated blueprint looks the way it does.
+
+    ``corpus_fingerprint`` ties a generated blueprint to the exact corpus state
+    it was drafted from, which is what makes the generation job idempotent:
+    re-running against an unchanged corpus produces the same fingerprint and is
+    skipped. ``None`` throughout for authored blueprints.
+    """
+
+    corpus_fingerprint: str | None = None
+    generated_at: str | None = None
+    model: str | None = None
+    notes: list[str] = Field(default_factory=list[str])
 
 
 class Blueprint(BaseModel):
     """A versioned, scoped set of onboarding steps.
 
     ``source`` + ``version`` give provenance/rollback. ``source`` is the
-    pluggable seam: this increment ships ``authored``; ``generated`` (issue
-    #110) reuses the identical serve path.
+    pluggable seam: ``authored`` and ``generated`` (issue #110) share the
+    identical serve path. ``provenance`` is populated for generated blueprints.
     """
 
     scope: str = Field(description="'global' or 'area:<name>'")
     version: str = "0"
     source: Source = "authored"
     steps: list[BlueprintStep] = Field(default_factory=list[BlueprintStep])
+    provenance: BlueprintProvenance | None = None
 
 
 class PathStep(BaseModel):

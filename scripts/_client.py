@@ -64,6 +64,9 @@ class ServiceClient:
     def post(self, path: str, json_body: dict[str, object]) -> httpx.Response:
         return self._http.post(f"{self._base}{path}", json=json_body)
 
+    def delete(self, path: str) -> httpx.Response:
+        return self._http.delete(f"{self._base}{path}")
+
     def events(
         self, path: str, payload: dict[str, object]
     ) -> Iterator[dict[str, object]]:
