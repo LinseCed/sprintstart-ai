@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import httpx
+from _client import ServiceClient, add_base_url_arg
 from cli_colors import C
 from rich.console import Console
 from rich.table import Table
@@ -15,93 +12,32 @@ from rich.table import Table
 console = Console()
 
 
-def _iter_sse(response: httpx.Response) -> Iterator[dict[str, object]]:
-    """Yield decoded JSON payloads from an SSE `data:` stream."""
-    for line in response.iter_lines():
-        if line.startswith("data: "):
-            try:
-                yield json.loads(line[len("data: ") :])
-            except json.JSONDecodeError:
-                continue
+def _generate(
+    client: ServiceClient,
+    working_area: str,
+    experience: str,
+    skills: list[str],
+    tags: list[str],
+) -> dict[str, Any] | None:
+    """Stream a path; print stage progress; return the final `path` event."""
+    payload: dict[str, object] = {
+        "working_area": working_area,
+        "experience": experience,
+        "skills": skills,
+        "tags": tags,
+    }
 
-
-class Client:
-    def __init__(self, base_url: str) -> None:
-        self._base = base_url.rstrip("/")
-        self._http = httpx.Client(timeout=httpx.Timeout(None, connect=5.0))
-
-    def generate(
-        self,
-        working_area: str,
-        experience: str,
-        skills: list[str],
-        tags: list[str],
-    ) -> dict[str, Any] | None:
-        """Stream a path; print stage progress; return the final `path` event."""
-        payload = {
-            "working_area": working_area,
-            "experience": experience,
-            "skills": skills,
-            "tags": tags,
-        }
-
-        result: dict[str, Any] | None = None
-        try:
-            with self._http.stream(
-                "POST", f"{self._base}/api/v1/onboarding/path", json=payload
-            ) as response:
-                if response.status_code != 200:
-                    response.read()
-                    self._print_http_error(response)
-                    return None
-
-                for event in _iter_sse(response):
-                    kind = event.get("type")
-                    if kind == "stage":
-                        print(C.dim(f"  · {event.get('name')}…"))
-                    elif kind == "path":
-                        result = dict(event)
-                    elif kind == "error":
-                        message = event.get("message", "unknown error")
-                        print(C.red(f"\n[error] {message}"))
-                        return None
-        except httpx.ConnectError:
-            self.report_unreachable()
+    result: dict[str, Any] | None = None
+    for event in client.events("/api/v1/onboarding/path", payload):
+        kind = event.get("type")
+        if kind == "stage":
+            print(C.dim(f"  · {event.get('name')}…"))
+        elif kind == "path":
+            result = dict(event)
+        elif kind == "error":
+            print(C.red(f"\n[error] {event.get('message', 'unknown error')}"))
             return None
-        except httpx.HTTPError as exc:
-            print(C.red(f"[error] request failed: {exc}"))
-            return None
-
-        return result
-
-    def health(self) -> tuple[str, str | None] | None:
-        try:
-            response = self._http.get(f"{self._base}/api/v1/health", timeout=20.0)
-        except httpx.HTTPError:
-            return None
-        try:
-            data = response.json()
-        except (json.JSONDecodeError, ValueError):
-            return ("unknown", None)
-        detail = data.get("detail")
-        return str(data.get("status", "unknown")), str(detail) if detail else None
-
-    def report_unreachable(self) -> None:
-        print(C.red(f"[error] cannot reach the service at {self._base}"))
-        print(C.dim("        is it running?  uv run python -m src.main"))
-
-    def _print_http_error(self, response: httpx.Response) -> None:
-        print(C.red(f"[error] {response.status_code} {self._detail(response)}"))
-
-    @staticmethod
-    def _detail(response: httpx.Response) -> str:
-        try:
-            return str(response.json().get("detail", response.text))
-        except (json.JSONDecodeError, ValueError):
-            return response.text
-
-    def close(self) -> None:
-        self._http.close()
+    return result
 
 
 def _render_path(event: dict[str, Any]) -> None:
@@ -161,15 +97,11 @@ def _render_quality(quality: dict[str, Any]) -> None:
         print(C.yellow(f"  ! {note}"))
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Generate a personalized onboarding path from SprintStart AI."
-    )
-    parser.add_argument(
-        "--base-url",
-        default=os.environ.get("SPRINTSTART_URL", "http://localhost:8000"),
-        help="Base URL of the service (default: %(default)s).",
-    )
+def _csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-a",
         "--working-area",
@@ -181,48 +113,22 @@ def _parse_args() -> argparse.Namespace:
         help="Coarse experience level, e.g. junior, mid, senior. Prompted if omitted.",
     )
     parser.add_argument(
-        "--skills",
-        default="",
-        help="Comma-separated skill tags (optional).",
+        "--skills", default="", help="Comma-separated skill tags (optional)."
     )
     parser.add_argument(
-        "--tags",
-        default="",
-        help="Comma-separated free-form tags (optional).",
+        "--tags", default="", help="Comma-separated free-form tags (optional)."
     )
     parser.add_argument(
         "--yaml",
         action="store_true",
         help="Print the raw YAML path instead of the rendered tables.",
     )
-    parser.add_argument(
-        "--out",
-        metavar="FILE",
-        help="Write the YAML path to FILE.",
-    )
-    return parser.parse_args()
+    parser.add_argument("--out", metavar="FILE", help="Write the YAML path to FILE.")
 
 
-def _csv(value: str) -> list[str]:
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def main() -> int:
-    args = _parse_args()
-    client = Client(args.base_url)
-
-    print(C.bold("SprintStart AI — onboarding path client"))
-    print(C.dim(f"connected to {args.base_url}"))
-    result = client.health()
-    if result is None:
-        client.report_unreachable()
-    else:
-        status, detail = result
-        colour = C.green if status == "ok" else C.yellow
-        line = C.dim("health: ") + colour(status)
-        if detail:
-            line += C.dim(f" — {detail}")
-        print(line)
+def run(args: argparse.Namespace) -> int:
+    client = ServiceClient(args.base_url)
+    client.print_banner("SprintStart AI — onboarding path")
     print("")
 
     working_area = args.working_area
@@ -243,8 +149,8 @@ def main() -> int:
         return 1
 
     try:
-        event = client.generate(
-            working_area, experience, _csv(args.skills), _csv(args.tags)
+        event = _generate(
+            client, working_area, experience, _csv(args.skills), _csv(args.tags)
         )
     finally:
         client.close()
@@ -264,6 +170,15 @@ def main() -> int:
         _render_path(event)
 
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Generate a personalized onboarding path from SprintStart AI."
+    )
+    add_base_url_arg(parser)
+    add_arguments(parser)
+    return run(parser.parse_args())
 
 
 if __name__ == "__main__":

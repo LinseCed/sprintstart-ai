@@ -1,23 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import json
-import os
 import sys
-from collections.abc import Iterator
-from pathlib import Path
 
-import httpx
+from _client import ServiceClient, add_base_url_arg
 from cli_colors import C
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
-
-TEXT_EXTENSIONS = {".txt", ".json", ".md", ".yaml", ".yml", ".toml"}
-CODE_EXTENSIONS = {".py", ".js", ".ts", ".go"}
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
-INGESTABLE = TEXT_EXTENSIONS | CODE_EXTENSIONS | IMAGE_EXTENSIONS
 
 
 class MarkdownStream:
@@ -58,69 +48,36 @@ class MarkdownStream:
             sys.stdout.flush()
 
 
-def _iter_sse(response: httpx.Response) -> Iterator[dict[str, object]]:
-    """Yield decoded JSON payloads from an SSE `data:` stream."""
-    for line in response.iter_lines():
-        if line.startswith("data: "):
-            try:
-                yield json.loads(line[len("data: ") :])
-            except json.JSONDecodeError:
-                continue
-
-
-class Client:
+class ChatClient(ServiceClient):
     def __init__(self, base_url: str) -> None:
-        self._base = base_url.rstrip("/")
-        self._http = httpx.Client(timeout=httpx.Timeout(None, connect=5.0))
-        self._console = Console()
+        super().__init__(base_url)
         self.history: list[dict[str, str]] = []
 
     def ask(self, prompt: str) -> None:
-        payload = {
-            "prompt": prompt,
-            "context": self.history,
-        }
+        payload: dict[str, object] = {"prompt": prompt, "context": self.history}
 
         answer_parts: list[str] = []
         citations: list[dict[str, object]] = []
         printed_prefix = False
-        renderer = MarkdownStream(self._console)
+        renderer = MarkdownStream(self.console)
 
-        try:
-            with self._http.stream(
-                "POST", f"{self._base}/api/v1/chat", json=payload
-            ) as response:
-                if response.status_code != 200:
-                    response.read()
-                    self._print_http_error(response)
-                    return
-
-                for event in _iter_sse(response):
-                    kind = event.get("type")
-                    if kind == "tool_use":
-                        name = event.get("name")
-                        cap = event.get("kind")
-                        print(C.dim(f"  · {name} [{cap}]"))
-                    elif kind == "token":
-                        if not printed_prefix:
-                            sys.stdout.write(C.green("ai>") + "\n")
-                            sys.stdout.flush()
-                            printed_prefix = True
-                        content = str(event.get("content", ""))
-                        renderer.feed(content)
-                        answer_parts.append(content)
-                    elif kind == "citation":
-                        citations.append(event)
-                    elif kind == "error":
-                        message = event.get("message", "unknown error")
-                        print(C.red(f"\n[error] {message}"))
-                        return
-        except httpx.ConnectError:
-            self.report_unreachable()
-            return
-        except httpx.HTTPError as exc:
-            print(C.red(f"[error] request failed: {exc}"))
-            return
+        for event in self.events("/api/v1/chat", payload):
+            kind = event.get("type")
+            if kind == "tool_use":
+                print(C.dim(f"  · {event.get('name')} [{event.get('kind')}]"))
+            elif kind == "token":
+                if not printed_prefix:
+                    sys.stdout.write(C.green("ai>") + "\n")
+                    sys.stdout.flush()
+                    printed_prefix = True
+                content = str(event.get("content", ""))
+                renderer.feed(content)
+                answer_parts.append(content)
+            elif kind == "citation":
+                citations.append(event)
+            elif kind == "error":
+                print(C.red(f"\n[error] {event.get('message', 'unknown error')}"))
+                return
 
         if printed_prefix:
             renderer.close()
@@ -143,102 +100,6 @@ class Client:
             seen.add(filename)
             print(C.dim(f"  - {filename}"))
 
-    def ingest_path(self, raw_path: str, artifact_id: str | None) -> None:
-        path = Path(raw_path).expanduser()
-        if not path.exists():
-            print(C.red(f"[error] no such path: {path}"))
-            return
-
-        if path.is_dir():
-            files = sorted(
-                p for p in path.rglob("*") if p.is_file() and p.suffix in INGESTABLE
-            )
-            if not files:
-                print(C.yellow(f"no ingestable files found under {path}"))
-                return
-            print(C.dim(f"ingesting {len(files)} file(s) from {path}…"))
-            for file in files:
-                self._ingest_file(file, artifact_id=None)
-        else:
-            self._ingest_file(path, artifact_id=artifact_id)
-
-    def _ingest_file(self, path: Path, artifact_id: str | None) -> None:
-        suffix = path.suffix.lower()
-        if suffix not in INGESTABLE:
-            hint = ""
-            if suffix == ".pdf":
-                hint = " (PDFs aren't supported over this JSON API)"
-            print(C.yellow(f"  skip {path.name}: unsupported type {suffix!r}{hint}"))
-            return
-
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            print(C.red(f"  fail {path.name}: {exc}"))
-            return
-
-        if suffix in IMAGE_EXTENSIONS:
-            content = base64.b64encode(raw).decode("ascii")
-        else:
-            content = raw.decode("utf-8", errors="replace")
-
-        body = {
-            "artifact_id": artifact_id or path.name,
-            "filename": path.name,
-            "content": content,
-        }
-
-        try:
-            response = self._http.post(f"{self._base}/api/v1/ingest", json=body)
-        except httpx.ConnectError:
-            self.report_unreachable()
-            return
-        except httpx.HTTPError as exc:
-            print(C.red(f"  fail {path.name}: {exc}"))
-            return
-
-        if response.status_code == 200:
-            data = response.json()
-            count = data.get("chunk_count", "?")
-            note = C.yellow(" (0 chunks — nothing stored)") if count == 0 else ""
-            print(
-                C.green(f"  ok   {path.name}")
-                + C.dim(f" → artifact '{body['artifact_id']}', {count} chunk(s)")
-                + note
-            )
-        else:
-            detail = self._detail(response)
-            print(C.red(f"  fail {path.name}: {response.status_code} {detail}"))
-
-    def health(self) -> tuple[str, str | None] | None:
-        try:
-            response = self._http.get(f"{self._base}/api/v1/health", timeout=20.0)
-        except httpx.HTTPError:
-            return None
-        try:
-            data = response.json()
-        except (json.JSONDecodeError, ValueError):
-            return ("unknown", None)
-        detail = data.get("detail")
-        return str(data.get("status", "unknown")), str(detail) if detail else None
-
-    def report_unreachable(self) -> None:
-        print(C.red(f"[error] cannot reach the service at {self._base}"))
-        print(C.dim("        is it running?  uv run python -m src.main"))
-
-    def _print_http_error(self, response: httpx.Response) -> None:
-        print(C.red(f"[error] {response.status_code} {self._detail(response)}"))
-
-    @staticmethod
-    def _detail(response: httpx.Response) -> str:
-        try:
-            return str(response.json().get("detail", response.text))
-        except (json.JSONDecodeError, ValueError):
-            return response.text
-
-    def close(self) -> None:
-        self._http.close()
-
 
 HELP = """\
 commands:
@@ -251,7 +112,7 @@ commands:
 """
 
 
-def _handle_command(client: Client, line: str) -> bool:
+def _handle_command(client: ChatClient, line: str) -> bool:
     parts = line.split()
     cmd = parts[0].lower()
 
@@ -280,29 +141,13 @@ def _handle_command(client: Client, line: str) -> bool:
     return True
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Terminal client for SprintStart AI.")
-    parser.add_argument(
-        "--base-url",
-        default=os.environ.get("SPRINTSTART_URL", "http://localhost:8000"),
-        help="Base URL of the service (default: %(default)s).",
-    )
-    args = parser.parse_args()
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    """No chat-specific args; the REPL is interactive."""
 
-    client = Client(args.base_url)
 
-    print(C.bold("SprintStart AI — terminal client"))
-    print(C.dim(f"connected to {args.base_url}"))
-    result = client.health()
-    if result is None:
-        client.report_unreachable()
-    else:
-        status, detail = result
-        colour = C.green if status == "ok" else C.yellow
-        line = C.dim("health: ") + colour(status)
-        if detail:
-            line += C.dim(f" — {detail}")
-        print(line)
+def run(args: argparse.Namespace) -> int:
+    client = ChatClient(args.base_url)
+    client.print_banner("SprintStart AI — chat")
     print(C.dim("type /help for commands, /quit to exit\n"))
 
     try:
@@ -328,6 +173,13 @@ def main() -> int:
 
     print(C.dim("bye."))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Chat client for SprintStart AI.")
+    add_base_url_arg(parser)
+    add_arguments(parser)
+    return run(parser.parse_args())
 
 
 if __name__ == "__main__":
