@@ -32,8 +32,28 @@ class StubVectorStore:
         self,
         artifact_id: str,
         exclude_ids: list[str] | None = None,
-    ) -> None:
+    ) -> int:
         self.deleted_artifacts.append(artifact_id)
+        return 0
+
+    def list_chunks(self, limit: int, offset: int = 0) -> list[Chunk]:
+        return self.added_chunks[offset : offset + limit]
+
+    def list_chunks_by_artifact(
+        self,
+        artifact_id: str,
+        limit: int,
+        offset: int = 0,
+    ) -> list[Chunk]:
+        chunks = [
+            chunk for chunk in self.added_chunks if chunk.artifact_id == artifact_id
+        ]
+        return chunks[offset : offset + limit]
+
+    def count_by_artifact(self, artifact_id: str) -> int:
+        return len(
+            [chunk for chunk in self.added_chunks if chunk.artifact_id == artifact_id]
+        )
 
     def all_chunks(self) -> list[Chunk]:
         return self.added_chunks
@@ -83,6 +103,7 @@ def client(
     yield TestClient(app)
 
     app.dependency_overrides.clear()
+    metadata_store.close()
 
 
 def test_ingest_returns_artifact_and_chunk_metadata(
@@ -115,18 +136,20 @@ def test_ingest_returns_artifact_and_chunk_metadata(
     assert len(body["chunks"]) == body["chunk_count"]
     assert body["chunks"][0]["artifact_id"] == "artifact-1"
     assert body["chunks"][0]["filename"] == "notes.txt"
+    assert body["chunks"][0]["chunk_index"] == 0
     assert body["chunks"][0]["vector_store_id"] == body["chunks"][0]["id"]
     assert "embedding" not in body["chunks"][0]
+    assert "heading_path" not in body["chunks"][0]
 
     artifact = metadata_store.get_artifact("artifact-1")
     assert artifact is not None
     assert artifact.status == "completed"
     assert artifact.chunk_count == body["chunk_count"]
 
-    stored_chunks = metadata_store.get_chunks("artifact-1")
-    assert len(stored_chunks) == body["chunk_count"]
-
     assert len(vector_store.added_chunks) == body["chunk_count"]
+    assert vector_store.added_chunks[0].artifact_id == "artifact-1"
+    assert vector_store.added_chunks[0].filename == "notes.txt"
+    assert vector_store.added_chunks[0].position == 0
 
 
 def test_failed_embedding_marks_artifact_failed(
@@ -159,3 +182,5 @@ def test_failed_embedding_marks_artifact_failed(
     assert "embedding backend unavailable" in artifact.error_message
 
     assert vector_store.added_chunks == []
+
+    metadata_store.close()
