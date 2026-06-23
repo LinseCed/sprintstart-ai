@@ -40,16 +40,10 @@ logger = logging.getLogger(__name__)
 
 STAGES = ("select", "filter", "retrieve", "synthesize", "validate", "emit")
 
-# Human-owned invariant: every path must contain an acknowledged security step,
-# regardless of blueprint source. Enforced in code, not in blueprint data.
-_SECURITY_INVARIANT = PathStep(
-    id="security-policy-ack",
-    title="Read and acknowledge the security policy",
-    description="Review the security policy and record your acknowledgement.",
-    requirement="required",
-    origin="blueprint",
-    tags=["security", "compliance"],
-)
+# Human-owned invariants: steps the assembler guarantees are present in every
+# path, regardless of blueprint source. Enforced in code, not in blueprint data.
+# Currently empty — add mandatory/compliance steps here to force them in.
+_INVARIANTS: list[PathStep] = []
 
 
 @dataclass(frozen=True)
@@ -278,10 +272,16 @@ def _phase_for_scope(phases: list[PathPhase], scope: str) -> PathPhase:
 
 
 def _enforce_invariants(phases: list[PathPhase]) -> None:
-    """Human-owned invariants enforced regardless of blueprint source."""
+    """Force every human-owned invariant step into the path if absent.
+
+    Enforced regardless of blueprint source. ``_INVARIANTS`` is currently empty
+    (no mandatory steps), so this is a no-op until invariants are added.
+    """
     present = {s.id for p in phases for s in p.steps}
-    if _SECURITY_INVARIANT.id in present:
+    missing = [step for step in _INVARIANTS if step.id not in present]
+    if not missing:
         return
     if not phases:
         phases.append(PathPhase(title="Getting started", steps=[]))
-    phases[0].steps.insert(0, _SECURITY_INVARIANT.model_copy(deep=True))
+    for step in reversed(missing):
+        phases[0].steps.insert(0, step.model_copy(deep=True))

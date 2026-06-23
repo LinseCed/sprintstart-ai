@@ -1,5 +1,8 @@
 # pyright: reportPrivateUsage=false
 # Unit-tests the pipeline's gate internals directly (coverage/invariants/filter).
+import pytest
+
+from onboarding import pipeline
 from onboarding.models import (
     Blueprint,
     BlueprintStep,
@@ -94,7 +97,7 @@ def test_coverage_gate_reinjects_missing_required_step() -> None:
     assert present == {"sec", "acc"}
 
 
-def test_invariants_gate_adds_security_step_when_absent() -> None:
+def test_invariants_gate_is_noop_with_no_invariants() -> None:
     phases = [
         PathPhase(
             title="Getting started",
@@ -105,7 +108,19 @@ def test_invariants_gate_adds_security_step_when_absent() -> None:
     _enforce_invariants(phases)
 
     ids = [s.id for p in phases for s in p.steps]
-    assert "security-policy-ack" in ids
+    assert ids == ["acc"]
+
+
+def test_invariants_gate_injects_missing_invariant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invariant = PathStep(id="must-have", title="Must have", requirement="required")
+    monkeypatch.setattr(pipeline, "_INVARIANTS", [invariant])
+    phases = [PathPhase(title="Getting started", steps=[])]
+
+    _enforce_invariants(phases)
+
+    assert [s.id for p in phases for s in p.steps] == ["must-have"]
 
 
 def test_quality_rubric_scores_perfect_path() -> None:

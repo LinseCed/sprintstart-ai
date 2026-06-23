@@ -66,7 +66,7 @@ def test_required_steps_always_present(
     ids = _all_step_ids(path)
 
     # Required global + backend steps from the seed blueprints.
-    assert "security-policy-ack" in ids
+    assert "account-setup" in ids
     assert "local-db-setup" in ids
 
 
@@ -80,7 +80,7 @@ def test_unknown_working_area_falls_back_to_global_only(
     titles = [phase["title"] for phase in path["phases"]]
 
     assert titles == ["Getting started"]
-    assert "security-policy-ack" in _all_step_ids(path)
+    assert "account-setup" in _all_step_ids(path)
 
 
 def test_unseen_experience_value_does_not_crash(
@@ -91,7 +91,7 @@ def test_unseen_experience_value_does_not_crash(
     events = _post(http, working_area="backend", experience="wizard")
     path = _path_event(events)["path"]
 
-    assert "security-policy-ack" in _all_step_ids(path)
+    assert "account-setup" in _all_step_ids(path)
 
 
 def test_empty_corpus_produces_blueprint_only_path(

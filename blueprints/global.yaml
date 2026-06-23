@@ -4,13 +4,6 @@ scope: global
 version: "1"
 source: authored
 steps:
-  - id: security-policy-ack
-    title: Read and acknowledge the security policy
-    description: >-
-      Review the organization's security and data-handling policy and record
-      your acknowledgement. This step is a hard onboarding invariant.
-    requirement: required
-    tags: [security, compliance, policy]
   - id: account-setup
     title: Set up your accounts and access
     description: >-
