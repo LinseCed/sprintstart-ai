@@ -108,7 +108,9 @@ class OnboardingPipeline:
         selected = select_blueprints(all_blueprints, profile)
         total_steps = sum(len(b.steps) for b in selected)
         scopes = ", ".join(b.scope for b in selected) or "none"
-        yield StageProgress("select", f"{len(selected)} blueprint(s) [{scopes}], {total_steps} step(s)")
+        yield StageProgress(
+            "select", f"{len(selected)} blueprint(s) [{scopes}],{total_steps} step(s)"
+        )
         blueprint_versions = {b.scope: b.version for b in selected}
         required_ids = {
             s.id for b in selected for s in b.steps if s.requirement == "required"

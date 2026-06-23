@@ -35,11 +35,9 @@ class SynthesisError(Exception):
 
 class SynthesisResult(BaseModel):
     # step id -> resolved citations the LLM attached to that blueprint step
-    enrichments: dict[str, list[CitationRef]] = Field(
-        default_factory=dict
-    )
+    enrichments: dict[str, list[CitationRef]] = Field(default_factory=dict)
     # LLM-proposed steps (origin="llm"); ungrounded ones are dropped by the gate
-    added_steps: list[PathStep] = Field(default_factory=list)
+    added_steps: list[PathStep] = []
 
 
 class _Enrichment(BaseModel):
@@ -55,8 +53,8 @@ class _AddedStep(BaseModel):
 
 
 class _Payload(BaseModel):
-    enriched: list[_Enrichment] = Field(default_factory=list)
-    added: list[_AddedStep] = Field(default_factory=list)
+    enriched: list[_Enrichment] = []
+    added: list[_AddedStep] = []
 
 
 def _verbosity(profile: PersonProfile) -> str:

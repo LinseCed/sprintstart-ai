@@ -79,7 +79,7 @@ class _GenStep(BaseModel):
 
 
 class _GenPayload(BaseModel):
-    steps: list[_GenStep] = Field(default_factory=list)
+    steps: list[_GenStep] = []
 
 
 # --- corpus fingerprint (idempotency) --------------------------------------

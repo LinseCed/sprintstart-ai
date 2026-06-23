@@ -71,10 +71,10 @@ class BlueprintStep(BaseModel):
     audience: list[str] = Field(default_factory=list)
     min_experience: str | None = None
     tags: list[str] = Field(default_factory=list)
-    resources: list[Resource] = Field(default_factory=list)
+    resources: list[Resource] = []
     # Intrinsic grounding for AI-generated steps (issue #110); authored steps
     # leave this empty and rely on the serve-time enrichment layer instead.
-    citations: list[CitationRef] = Field(default_factory=list)
+    citations: list[CitationRef] = []
     # Human-owned protection flag. An ``invariant`` step may not be removed or
     # downgraded by the generation job; such changes are blocked or escalated.
     invariant: bool = False
@@ -106,7 +106,7 @@ class Blueprint(BaseModel):
     scope: str = Field(description="'global' or 'area:<name>'")
     version: str = "0"
     source: Source = "authored"
-    steps: list[BlueprintStep] = Field(default_factory=list)
+    steps: list[BlueprintStep] = []
     provenance: BlueprintProvenance | None = None
 
 
@@ -117,13 +117,13 @@ class PathStep(BaseModel):
     requirement: Requirement = "recommended"
     origin: Origin = "blueprint"
     tags: list[str] = Field(default_factory=list)
-    citations: list[CitationRef] = Field(default_factory=list)
+    citations: list[CitationRef] = []
 
 
 class PathPhase(BaseModel):
     title: str
     scope: str | None = Field(default=None, exclude=True)
-    steps: list[PathStep] = Field(default_factory=list)
+    steps: list[PathStep] = []
 
 
 class QualityReport(BaseModel):
@@ -139,7 +139,7 @@ class QualityReport(BaseModel):
 class OnboardingPath(BaseModel):
     working_area: str
     experience: str
-    phases: list[PathPhase] = Field(default_factory=list)
+    phases: list[PathPhase] = []
     # Identifiable versions so onboarding outcomes can later be attributed.
     blueprint_versions: dict[str, str] = Field(default_factory=dict)
     quality: QualityReport

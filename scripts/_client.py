@@ -58,7 +58,7 @@ class ServiceClient:
 
     # --- HTTP helpers -----------------------------------------------------
 
-    def get(self, path: str, **params: object) -> httpx.Response:
+    def get(self, path: str, **params: str | int | float | bool) -> httpx.Response:
         return self._http.get(f"{self._base}{path}", params=params or None)
 
     def post(self, path: str, json_body: dict[str, object]) -> httpx.Response:

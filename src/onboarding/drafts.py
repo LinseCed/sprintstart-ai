@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from onboarding.blueprints import blueprints_path, load_blueprints
 from onboarding.models import Blueprint
@@ -51,7 +51,7 @@ class BlueprintDiff(BaseModel):
     scope: str
     active_version: str | None
     draft_version: str
-    changes: list[StepChange] = Field(default_factory=list)
+    changes: list[StepChange] = []
     # True when a protected step would be removed or downgraded.
     blocked: bool = False
 

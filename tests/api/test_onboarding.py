@@ -38,7 +38,7 @@ steps:
 
 
 @pytest.fixture(autouse=True)
-def _test_blueprints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _test_blueprints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
     (tmp_path / "global.yaml").write_text(_GLOBAL_YAML)
     (tmp_path / "area-backend.yaml").write_text(_BACKEND_YAML)
     monkeypatch.setenv("BLUEPRINTS_PATH", str(tmp_path))

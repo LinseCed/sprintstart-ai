@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from onboarding import drafts
-from onboarding.models import Blueprint, BlueprintStep
+from onboarding.models import Blueprint, BlueprintStep, Source
 
 _SCOPE = "area:backend"
 
@@ -22,7 +22,7 @@ def _seed_active(tmp_path: Path, blueprint: Blueprint) -> None:
 
 
 def _bp(
-    version: str, steps: list[BlueprintStep], source: str = "generated"
+    version: str, steps: list[BlueprintStep], source: Source = "generated"
 ) -> Blueprint:
     return Blueprint(scope=_SCOPE, version=version, source=source, steps=steps)
 

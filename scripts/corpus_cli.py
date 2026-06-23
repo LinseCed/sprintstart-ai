@@ -139,7 +139,7 @@ def _render_chunk_table(items: list[dict[str, Any]], show_score: bool = False) -
     table.add_column("pos", justify="right", no_wrap=True)
     table.add_column("text")
     for item in items:
-        row = []
+        row: list[str] = []
         if show_score:
             row.append(f"{item.get('score', 0):.3f}")
         row.extend(
