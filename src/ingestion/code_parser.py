@@ -4,6 +4,7 @@ from pathlib import Path
 from ingestion.chunker import chunk_code
 from ingestion.models import ParsedChunk
 from ingestion.text_parser import parse_text
+from ingestion.tree_sitter_parser import parse_with_tree_sitter
 
 PATTERNS: dict[str, re.Pattern[str]] = {
     ".py": re.compile(r"^(async\s+def |def |class )"),
@@ -12,12 +13,33 @@ PATTERNS: dict[str, re.Pattern[str]] = {
     ".go": re.compile(r"func\s+\w+|type\s+\w+|const\s+\w+|var\s+\w+"),
 }
 
-
 def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
+
+    try:
+        symbols, preamble = parse_with_tree_sitter(filename, content)
+    except Exception:
+        return parse_text(filename, content)
+
+    if not symbols:
+        return parse_text(filename, content)
+
+    chunks: list[ParsedChunk] = []
+
+    for symbol in symbols:
+        full_content = (
+            f"{preamble}\n\n{symbol.content}" if preamble else symbol.content
+        )
+
+        chunks.extend(chunk_code(filename, full_content))
+
+    return chunks
+
+
+def fallback_regex_parser(filename: str, content: bytes) -> list[ParsedChunk]:
     """Parse source code files into code-aware chunks.
 
     The parser detects top-level definitions such as functions and
-    classes and creates self-contained chunks by prepending the file
+    classes by matching with a regex pattern and creates self-contained chunks by prepending the file
     preamble (e.g. imports or module headers).
 
     If the language is unsupported or no top-level definitions are
