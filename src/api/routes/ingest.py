@@ -1,16 +1,29 @@
 import base64
+import binascii
 import logging
+import mimetypes
 import os
+from dataclasses import replace
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_llm, get_store
-from api.schemas import IngestRequest, IngestResponse, ValidationErrorResponse
+from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
+from api.schemas import (
+    IngestArtifactResponse,
+    IngestChunkResponse,
+    IngestRequest,
+    IngestResponse,
+    ValidationErrorResponse,
+)
 from ingestion.mapper import to_chunk
+from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from ingestion.models import ParsedChunk
 from ingestion.parser import parse
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
+from rag.types import Chunk
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -18,8 +31,60 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _content_type_for_filename(filename: str) -> str:
+    content_type, _ = mimetypes.guess_type(filename)
+    return content_type or "application/octet-stream"
+
+
+def _artifact_to_response(artifact: ArtifactRecord) -> IngestArtifactResponse:
+    return IngestArtifactResponse(
+        id=artifact.id,
+        filename=artifact.filename,
+        content_type=artifact.content_type,
+        source_type=artifact.source_type,
+        size_bytes=artifact.size_bytes,
+        chunk_count=artifact.chunk_count,
+        status=artifact.status,
+        created_at=artifact.created_at,
+        updated_at=artifact.updated_at,
+        error_message=artifact.error_message,
+    )
+
+
+def _chunk_to_response(chunk: Chunk, chunk_index: int) -> IngestChunkResponse:
+    return IngestChunkResponse(
+        id=chunk.id,
+        artifact_id=chunk.artifact_id,
+        filename=chunk.filename,
+        text=chunk.text,
+        chunk_index=chunk_index,
+        vector_store_id=chunk.id,
+        kind=chunk.kind,
+    )
+
+
+def _response_from_records(
+    artifact: ArtifactRecord,
+    chunks: list[Chunk],
+) -> IngestResponse:
+    return IngestResponse(
+        artifact_id=artifact.id,
+        chunk_count=artifact.chunk_count,
+        artifact=_artifact_to_response(artifact),
+        chunks=[
+            _chunk_to_response(chunk, chunk_index=index)
+            for index, chunk in enumerate(chunks)
+        ],
+    )
+
+
 @router.post(
     "/ingest",
+    response_model=IngestResponse,
     summary="Ingest a document",
     description=(
         "Parses, chunks, and embeds a document, then stores it in the vector store. "
@@ -50,43 +115,65 @@ router = APIRouter()
 )
 def ingest(
     body: IngestRequest,
-    llm: LLMClient = Depends(get_llm),
-    store: VectorStore = Depends(get_store),
+    llm: Annotated[LLMClient, Depends(get_llm)],
+    store: Annotated[VectorStore, Depends(get_store)],
+    metadata_store: Annotated[
+        IngestionMetadataStore,
+        Depends(get_ingestion_metadata_store),
+    ],
 ) -> IngestResponse:
+    request_time = _utc_now()
+    content_bytes = body.content.encode("utf-8")
+
+    existing = metadata_store.get_artifact(body.artifact_id)
+    created_at = existing.created_at if existing is not None else request_time
+
+    artifact = ArtifactRecord(
+        id=body.artifact_id,
+        filename=body.filename,
+        content_type=_content_type_for_filename(body.filename),
+        source_type="file",
+        size_bytes=len(content_bytes),
+        chunk_count=0,
+        status="processing",
+        created_at=created_at,
+        updated_at=request_time,
+    )
+    metadata_store.save_artifact(artifact)
+
     max_length = int(os.getenv("INGEST_MAX_CONTENT_LENGTH", "500000"))
     if len(body.content) > max_length:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Content exceeds maximum length of {max_length} characters.",
-        )
+        detail = f"Content exceeds maximum length of {max_length} characters."
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+        raise HTTPException(status_code=413, detail=detail)
 
     try:
-        parsed_chunks = parse(body.filename, body.content.encode("utf-8"))
-    except NotImplementedError:
+        parsed_chunks = parse(body.filename, content_bytes)
+    except NotImplementedError as exc:
         suffix = (
             body.filename.rsplit(".", 1)[-1] if "." in body.filename else body.filename
         )
-        raise HTTPException(
-            status_code=422,
-            detail=f"Parsing .{suffix} files is not yet supported.",
-        ) from NotImplementedError
+        detail = f"Parsing .{suffix} files is not yet supported."
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+        raise HTTPException(status_code=422, detail=detail) from exc
 
     if not parsed_chunks:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported file type: {body.filename}",
-        )
+        detail = f"Unsupported file type: {body.filename}"
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+        raise HTTPException(status_code=422, detail=detail)
 
     enriched: list[ParsedChunk] = []
     for chunk in parsed_chunks:
         if chunk.kind == "image":
             try:
-                image_bytes = base64.b64decode(chunk.content)
-            except Exception:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Image content for {body.filename!r} is not valid base64.",
-                ) from Exception
+                image_bytes = base64.b64decode(
+                    "".join(chunk.content.split()), validate=True
+                )
+            except (binascii.Error, ValueError) as exc:
+                detail = f"Image content for {body.filename!r} is not valid base64."
+                metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+                raise HTTPException(status_code=422, detail=detail) from exc
+
             try:
                 caption = llm.caption_image(image_bytes)
                 enriched.append(
@@ -101,19 +188,50 @@ def ingest(
             enriched.append(chunk)
 
     if not enriched:
-        store.delete(body.artifact_id, exclude_ids=[])
-        return IngestResponse(artifact_id=body.artifact_id, chunk_count=0)
+        try:
+            store.delete(body.artifact_id, exclude_ids=[])
+        except Exception as exc:
+            detail = f"Failed to delete existing vector chunks: {exc}"
+            metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+            raise HTTPException(status_code=500, detail=detail) from exc
 
-    # Embed pass: generate embeddings and store.
+        completed_artifact = replace(
+            artifact,
+            chunk_count=0,
+            status="completed",
+            updated_at=_utc_now(),
+        )
+        metadata_store.save_completed_artifact(completed_artifact)
+        return _response_from_records(completed_artifact, [])
+
     try:
         chunks = [
-            to_chunk(chunk, body.artifact_id, llm.embed(chunk.content))
-            for chunk in enriched
+            replace(
+                to_chunk(chunk, body.artifact_id, llm.embed(chunk.content)),
+                position=index,
+            )
+            for index, chunk in enumerate(enriched)
         ]
     except LLMUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        detail = str(exc)
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+        raise HTTPException(status_code=503, detail=detail) from exc
 
-    store.add(chunks)
-    store.delete(body.artifact_id, exclude_ids=[c.id for c in chunks])
+    try:
+        store.add(chunks)
+        store.delete(body.artifact_id, exclude_ids=[chunk.id for chunk in chunks])
+    except Exception as exc:
+        detail = f"Failed to store chunks in vector database: {exc}"
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+        raise HTTPException(status_code=500, detail=detail) from exc
 
-    return IngestResponse(artifact_id=body.artifact_id, chunk_count=len(chunks))
+    completed_artifact = replace(
+        artifact,
+        chunk_count=len(chunks),
+        status="completed",
+        updated_at=_utc_now(),
+    )
+
+    metadata_store.save_completed_artifact(completed_artifact)
+
+    return _response_from_records(completed_artifact, chunks)
