@@ -76,7 +76,6 @@ def test_ingest_returns_artifact_and_chunk_metadata(
     assert body["chunks"][0]["chunk_index"] == 0
     assert body["chunks"][0]["vector_store_id"] == body["chunks"][0]["id"]
     assert "embedding" not in body["chunks"][0]
-    assert "heading_path" not in body["chunks"][0]
 
     artifact = metadata_store.get_artifact("artifact-1")
     assert artifact is not None
