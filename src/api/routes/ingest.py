@@ -125,6 +125,9 @@ def ingest(
     request_time = _utc_now()
     content_bytes = body.content.encode("utf-8")
 
+    existing = metadata_store.get_artifact(body.artifact_id)
+    created_at = existing.created_at if existing is not None else request_time
+
     artifact = ArtifactRecord(
         id=body.artifact_id,
         filename=body.filename,
@@ -133,7 +136,7 @@ def ingest(
         size_bytes=len(content_bytes),
         chunk_count=0,
         status="processing",
-        created_at=request_time,
+        created_at=created_at,
         updated_at=request_time,
     )
     metadata_store.save_artifact(artifact)
@@ -141,7 +144,7 @@ def ingest(
     max_length = int(os.getenv("INGEST_MAX_CONTENT_LENGTH", "500000"))
     if len(body.content) > max_length:
         detail = f"Content exceeds maximum length of {max_length} characters."
-        metadata_store.mark_failed(body.artifact_id, detail, request_time)
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=413, detail=detail)
 
     try:
@@ -151,22 +154,24 @@ def ingest(
             body.filename.rsplit(".", 1)[-1] if "." in body.filename else body.filename
         )
         detail = f"Parsing .{suffix} files is not yet supported."
-        metadata_store.mark_failed(body.artifact_id, detail, request_time)
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=422, detail=detail) from exc
 
     if not parsed_chunks:
         detail = f"Unsupported file type: {body.filename}"
-        metadata_store.mark_failed(body.artifact_id, detail, request_time)
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=422, detail=detail)
 
     enriched: list[ParsedChunk] = []
     for chunk in parsed_chunks:
         if chunk.kind == "image":
             try:
-                image_bytes = base64.b64decode(chunk.content, validate=True)
+                image_bytes = base64.b64decode(
+                    "".join(chunk.content.split()), validate=True
+                )
             except (binascii.Error, ValueError) as exc:
                 detail = f"Image content for {body.filename!r} is not valid base64."
-                metadata_store.mark_failed(body.artifact_id, detail, request_time)
+                metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
                 raise HTTPException(status_code=422, detail=detail) from exc
 
             try:
@@ -187,14 +192,14 @@ def ingest(
             store.delete(body.artifact_id, exclude_ids=[])
         except Exception as exc:
             detail = f"Failed to delete existing vector chunks: {exc}"
-            metadata_store.mark_failed(body.artifact_id, detail, request_time)
+            metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
             raise HTTPException(status_code=500, detail=detail) from exc
 
         completed_artifact = replace(
             artifact,
             chunk_count=0,
             status="completed",
-            updated_at=request_time,
+            updated_at=_utc_now(),
         )
         metadata_store.save_completed_artifact(completed_artifact)
         return _response_from_records(completed_artifact, [])
@@ -209,7 +214,7 @@ def ingest(
         ]
     except LLMUnavailableError as exc:
         detail = str(exc)
-        metadata_store.mark_failed(body.artifact_id, detail, request_time)
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=503, detail=detail) from exc
 
     try:
@@ -217,14 +222,14 @@ def ingest(
         store.delete(body.artifact_id, exclude_ids=[chunk.id for chunk in chunks])
     except Exception as exc:
         detail = f"Failed to store chunks in vector database: {exc}"
-        metadata_store.mark_failed(body.artifact_id, detail, request_time)
+        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=500, detail=detail) from exc
 
     completed_artifact = replace(
         artifact,
         chunk_count=len(chunks),
         status="completed",
-        updated_at=request_time,
+        updated_at=_utc_now(),
     )
 
     metadata_store.save_completed_artifact(completed_artifact)

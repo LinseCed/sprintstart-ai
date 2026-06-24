@@ -7,73 +7,9 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from ingestion.metadata_store import IngestionMetadataStore
-from llm.base import Message
 from llm.errors import LLMUnavailableError
-from rag.types import Chunk, ScoredChunk
-
-
-class StubVectorStore:
-    def __init__(self) -> None:
-        self.added_chunks: list[Chunk] = []
-        self.deleted_artifacts: list[str] = []
-
-    def add(self, chunks: list[Chunk]) -> None:
-        self.added_chunks.extend(chunks)
-
-    def query(
-        self,
-        embedding: list[float],
-        top_k: int,
-        min_score: float,
-    ) -> list[ScoredChunk]:
-        return []
-
-    def delete(
-        self,
-        artifact_id: str,
-        exclude_ids: list[str] | None = None,
-    ) -> int:
-        self.deleted_artifacts.append(artifact_id)
-        return 0
-
-    def list_chunks(self, limit: int, offset: int = 0) -> list[Chunk]:
-        return self.added_chunks[offset : offset + limit]
-
-    def list_chunks_by_artifact(
-        self,
-        artifact_id: str,
-        limit: int,
-        offset: int = 0,
-    ) -> list[Chunk]:
-        chunks = [
-            chunk for chunk in self.added_chunks if chunk.artifact_id == artifact_id
-        ]
-        return chunks[offset : offset + limit]
-
-    def count_by_artifact(self, artifact_id: str) -> int:
-        return len(
-            [chunk for chunk in self.added_chunks if chunk.artifact_id == artifact_id]
-        )
-
-    def all_chunks(self) -> list[Chunk]:
-        return self.added_chunks
-
-    def count(self) -> int:
-        return len(self.added_chunks)
-
-
-class StubLLMClient:
-    def generate(self, messages: list[Message]) -> str:
-        return "answer"
-
-    def stream(self, messages: list[Message]) -> Iterable[str]:
-        yield "answer"
-
-    def embed(self, text: str) -> list[float]:
-        return [1.0, 0.0, 0.0]
-
-    def caption_image(self, image_bytes: bytes) -> str:
-        return "caption"
+from tests.stubs.llm import StubLLMClient
+from tests.stubs.store import StubVectorStore
 
 
 class FailingEmbedLLMClient(StubLLMClient):
@@ -87,8 +23,10 @@ def vector_store() -> StubVectorStore:
 
 
 @pytest.fixture
-def metadata_store(tmp_path: Path) -> IngestionMetadataStore:
-    return IngestionMetadataStore(path=str(tmp_path / "metadata.db"))
+def metadata_store(tmp_path: Path) -> Iterable[IngestionMetadataStore]:
+    store = IngestionMetadataStore(path=str(tmp_path / "metadata.db"))
+    yield store
+    store.close()
 
 
 @pytest.fixture
@@ -103,7 +41,6 @@ def client(
     yield TestClient(app)
 
     app.dependency_overrides.clear()
-    metadata_store.close()
 
 
 def test_ingest_returns_artifact_and_chunk_metadata(
@@ -139,14 +76,56 @@ def test_ingest_returns_artifact_and_chunk_metadata(
     assert body["chunks"][0]["chunk_index"] == 0
     assert body["chunks"][0]["vector_store_id"] == body["chunks"][0]["id"]
     assert "embedding" not in body["chunks"][0]
+    assert "heading_path" not in body["chunks"][0]
 
     artifact = metadata_store.get_artifact("artifact-1")
     assert artifact is not None
     assert artifact.status == "completed"
     assert artifact.chunk_count == body["chunk_count"]
 
-    assert len(vector_store.added_chunks) == body["chunk_count"]
-    assert vector_store.added_chunks[0].position == 0
+    stored = vector_store.all_chunks()
+    assert len(stored) == body["chunk_count"]
+    assert stored[0].artifact_id == "artifact-1"
+    assert stored[0].filename == "notes.txt"
+    assert stored[0].position == 0
+
+
+def test_reingest_replaces_chunks_and_preserves_created_at(
+    client: TestClient,
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> None:
+    first = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "doc-1",
+            "filename": "notes.txt",
+            "content": "first version of the document.",
+        },
+    )
+    assert first.status_code == 200
+
+    original = metadata_store.get_artifact("doc-1")
+    assert original is not None
+
+    second = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "doc-1",
+            "filename": "notes.txt",
+            "content": "second version with different content.",
+        },
+    )
+    assert second.status_code == 200
+
+    # Only the latest ingest's chunks remain in the vector store.
+    stored = [c for c in vector_store.all_chunks() if c.artifact_id == "doc-1"]
+    assert len(stored) == second.json()["chunk_count"]
+
+    updated = metadata_store.get_artifact("doc-1")
+    assert updated is not None
+    assert updated.created_at == original.created_at
+    assert updated.updated_at >= original.updated_at
 
 
 def test_failed_embedding_marks_artifact_failed(
@@ -178,6 +157,4 @@ def test_failed_embedding_marks_artifact_failed(
     assert artifact.error_message is not None
     assert "embedding backend unavailable" in artifact.error_message
 
-    assert vector_store.added_chunks == []
-
-    metadata_store.close()
+    assert vector_store.all_chunks() == []
