@@ -18,7 +18,7 @@ def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
     try:
         symbols, preamble = parse_with_tree_sitter(filename, content)
     except Exception:
-        return parse_text(filename, content)
+        return fallback_regex_parser(filename, content)
 
     if not symbols:
         return parse_text(filename, content)
@@ -30,7 +30,16 @@ def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
             f"{preamble}\n\n{symbol.content}" if preamble else symbol.content
         )
 
-        chunks.extend(chunk_code(filename, full_content))
+        code_chunks = chunk_code(filename, full_content)
+
+        for chunk in code_chunks:
+            chunk.metadata = {
+                **chunk.metadata,
+                "symbol_name": symbol.name or "",
+                "symbol_kind": symbol.kind,
+            }
+
+        chunks.extend(code_chunks)
 
     return chunks
 
