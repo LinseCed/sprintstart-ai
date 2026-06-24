@@ -5,6 +5,7 @@ from functools import lru_cache
 from fastapi import Depends
 
 from agents.orchestrator import ChatOrchestrator
+from ingestion.metadata_store import IngestionMetadataStore
 from llm.anthropic_client import AnthropicClient
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
@@ -71,6 +72,12 @@ def get_store() -> VectorStore:
             "data will not persist"
         )
     return ChromaVectorStore(path=path)
+
+
+@lru_cache
+def get_ingestion_metadata_store() -> IngestionMetadataStore:
+    path = os.getenv("APP_DB_PATH", "").strip() or "data/sprintstart.db"
+    return IngestionMetadataStore(path=path)
 
 
 def get_orchestrator(

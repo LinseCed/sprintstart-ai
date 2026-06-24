@@ -55,21 +55,105 @@ class IngestRequest(BaseModel):
     }
 
 
-class IngestResponse(BaseModel):
-    artifact_id: str
-    chunk_count: int = Field(
-        description=(
-            "Number of chunks stored. "
-            "0 indicates the file was recognised but produced no storable content "
-            "(e.g. an image file when no vision model is configured)."
-        )
+class IngestArtifactResponse(BaseModel):
+    id: str = Field(description="Artifact identifier.")
+    filename: str = Field(description="Original source filename.")
+    content_type: str = Field(description="Detected or inferred content type.")
+    source_type: str = Field(description="Source type, e.g. file, text, or url.")
+    size_bytes: int = Field(description="Size of the ingested content in bytes.")
+    chunk_count: int = Field(description="Number of chunks created for this artifact.")
+    status: str = Field(
+        description="Ingestion status, e.g. processing, completed, or failed."
+    )
+    created_at: str = Field(description="ISO timestamp when ingestion started.")
+    updated_at: str = Field(description="ISO timestamp when ingestion last changed.")
+    error_message: str | None = Field(
+        default=None,
+        description="Failure reason if ingestion failed.",
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
+                "id": "sprint-42-retro",
+                "filename": "retro.md",
+                "content_type": "text/markdown",
+                "source_type": "file",
+                "size_bytes": 1234,
+                "chunk_count": 2,
+                "status": "completed",
+                "created_at": "2026-06-21T12:00:00+00:00",
+                "updated_at": "2026-06-21T12:00:01+00:00",
+                "error_message": None,
+            }
+        }
+    }
+
+
+class IngestChunkResponse(BaseModel):
+    id: str = Field(description="Chunk identifier.")
+    artifact_id: str = Field(description="Artifact this chunk belongs to.")
+    filename: str = Field(description="Original source filename.")
+    text: str = Field(description="Stored chunk text.")
+    chunk_index: int = Field(description="Position of this chunk within the artifact.")
+    vector_store_id: str = Field(description="Identifier used in the vector store.")
+    kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "id": "chunk-1",
                 "artifact_id": "sprint-42-retro",
-                "chunk_count": 4,
+                "filename": "retro.md",
+                "text": "Good collaboration and faster CI feedback...",
+                "chunk_index": 0,
+                "vector_store_id": "chunk-1",
+                "kind": "text",
+            }
+        }
+    }
+
+
+class IngestResponse(BaseModel):
+    artifact_id: str = Field(description="Created or updated artifact identifier.")
+    chunk_count: int = Field(
+        description=(
+            "Number of chunks stored. 0 indicates the file was recognised "
+            "but produced no storable content, e.g. an image file when "
+            "no vision model is configured."
+        )
+    )
+    artifact: IngestArtifactResponse
+    chunks: list[IngestChunkResponse]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "artifact_id": "sprint-42-retro",
+                "chunk_count": 2,
+                "artifact": {
+                    "id": "sprint-42-retro",
+                    "filename": "retro.md",
+                    "content_type": "text/markdown",
+                    "source_type": "file",
+                    "size_bytes": 1234,
+                    "chunk_count": 2,
+                    "status": "completed",
+                    "created_at": "2026-06-21T12:00:00+00:00",
+                    "updated_at": "2026-06-21T12:00:01+00:00",
+                    "error_message": None,
+                },
+                "chunks": [
+                    {
+                        "id": "chunk-1",
+                        "artifact_id": "sprint-42-retro",
+                        "filename": "retro.md",
+                        "text": "Good collaboration and faster CI feedback...",
+                        "chunk_index": 0,
+                        "vector_store_id": "chunk-1",
+                        "kind": "text",
+                    }
+                ],
             }
         }
     }

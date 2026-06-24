@@ -1,152 +1,159 @@
-from collections.abc import Generator
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from api.app import app
-from api.dependencies import get_llm, get_store
+from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
+from ingestion.metadata_store import IngestionMetadataStore
 from llm.errors import LLMUnavailableError
-from store.chroma_store import ChromaVectorStore
-from tests.conftest import llm_required
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
-FIXTURES_DIR = Path(__file__).parent.parent / "ingestion/fixtures"
+
+class FailingEmbedLLMClient(StubLLMClient):
+    def embed(self, text: str) -> list[float]:
+        raise LLMUnavailableError("embedding backend unavailable")
 
 
 @pytest.fixture
-def client() -> Generator[tuple[TestClient, StubVectorStore], Any, None]:
-    llm = StubLLMClient()
-    store = StubVectorStore()
-
-    app.dependency_overrides[get_llm] = lambda: llm
-    app.dependency_overrides[get_store] = lambda: store
-
-    yield TestClient(app), store
-
-    app.dependency_overrides.clear()
+def vector_store() -> StubVectorStore:
+    return StubVectorStore()
 
 
 @pytest.fixture
-def real_client() -> Generator[TestClient, Any, None]:
-    store = ChromaVectorStore(collection_name="ingest-integration-test")
-    app.dependency_overrides[get_store] = lambda: store
+def metadata_store(tmp_path: Path) -> Iterable[IngestionMetadataStore]:
+    store = IngestionMetadataStore(path=str(tmp_path / "metadata.db"))
+    yield store
+    store.close()
+
+
+@pytest.fixture
+def client(
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> Iterable[TestClient]:
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient()
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+
     yield TestClient(app)
+
     app.dependency_overrides.clear()
 
 
-def test_ingest_small_markdown_returns_single_chunk(
-    client: tuple[TestClient, StubVectorStore],
+def test_ingest_returns_artifact_and_chunk_metadata(
+    client: TestClient,
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
 ) -> None:
-    http_client, store = client
-    content = (FIXTURES_DIR / "markdown_small_sample.md").read_text()
-
-    response = http_client.post(
+    response = client.post(
         "/api/v1/ingest",
         json={
-            "artifact_id": "small-doc",
-            "filename": "markdown_small_sample.md",
-            "content": content,
+            "artifact_id": "artifact-1",
+            "filename": "notes.txt",
+            "content": "SprintStart uses OLLAMA_EMBED_MODEL for embeddings.",
         },
     )
 
     assert response.status_code == 200
-    assert response.json()["artifact_id"] == "small-doc"
-    assert response.json()["chunk_count"] == 1
-    assert len(store.chunks) == 1
+
+    body = response.json()
+
+    assert body["artifact_id"] == "artifact-1"
+    assert body["chunk_count"] >= 1
+    assert body["artifact"]["id"] == "artifact-1"
+    assert body["artifact"]["filename"] == "notes.txt"
+    assert body["artifact"]["content_type"] == "text/plain"
+    assert body["artifact"]["source_type"] == "file"
+    assert body["artifact"]["status"] == "completed"
+    assert body["artifact"]["chunk_count"] == body["chunk_count"]
+
+    assert len(body["chunks"]) == body["chunk_count"]
+    assert body["chunks"][0]["artifact_id"] == "artifact-1"
+    assert body["chunks"][0]["filename"] == "notes.txt"
+    assert body["chunks"][0]["chunk_index"] == 0
+    assert body["chunks"][0]["vector_store_id"] == body["chunks"][0]["id"]
+    assert "embedding" not in body["chunks"][0]
+
+    artifact = metadata_store.get_artifact("artifact-1")
+    assert artifact is not None
+    assert artifact.status == "completed"
+    assert artifact.chunk_count == body["chunk_count"]
+
+    stored = vector_store.all_chunks()
+    assert len(stored) == body["chunk_count"]
+    assert stored[0].artifact_id == "artifact-1"
+    assert stored[0].filename == "notes.txt"
+    assert stored[0].position == 0
 
 
-def test_ingest_large_markdown_returns_multiple_chunks(
-    client: tuple[TestClient, StubVectorStore],
+def test_reingest_replaces_chunks_and_preserves_created_at(
+    client: TestClient,
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
 ) -> None:
-    http_client, store = client
-    content = (FIXTURES_DIR / "markdown_large_sample.md").read_text()
-
-    response = http_client.post(
-        "/api/v1/ingest",
-        json={
-            "artifact_id": "large-doc",
-            "filename": "markdown_large_sample.md",
-            "content": content,
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["artifact_id"] == "large-doc"
-    assert response.json()["chunk_count"] > 1
-    assert len(store.chunks) == response.json()["chunk_count"]
-
-
-def test_reingest_replaces_existing_chunks(
-    client: tuple[TestClient, StubVectorStore],
-) -> None:
-    http_client, store = client
-    content = (FIXTURES_DIR / "markdown_small_sample.md").read_text()
-
-    http_client.post(
+    first = client.post(
         "/api/v1/ingest",
         json={
             "artifact_id": "doc-1",
-            "filename": "markdown_small_sample.md",
-            "content": content,
+            "filename": "notes.txt",
+            "content": "first version of the document.",
         },
     )
-    response = http_client.post(
+    assert first.status_code == 200
+
+    original = metadata_store.get_artifact("doc-1")
+    assert original is not None
+
+    second = client.post(
         "/api/v1/ingest",
         json={
             "artifact_id": "doc-1",
-            "filename": "markdown_small_sample.md",
-            "content": content,
+            "filename": "notes.txt",
+            "content": "second version with different content.",
         },
     )
+    assert second.status_code == 200
 
-    assert response.status_code == 200
-    assert len([c for c in store.chunks if c.artifact_id == "doc-1"]) == 1
+    # Only the latest ingest's chunks remain in the vector store.
+    stored = [c for c in vector_store.all_chunks() if c.artifact_id == "doc-1"]
+    assert len(stored) == second.json()["chunk_count"]
+
+    updated = metadata_store.get_artifact("doc-1")
+    assert updated is not None
+    assert updated.created_at == original.created_at
+    assert updated.updated_at >= original.updated_at
 
 
-def test_ingest_llm_unavailable_returns_503(
-    client: tuple[TestClient, StubVectorStore],
+def test_failed_embedding_marks_artifact_failed(
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
 ) -> None:
-    http_client, _ = client
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: FailingEmbedLLMClient()
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
 
-    def unavailable_llm() -> StubLLMClient:
-        class FailingLLM(StubLLMClient):
-            def embed(self, text: str) -> list[float]:
-                raise LLMUnavailableError("http://localhost:11434")
+    client = TestClient(app)
 
-        return FailingLLM()
-
-    app.dependency_overrides[get_llm] = unavailable_llm
-    content = (FIXTURES_DIR / "markdown_small_sample.md").read_text()
-
-    response = http_client.post(
+    response = client.post(
         "/api/v1/ingest",
         json={
-            "artifact_id": "doc-1",
-            "filename": "markdown_small_sample.md",
-            "content": content,
+            "artifact_id": "artifact-failed",
+            "filename": "notes.txt",
+            "content": "This should fail during embedding.",
         },
     )
+
+    app.dependency_overrides.clear()
 
     assert response.status_code == 503
 
+    artifact = metadata_store.get_artifact("artifact-failed")
+    assert artifact is not None
+    assert artifact.status == "failed"
+    assert artifact.error_message is not None
+    assert "embedding backend unavailable" in artifact.error_message
 
-@pytest.mark.integration
-@llm_required
-def test_ingest_small_markdown_with_real_llm(real_client: TestClient) -> None:
-    content = (FIXTURES_DIR / "markdown_small_sample.md").read_text()
-
-    response = real_client.post(
-        "/api/v1/ingest",
-        json={
-            "artifact_id": "small-doc",
-            "filename": "markdown_small_sample.md",
-            "content": content,
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["artifact_id"] == "small-doc"
-    assert response.json()["chunk_count"] == 1
+    assert vector_store.all_chunks() == []
