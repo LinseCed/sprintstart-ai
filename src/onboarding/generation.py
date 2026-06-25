@@ -250,8 +250,7 @@ def _enforce_invariants(
                 )
             )
             notes.append(
-                f"re-injected protected step removed by draft: "
-                f"{prev.title} ({prev.id})"
+                f"re-injected protected step removed by draft: {prev.title} ({prev.id})"
             )
         elif existing.requirement != prev.requirement:
             existing.requirement = prev.requirement

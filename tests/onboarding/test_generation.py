@@ -131,9 +131,7 @@ def test_invariant_removal_is_blocked_and_reinjected(tmp_path: Path) -> None:
     )
     store = _store("backend onboarding deploy runbook")
     # The draft omits the required "security" step entirely.
-    llm = _llm(
-        [{"title": "Deploy", "requirement": "recommended", "chunk_ids": ["c1"]}]
-    )
+    llm = _llm([{"title": "Deploy", "requirement": "recommended", "chunk_ids": ["c1"]}])
 
     outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
 
