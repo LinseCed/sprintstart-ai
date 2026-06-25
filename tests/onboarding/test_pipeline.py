@@ -240,11 +240,13 @@ def test_cross_scope_status_merge_required_wins() -> None:
     assert rendered[0].requirement == "required"
 
 
-def test_retrieve_query_includes_skills(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, str] = {}
+def test_retrieve_per_step_uses_step_specific_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
 
     def fake_retrieve(*, question: str, **_: object) -> list[object]:
-        captured["question"] = question
+        captured.append(question)
         return []
 
     monkeypatch.setattr(pipeline, "hybrid_retrieve", fake_retrieve)
@@ -254,15 +256,16 @@ def test_retrieve_query_includes_skills(monkeypatch: pytest.MonkeyPatch) -> None
         [Chunk(id="c1", artifact_id="a1", filename="d.md", text="x", embedding=[0.1])]
     )
     pipe = OnboardingPipeline(StubLLMClient(), store)
-    steps = [BlueprintStep(id="x", title="Setup", requirement="required")]
-    profile = PersonProfile(
-        working_area="backend", experience="junior", skills=["python", "fastapi"]
-    )
+    steps = [
+        BlueprintStep(id="x", title="Install dependencies", requirement="required"),
+        BlueprintStep(id="y", title="Understand the RAG pipeline", requirement="recommended"),
+    ]
 
-    pipe._retrieve(profile, steps)
+    pipe._retrieve_per_step(steps)
 
-    assert "python" in captured["question"]
-    assert "fastapi" in captured["question"]
+    assert len(captured) == 2
+    assert any("Install dependencies" in q for q in captured)
+    assert any("Understand the RAG pipeline" in q for q in captured)
 
 
 def test_build_phases_drops_semantic_duplicate_across_scopes() -> None:

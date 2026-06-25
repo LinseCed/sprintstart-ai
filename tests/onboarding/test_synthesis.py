@@ -13,7 +13,7 @@ def test_synthesis_prompt_includes_skills_and_interests() -> None:
     )
     steps = [BlueprintStep(id="x", title="Setup", requirement="required")]
 
-    messages = _build_prompt(profile, steps, [])
+    messages = _build_prompt(profile, steps, {})
 
     user = next(m["content"] for m in messages if m["role"] == "user")
     assert "python" in user

@@ -113,12 +113,10 @@ class OnboardingPipeline:
         llm: LLMClient,
         store: VectorStore,
         *,
-        top_k: int = 8,
         min_score: float = 0.3,
     ) -> None:
         self._llm = llm
         self._store = store
-        self._top_k = top_k
         self._min_score = min_score
         self._bm25_cache = BM25IndexCache()
 
@@ -142,19 +140,24 @@ class OnboardingPipeline:
         phases, kept_steps = _build_phases(selected, profile)
         yield StageProgress("filter", f"{len(kept_steps)} step(s) after filtering")
 
-        # (3) retrieve grounding evidence across the corpus
-        chunks = self._retrieve(profile, kept_steps)
-        yield StageProgress("retrieve", f"{len(chunks)} chunk(s) retrieved")
+        # (3) retrieve grounding evidence per step
+        chunks_per_step = self._retrieve_per_step(kept_steps)
+        total_chunks = sum(len(c) for c in chunks_per_step.values())
+        yield StageProgress(
+            "retrieve",
+            f"{total_chunks} chunk(s) retrieved across {len(kept_steps)} step(s)",
+        )
 
         # (4) synthesize the personalized layer (schema gate -> fallback)
         notes: list[str] = []
         try:
-            result = synthesize(profile, kept_steps, chunks, self._llm)
+            result = synthesize(profile, kept_steps, chunks_per_step, self._llm)
+            rewritten_count = len(result.rewrites)
             enriched_count = len(result.enrichments)
             added_count = len(result.added_steps)
             yield StageProgress(
                 "synthesize",
-                f"{enriched_count} enriched, {added_count} added step(s)",
+                f"{rewritten_count} rewritten, {enriched_count} enriched, {added_count} added step(s)",
             )
         except SynthesisError as exc:
             logger.warning("Synthesis failed, using blueprint-only fallback: %s", exc)
@@ -163,7 +166,7 @@ class OnboardingPipeline:
             yield StageProgress("synthesize", "fallback: LLM synthesis unavailable")
 
         # (5) validate & quality gates
-        _apply_enrichments(phases, result.enrichments)
+        _apply_synthesis(phases, result.enrichments, result.rewrites)
         gate_notes = _apply_grounding_gate(phases, result.added_steps)
         notes.extend(gate_notes)
         _enforce_coverage(phases, selected, profile)
@@ -184,33 +187,37 @@ class OnboardingPipeline:
         path.quality = evaluate(path, required_ids, notes)
         return path
 
-    def _retrieve(
-        self, profile: PersonProfile, steps: list[BlueprintStep]
-    ) -> list[ScoredChunk]:
+    def _retrieve_per_step(
+        self, steps: list[BlueprintStep]
+    ) -> dict[str, list[ScoredChunk]]:
         if self._store.count() == 0:
-            return []
-        titles = "; ".join(s.title for s in steps)
-        query = f"{profile.working_area} onboarding: {titles}".strip()
-        # Bias retrieval toward the person's skills/interests so the synthesis
-        # layer surfaces evidence relevant to what they actually bring.
-        focus = ", ".join([*profile.skills, *profile.tags])
-        if focus:
-            query = f"{query} (skills: {focus})"
-        try:
-            return hybrid_retrieve(
-                question=query,
-                llm=self._llm,
-                store=self._store,
-                top_k=self._top_k,
-                min_score=self._min_score,
-                bm25_cache=self._bm25_cache,
-                exclude_roles=_GROUNDING_EXCLUDED_ROLES,
+            return {}
+        result: dict[str, list[ScoredChunk]] = {}
+        for step in steps:
+            query = (
+                f"{step.title}: {step.description}"
+                if step.description
+                else step.title
             )
-        except LLMUnavailableError:
-            raise
-        except Exception:
-            logger.exception("Retrieval failed; continuing without grounding")
-            return []
+            try:
+                result[step.id] = hybrid_retrieve(
+                    question=query,
+                    llm=self._llm,
+                    store=self._store,
+                    top_k=4,
+                    min_score=self._min_score,
+                    bm25_cache=self._bm25_cache,
+                    exclude_roles=_GROUNDING_EXCLUDED_ROLES,
+                )
+            except LLMUnavailableError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Retrieval failed for step %s; continuing without grounding",
+                    step.id,
+                )
+                result[step.id] = []
+        return result
 
 
 _PLACEHOLDER_QUALITY = QualityReport(
@@ -303,11 +310,15 @@ def _build_phases(
     return phases, kept_steps
 
 
-def _apply_enrichments(
-    phases: list[PathPhase], enrichments: dict[str, list[CitationRef]]
+def _apply_synthesis(
+    phases: list[PathPhase],
+    enrichments: dict[str, list[CitationRef]],
+    rewrites: dict[str, str],
 ) -> None:
     for phase in phases:
         for step in phase.steps:
+            if step.id in rewrites and rewrites[step.id].strip():
+                step.description = rewrites[step.id]
             refs = enrichments.get(step.id)
             if refs:
                 step.citations = refs

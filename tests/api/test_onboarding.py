@@ -177,9 +177,10 @@ def test_grounded_llm_steps_are_added_and_cited(
     llm.embedding = _EMBED
     llm.generate_response = json.dumps(
         {
-            "enriched": [
+            "steps": [
                 {
                     "id": content_id("Set up your local database"),
+                    "rewritten": "Configure and verify the local database connection.",
                     "chunk_ids": ["c1"],
                 }
             ],
@@ -226,6 +227,47 @@ def test_grounded_llm_steps_are_added_and_cited(
     assert db_step["citations"][0]["chunk_id"] == "c1"
 
 
+def test_synthesis_rewrites_step_description(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, llm, store = client
+    llm.embedding = _EMBED
+    llm.generate_response = json.dumps(
+        {
+            "steps": [
+                {
+                    "id": content_id(_LOCAL_DB),
+                    "rewritten": "Personalized: spin up the local DB with docker-compose.",
+                    "chunk_ids": ["c1"],
+                }
+            ],
+            "added": [],
+        }
+    )
+    store.add(
+        [
+            Chunk(
+                id="c1",
+                artifact_id="a1",
+                filename="setup.md",
+                text="backend db setup docker-compose",
+                embedding=_EMBED,
+            )
+        ]
+    )
+
+    events = _post(http, working_area="backend", experience="junior")
+    path = _path_event(events)["path"]
+
+    db_step = next(
+        s
+        for phase in path["phases"]
+        for s in phase["steps"]
+        if s["id"] == content_id(_LOCAL_DB)
+    )
+    assert db_step["description"] == "Personalized: spin up the local DB with docker-compose."
+
+
 def test_ungrounded_llm_step_is_dropped(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
@@ -233,7 +275,7 @@ def test_ungrounded_llm_step_is_dropped(
     llm.embedding = _EMBED
     # Added step references a chunk id that does not exist -> no citation -> dropped.
     llm.generate_response = json.dumps(
-        {"enriched": [], "added": [{"title": "Ungrounded", "chunk_ids": ["missing"]}]}
+        {"steps": [], "added": [{"title": "Ungrounded", "chunk_ids": ["missing"]}]}
     )
     store.add(
         [
