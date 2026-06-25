@@ -17,6 +17,8 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "interface_declaration",
         "type_alias_declaration",
         "enum_declaration",
+        "lexical_declaration",
+        "export_statement",
     },
     ".go": {
         "function_declaration",
@@ -36,13 +38,14 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "interface_declaration",
         "type_alias_declaration",
         "enum_declaration",
+        "lexical_declaration",
+        "export_statement",
     },
     ".kt": {
         "class_declaration",
         "object_declaration",
         "function_declaration",
     },
-
     ".rs": {
         "function_item",
         "struct_item",
@@ -50,34 +53,29 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "trait_item",
         "impl_item",
     },
-
     ".cpp": {
         "function_definition",
         "class_specifier",
         "struct_specifier",
         "namespace_definition",
     },
-
     ".cc": {
         "function_definition",
         "class_specifier",
         "struct_specifier",
         "namespace_definition",
     },
-
     ".cxx": {
         "function_definition",
         "class_specifier",
         "struct_specifier",
         "namespace_definition",
     },
-
     ".c": {
         "function_definition",
         "struct_specifier",
         "enum_specifier",
     },
-
     ".cs": {
         "class_declaration",
         "struct_declaration",
@@ -85,20 +83,17 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "enum_declaration",
         "method_declaration",
     },
-
     ".php": {
         "function_definition",
         "class_declaration",
         "interface_declaration",
         "trait_declaration",
     },
-
     ".rb": {
         "method",
         "class",
         "module",
     },
-
 }
 
 

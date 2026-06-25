@@ -199,15 +199,21 @@ def print_chunks(
             Whether overlap regions should be highlighted in the chunk
             content output. Defaults to False.
     """
-    
+
     for index, chunk in enumerate(chunks):
         print("")
-        isPdf: bool = (chunk.kind == "pdf")
-        isCode: bool = (chunk.kind =="code")
+        isPdf: bool = chunk.kind == "pdf"
+        isCode: bool = chunk.kind == "code"
         if isPdf:
-            console.rule(title=f"Chunk {chunk.metadata['chunk_index']} - Page {chunk.metadata['page_number']}", characters="=")
+            console.rule(
+                title=f"Chunk {chunk.metadata['chunk_index']} - Page {chunk.metadata['page_number']}",  # noqa: E501
+                characters="=",
+            )
         elif isCode:
-            console.rule(title=f"Chunk {chunk.metadata['chunk_index']} - {chunk.metadata['symbol_kind']}: {chunk.metadata['symbol_name']}", characters="=")
+            console.rule(
+                title=f"Chunk {chunk.metadata['chunk_index']} - {chunk.metadata['symbol_kind']}: {chunk.metadata['symbol_name']}",  # noqa: E501
+                characters="=",
+            )
         else:
             console.rule(title=f"Chunk {chunk.metadata['chunk_index']}", characters="=")
         # compute overlap
@@ -232,7 +238,7 @@ def print_chunks(
             if isPdf:
                 metadata_table.add_column("global-chunk-index", justify="center")
             elif isCode:
-                metadata_table.add_column("symbol-name",justify="center")
+                metadata_table.add_column("symbol-name", justify="center")
             metadata_table.add_column("character count", justify="center")
             metadata_table.add_column("front-overlap", justify="center")
             metadata_table.add_column("end-overlap", justify="center")
@@ -283,7 +289,7 @@ def chunk_to_dict(chunk: ParsedChunk) -> dict[str, Any]:
     result["metadata"]["type"] = chunk.metadata["type"]
     result["metadata"]["chunk_index"] = chunk.metadata["chunk_index"]
     result["metadata"]["total_chunks"] = chunk.metadata["total_chunks"]
-    # TODO: add the specific metadata for pdf and code 
+    # TODO: add the specific metadata for pdf and code
 
     return result  # type: ignore
 

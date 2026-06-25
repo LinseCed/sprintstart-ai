@@ -10,7 +10,7 @@ from ingestion.text_parser import parse_text
 
 logger = logging.getLogger(__name__)
 
-CODE_EXTENSIONS = TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES.keys()
+CODE_EXTENSIONS = set(TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES.keys())
 
 PDF_EXTENSION = {".pdf"}
 
