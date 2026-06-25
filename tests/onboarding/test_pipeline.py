@@ -371,7 +371,9 @@ def test_enforce_coverage_reinjects_unique_required_step() -> None:
     area_step = BlueprintStep(
         id=content_id("Configure Kubernetes access"),
         title="Configure Kubernetes access",
-        description="Set up kubeconfig and verify cluster connectivity for deployments.",
+        description=(
+            "Set up kubeconfig and verify cluster connectivity for deployments."
+        ),
         requirement="required",
     )
     blueprints = [

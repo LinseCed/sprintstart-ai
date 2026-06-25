@@ -237,7 +237,9 @@ def test_synthesis_rewrites_step_description(
             "steps": [
                 {
                     "id": content_id(_LOCAL_DB),
-                    "rewritten": "Personalized: spin up the local DB with docker-compose.",
+                    "rewritten": (
+                        "Personalized: spin up the local DB with docker-compose."
+                    ),
                     "chunk_ids": ["c1"],
                 }
             ],

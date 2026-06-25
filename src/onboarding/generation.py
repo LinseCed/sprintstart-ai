@@ -138,13 +138,20 @@ def _scope_query(scope: str) -> str:
 
 
 _DUPLICATE_EXAMPLES = (
-    "Examples of what counts as a duplicate (WRONG) vs. an area-specific step (RIGHT):\n"
-    "  WRONG: 'Install packages'          — same concept as a global 'Install dependencies' step\n"
-    "  WRONG: 'Set up Python environment' — same concept as a global 'Verify prerequisites' step\n"
-    "  WRONG: 'Run the server'            — same concept as a global 'Start the service locally' step\n"
-    "  WRONG: 'Configure .env file'       — same concept as a global 'Configure environment variables' step\n"
-    "  RIGHT: 'Understand the RAG pipeline architecture'  — area-specific concept not in global\n"
-    "  RIGHT: 'Explore the agent tool registry'           — area-specific concept not in global\n"
+    "Examples of what counts as a duplicate (WRONG) vs."
+    " an area-specific step (RIGHT):\n"
+    "  WRONG: 'Install packages'"
+    "          — same concept as a global 'Install dependencies' step\n"
+    "  WRONG: 'Set up Python environment'"
+    " — same concept as a global 'Verify prerequisites' step\n"
+    "  WRONG: 'Run the server'"
+    "            — same concept as a global 'Start the service locally' step\n"
+    "  WRONG: 'Configure .env file'"
+    "       — same concept as a global 'Configure environment variables' step\n"
+    "  RIGHT: 'Understand the RAG pipeline architecture'"
+    "  — area-specific concept not in global\n"
+    "  RIGHT: 'Explore the agent tool registry'"
+    "           — area-specific concept not in global\n"
 )
 
 

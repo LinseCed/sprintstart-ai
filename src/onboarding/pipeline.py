@@ -157,7 +157,8 @@ class OnboardingPipeline:
             added_count = len(result.added_steps)
             yield StageProgress(
                 "synthesize",
-                f"{rewritten_count} rewritten, {enriched_count} enriched, {added_count} added step(s)",
+                f"{rewritten_count} rewritten, {enriched_count} enriched,"
+                f" {added_count} added step(s)",
             )
         except SynthesisError as exc:
             logger.warning("Synthesis failed, using blueprint-only fallback: %s", exc)
@@ -235,7 +236,7 @@ def _is_semantic_duplicate(
       combined score below the threshold.
     """
     full_text = step_text(step.title, step.description)
-    for seen_full, seen_title in zip(seen_texts, seen_titles):
+    for seen_full, seen_title in zip(seen_texts, seen_titles, strict=False):
         score = max(
             text_overlap(full_text, seen_full),
             text_overlap(step.title, seen_title),
