@@ -195,9 +195,7 @@ class OnboardingPipeline:
         result: dict[str, list[ScoredChunk]] = {}
         for step in steps:
             query = (
-                f"{step.title}: {step.description}"
-                if step.description
-                else step.title
+                f"{step.title}: {step.description}" if step.description else step.title
             )
             try:
                 result[step.id] = hybrid_retrieve(

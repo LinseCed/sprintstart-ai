@@ -265,7 +265,10 @@ def test_synthesis_rewrites_step_description(
         for s in phase["steps"]
         if s["id"] == content_id(_LOCAL_DB)
     )
-    assert db_step["description"] == "Personalized: spin up the local DB with docker-compose."
+    assert (
+        db_step["description"]
+        == "Personalized: spin up the local DB with docker-compose."
+    )
 
 
 def test_ungrounded_llm_step_is_dropped(

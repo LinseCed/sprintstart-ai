@@ -258,7 +258,9 @@ def test_retrieve_per_step_uses_step_specific_queries(
     pipe = OnboardingPipeline(StubLLMClient(), store)
     steps = [
         BlueprintStep(id="x", title="Install dependencies", requirement="required"),
-        BlueprintStep(id="y", title="Understand the RAG pipeline", requirement="recommended"),
+        BlueprintStep(
+            id="y", title="Understand the RAG pipeline", requirement="recommended"
+        ),
     ]
 
     pipe._retrieve_per_step(steps)

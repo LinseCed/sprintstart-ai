@@ -165,8 +165,8 @@ def _build_prompt(
             "steps below. You MUST NOT propose any step whose concept overlaps "
             "with them, even when phrased differently.\n\n"
             f"Global steps (do not repeat these concepts):\n{covered}\n\n"
-            "Before writing each step, ask: \"Is this concept already covered "
-            "above, even under a different title?\" If yes, skip it.\n\n"
+            'Before writing each step, ask: "Is this concept already covered '
+            'above, even under a different title?" If yes, skip it.\n\n'
             f"{_DUPLICATE_EXAMPLES}"
             "Only propose steps that are genuinely specific to this area.\n"
         )
@@ -412,7 +412,9 @@ def _generate_scope(
         chunks = [c for c in chunks if c.id not in global_chunk_ids]
     if not chunks:
         return GenerationOutcome(
-            scope=scope, status="skipped", notes=["no area-specific evidence after excluding global citations"]
+            scope=scope,
+            status="skipped",
+            notes=["no area-specific evidence after excluding global citations"],
         )
 
     pool = load_pool()

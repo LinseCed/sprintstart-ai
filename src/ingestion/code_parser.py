@@ -75,7 +75,11 @@ def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
         ParsedChunk(
             content=chunk.content,
             kind=chunk.kind,
-            metadata={**chunk.metadata, "chunk_index": str(i), "total_chunks": str(total)},
+            metadata={
+                **chunk.metadata,
+                "chunk_index": str(i),
+                "total_chunks": str(total),
+            },
         )
         for i, chunk in enumerate(parsed_chunks)
     ]
