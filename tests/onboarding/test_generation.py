@@ -6,8 +6,8 @@ import yaml
 
 from onboarding import drafts
 from onboarding.generation import (
-    _filter_semantic_duplicates,
     corpus_fingerprint,
+    filter_semantic_duplicates,
     generate_blueprints,
 )
 from onboarding.models import BlueprintStep, SkeletonRef, StepRecord, content_id
@@ -216,7 +216,7 @@ def test_empty_corpus_is_skipped() -> None:
     assert outcomes[0].status == "skipped"
 
 
-def test_filter_semantic_duplicates_drops_similar_steps() -> None:
+def testfilter_semantic_duplicates_drops_similar_steps() -> None:
     """Area steps whose embeddings are too close to global steps are filtered."""
     similar_embed = [1.0, 0.1] + [0.0] * 766
     different_embed = [0.0, 1.0] + [0.0] * 766
@@ -250,14 +250,14 @@ def test_filter_semantic_duplicates_drops_similar_steps() -> None:
     refs = [SkeletonRef(id=dup_id), SkeletonRef(id=unique_id)]
     llm = StubLLMClient(embed_fn=embed_fn)
 
-    kept = _filter_semantic_duplicates(refs, pool, global_steps, llm)
+    kept = filter_semantic_duplicates(refs, pool, global_steps, llm)
 
     kept_ids = {r.id for r in kept}
     assert dup_id not in kept_ids  # similar to global → dropped
     assert unique_id in kept_ids  # different → kept
 
 
-def test_filter_semantic_duplicates_keeps_dissimilar_steps() -> None:
+def testfilter_semantic_duplicates_keeps_dissimilar_steps() -> None:
     """Area steps with low similarity to global steps survive the filter."""
     call_count = {"n": 0}
 
@@ -284,12 +284,12 @@ def test_filter_semantic_duplicates_keeps_dissimilar_steps() -> None:
     refs = [SkeletonRef(id=docker_id)]
     llm = StubLLMClient(embed_fn=embed_fn)
 
-    kept = _filter_semantic_duplicates(refs, pool, global_steps, llm)
+    kept = filter_semantic_duplicates(refs, pool, global_steps, llm)
 
     assert [r.id for r in kept] == [docker_id]
 
 
-def test_filter_semantic_duplicates_within_scope() -> None:
+def testfilter_semantic_duplicates_within_scope() -> None:
     """Two near-identical steps in the same scope collapse to the first."""
 
     def embed_fn(text: str) -> list[float]:
@@ -322,7 +322,7 @@ def test_filter_semantic_duplicates_within_scope() -> None:
     llm = StubLLMClient(embed_fn=embed_fn)
 
     # No global steps → pure within-scope dedup (as for the global scope itself).
-    kept = _filter_semantic_duplicates(refs, pool, [], llm)
+    kept = filter_semantic_duplicates(refs, pool, [], llm)
 
     kept_ids = [r.id for r in kept]
     assert first_id in kept_ids  # first occurrence wins

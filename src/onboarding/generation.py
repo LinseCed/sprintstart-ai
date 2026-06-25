@@ -248,14 +248,14 @@ def _draft_steps(
         seen_ids.add(step_id)
         refs.append(SkeletonRef(id=step_id, requirement=item.requirement))
 
-    refs = _filter_semantic_duplicates(refs, pool, global_steps or [], llm)
+    refs = filter_semantic_duplicates(refs, pool, global_steps or [], llm)
     return refs
 
 
 # --- embedding-based semantic dedup ----------------------------------------
 
 
-def _filter_semantic_duplicates(
+def filter_semantic_duplicates(
     refs: list[SkeletonRef],
     pool: dict[str, StepRecord],
     global_steps: list[BlueprintStep],

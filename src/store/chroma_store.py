@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import cast
 
 import chromadb
@@ -10,7 +11,7 @@ from rag.types import Chunk, ScoredChunk, is_chunk_kind
 _NO_POSITION: int = -1
 
 
-def _source_role_of(metadata: dict[str, object]) -> SourceRole:
+def _source_role_of(metadata: Mapping[str, object]) -> SourceRole:
     """Read the source role from chunk metadata.
 
     Legacy chunks ingested before roles existed have no ``source_role`` key;

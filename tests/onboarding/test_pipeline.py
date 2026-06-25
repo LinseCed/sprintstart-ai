@@ -291,7 +291,7 @@ def test_build_phases_drops_semantic_duplicate_across_scopes() -> None:
     ]
     profile = PersonProfile(working_area="backend", experience="junior")
 
-    phases, kept = _build_phases(blueprints, profile)
+    phases, _ = _build_phases(blueprints, profile)
 
     all_ids = [s.id for p in phases for s in p.steps]
     assert global_step.id in all_ids
