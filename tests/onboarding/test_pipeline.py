@@ -12,14 +12,20 @@ from onboarding.models import (
     PathStep,
     PersonProfile,
     QualityReport,
+    content_id,
     experience_rank,
 )
 from onboarding.pipeline import (
+    OnboardingPipeline,
+    _build_phases,
     _enforce_coverage,
     _enforce_invariants,
     _step_applies,
 )
 from onboarding.quality import evaluate
+from rag.types import Chunk
+from tests.stubs.llm import StubLLMClient
+from tests.stubs.store import StubVectorStore
 
 
 def _path(phases: list[PathPhase]) -> OnboardingPath:
@@ -166,6 +172,97 @@ def test_quality_rubric_flags_missing_coverage_and_bad_ordering() -> None:
     assert report.coverage == 0.5
     assert report.ordering_valid is False
     assert any("missing required" in n for n in report.notes)
+
+
+def test_content_id_is_stable_and_normalized() -> None:
+    # Identity is the normalized title: case- and whitespace-insensitive, stable.
+    assert content_id("Set up the DB") == content_id("set up the db")
+    assert content_id("  Set   up  the DB ") == content_id("Set up the DB")
+    assert content_id("Set up the DB").startswith("step-")
+    assert content_id("A") != content_id("B")
+
+
+def test_skill_tag_match_surfaces_step_outside_audience() -> None:
+    # A devops-only step the person would not otherwise see, pulled in because
+    # they listed kubernetes as a skill (skills are role-orthogonal).
+    step = BlueprintStep(
+        id="x",
+        title="Set up the cluster",
+        requirement="recommended",
+        audience=["devops"],
+        tags=["kubernetes"],
+    )
+    skilled = PersonProfile(
+        working_area="backend", experience="junior", skills=["kubernetes"]
+    )
+    assert _step_applies(step, skilled) is True
+
+    # Without the matching skill, the devops-only step stays hidden for backend.
+    plain = PersonProfile(working_area="backend", experience="junior")
+    assert _step_applies(step, plain) is False
+    # Surfacing by skill never promotes a recommended step to required.
+    assert step.requirement == "recommended"
+
+
+def test_build_phases_dedups_step_across_scopes() -> None:
+    shared = BlueprintStep(
+        id=content_id("Shared step"), title="Shared step", requirement="required"
+    )
+    blueprints = [
+        Blueprint(scope="global", steps=[shared]),
+        Blueprint(scope="area:backend", steps=[shared.model_copy(deep=True)]),
+    ]
+    profile = PersonProfile(working_area="backend", experience="junior")
+
+    phases, _ = _build_phases(blueprints, profile)
+
+    all_ids = [s.id for phase in phases for s in phase.steps]
+    assert all_ids.count(content_id("Shared step")) == 1  # earlier scope wins
+
+
+def test_cross_scope_status_merge_required_wins() -> None:
+    # The same step is recommended globally but required for backend; the
+    # rendered path must show it once, as required.
+    recommended = BlueprintStep(
+        id=content_id("Shared"), title="Shared", requirement="recommended"
+    )
+    required = recommended.model_copy(update={"requirement": "required"})
+    blueprints = [
+        Blueprint(scope="global", steps=[recommended]),
+        Blueprint(scope="area:backend", steps=[required]),
+    ]
+    profile = PersonProfile(working_area="backend", experience="junior")
+
+    phases, _ = _build_phases(blueprints, profile)
+
+    rendered = [s for p in phases for s in p.steps if s.id == content_id("Shared")]
+    assert len(rendered) == 1
+    assert rendered[0].requirement == "required"
+
+
+def test_retrieve_query_includes_skills(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_retrieve(*, question: str, **_: object) -> list[object]:
+        captured["question"] = question
+        return []
+
+    monkeypatch.setattr(pipeline, "hybrid_retrieve", fake_retrieve)
+
+    store = StubVectorStore()
+    store.add(
+        [Chunk(id="c1", artifact_id="a1", filename="d.md", text="x", embedding=[0.1])]
+    )
+    pipe = OnboardingPipeline(StubLLMClient(), store)
+    steps = [BlueprintStep(id="x", title="Setup", requirement="required")]
+    profile = PersonProfile(
+        working_area="backend", experience="junior", skills=["python", "fastapi"]
+    )
+
+    pipe._retrieve(profile, steps)
+
+    assert "python" in captured["question"]
+    assert "fastapi" in captured["question"]
 
 
 def test_path_serializes_to_yaml_round_trip() -> None:

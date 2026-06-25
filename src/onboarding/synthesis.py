@@ -23,6 +23,7 @@ from onboarding.models import (
     CitationRef,
     PathStep,
     PersonProfile,
+    content_id,
 )
 from rag.types import ScoredChunk
 
@@ -87,16 +88,21 @@ def _build_prompt(
         "1. 'enriched': for each blueprint step that the evidence supports, list "
         "the chunk ids that ground it.\n"
         "2. 'added': propose extra project-specific steps that are NOT already "
-        "covered by the blueprint. Every added step MUST reference at least one "
-        "chunk id from the evidence; do not invent sources.\n\n"
+        "covered by the blueprint, prioritizing steps relevant to the person's "
+        "stated skills and interests. Every added step MUST reference at least "
+        "one chunk id from the evidence; do not invent sources.\n\n"
         f"{_verbosity(profile)}\n\n"
         'JSON schema: {"enriched": [{"id": str, "chunk_ids": [str]}], '
         '"added": [{"title": str, "description": str, "tags": [str], '
         '"chunk_ids": [str]}]}'
     )
+    skills = ", ".join(profile.skills) or "(none listed)"
+    interests = ", ".join(profile.tags) or "(none listed)"
     user = (
         f"Working area: {profile.working_area}\n"
-        f"Experience: {profile.experience}\n\n"
+        f"Experience: {profile.experience}\n"
+        f"Skills: {skills}\n"
+        f"Interests: {interests}\n\n"
         f"Blueprint steps:\n{step_lines}\n\n"
         f"Evidence:\n{evidence}"
     )
@@ -139,7 +145,7 @@ def synthesize(
 
     added_steps = [
         PathStep(
-            id=f"llm-{i}",
+            id=content_id(item.title),
             title=item.title,
             description=item.description,
             requirement="recommended",
@@ -147,7 +153,7 @@ def synthesize(
             tags=item.tags,
             citations=resolve(item.chunk_ids),
         )
-        for i, item in enumerate(payload.added, start=1)
+        for item in payload.added
     ]
 
     return SynthesisResult(enrichments=enrichments, added_steps=added_steps)

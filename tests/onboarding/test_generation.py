@@ -6,6 +6,7 @@ import yaml
 
 from onboarding import drafts
 from onboarding.generation import corpus_fingerprint, generate_blueprints
+from onboarding.models import content_id
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -44,9 +45,12 @@ def tmp_blueprints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _seed_active(tmp_path: Path, blueprint: dict[str, object]) -> None:
-    stem = "global" if blueprint["scope"] == "global" else "area-backend"
-    (tmp_path / f"{stem}.yaml").write_text(yaml.safe_dump(blueprint), encoding="utf-8")
+def _seed_active(
+    tmp_path: Path, *, skeleton: dict[str, object], pool: list[dict[str, object]]
+) -> None:
+    stem = "global" if skeleton["scope"] == "global" else "area-backend"
+    (tmp_path / f"{stem}.yaml").write_text(yaml.safe_dump(skeleton), encoding="utf-8")
+    (tmp_path / "steps.yaml").write_text(yaml.safe_dump(pool), encoding="utf-8")
 
 
 def test_first_time_generation_drafts_grounded_steps() -> None:
@@ -69,7 +73,7 @@ def test_first_time_generation_drafts_grounded_steps() -> None:
     assert draft is not None
     assert draft.source == "generated"
     assert draft.version == "1"
-    assert [s.id for s in draft.steps] == ["deploy-runbook"]
+    assert [s.id for s in draft.steps] == [content_id("Read the deploy runbook")]
     assert draft.steps[0].citations[0].chunk_id == "c1"
     assert draft.provenance is not None
     assert draft.provenance.corpus_fingerprint == corpus_fingerprint(store)
@@ -114,32 +118,21 @@ def test_corpus_change_updates_active_with_new_version() -> None:
 
 
 def test_invariant_removal_is_blocked_and_reinjected(tmp_path: Path) -> None:
+    sec = "Security policy"
     _seed_active(
         tmp_path,
-        {
+        skeleton={
             "scope": _SCOPE,
             "version": "1",
             "source": "authored",
-            "steps": [
-                {
-                    "id": "security",
-                    "title": "Security policy",
-                    "requirement": "required",
-                }
-            ],
+            "steps": [{"id": content_id(sec), "requirement": "required"}],
         },
+        pool=[{"id": content_id(sec), "title": sec}],
     )
     store = _store("backend onboarding deploy runbook")
     # The draft omits the required "security" step entirely.
     llm = _llm(
-        [
-            {
-                "id": "deploy",
-                "title": "Deploy",
-                "requirement": "recommended",
-                "chunk_ids": ["c1"],
-            }
-        ]
+        [{"title": "Deploy", "requirement": "recommended", "chunk_ids": ["c1"]}]
     )
 
     outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
@@ -147,38 +140,40 @@ def test_invariant_removal_is_blocked_and_reinjected(tmp_path: Path) -> None:
     assert outcomes[0].status == "escalated"
     draft = drafts.get_draft(_SCOPE)
     assert draft is not None
+    sec_id = content_id(sec)
     ids = {s.id for s in draft.steps}
-    assert "security" in ids  # protected step re-injected, never silently dropped
+    assert sec_id in ids  # protected step re-injected, never silently dropped
     assert draft.provenance is not None
-    assert any("security" in note for note in draft.provenance.notes)
+    assert any(sec_id in note for note in draft.provenance.notes)
 
 
 def test_invariant_flag_protects_recommended_step(tmp_path: Path) -> None:
+    ethics = "Ethics training"
     _seed_active(
         tmp_path,
-        {
+        skeleton={
             "scope": _SCOPE,
             "version": "1",
             "source": "authored",
             "steps": [
                 {
-                    "id": "ethics",
-                    "title": "Ethics training",
+                    "id": content_id(ethics),
                     "requirement": "recommended",
                     "invariant": True,
                 }
             ],
         },
+        pool=[{"id": content_id(ethics), "title": ethics}],
     )
     store = _store("backend onboarding")
-    llm = _llm([{"id": "deploy", "title": "Deploy", "chunk_ids": ["c1"]}])
+    llm = _llm([{"title": "Deploy", "chunk_ids": ["c1"]}])
 
     outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
 
     assert outcomes[0].status == "escalated"
     draft = drafts.get_draft(_SCOPE)
     assert draft is not None
-    assert "ethics" in {s.id for s in draft.steps}
+    assert content_id(ethics) in {s.id for s in draft.steps}
 
 
 def test_ungrounded_steps_are_dropped() -> None:
@@ -194,7 +189,24 @@ def test_ungrounded_steps_are_dropped() -> None:
 
     draft = drafts.get_draft(_SCOPE)
     assert draft is not None
-    assert [s.id for s in draft.steps] == ["grounded"]
+    assert [s.id for s in draft.steps] == [content_id("Grounded")]
+
+
+def test_identical_title_proposals_dedup() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm(
+        [
+            {"title": "Read the deploy runbook", "chunk_ids": ["c1"]},
+            {"title": "Read the deploy runbook", "chunk_ids": ["c1"]},
+        ]
+    )
+
+    generate_blueprints(llm, store, scopes=[_SCOPE])
+
+    draft = drafts.get_draft(_SCOPE)
+    assert draft is not None
+    # Same title -> same content id -> collapsed to a single step.
+    assert [s.id for s in draft.steps] == [content_id("Read the deploy runbook")]
 
 
 def test_empty_corpus_is_skipped() -> None:

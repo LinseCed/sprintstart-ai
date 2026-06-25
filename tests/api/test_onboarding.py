@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from api.app import app
 from api.dependencies import get_llm, get_store
+from onboarding.models import content_id
 from rag.types import Chunk
 from tests.conftest import parse_sse_events
 from tests.stubs.llm import StubLLMClient
@@ -16,31 +18,37 @@ from tests.stubs.store import StubVectorStore
 # Non-zero embedding so the stub store returns a perfect cosine match.
 _EMBED = [1.0] + [0.0] * 767
 
-_GLOBAL_YAML = """\
-scope: global
-version: "1"
-source: authored
-steps:
-  - id: account-setup
-    title: Set up your accounts and access
-    requirement: required
-"""
-
-_BACKEND_YAML = """\
-scope: "area:backend"
-version: "1"
-source: authored
-steps:
-  - id: local-db-setup
-    title: Set up your local database
-    requirement: required
-"""
+_ACCOUNTS = "Set up your accounts and access"
+_LOCAL_DB = "Set up your local database"
 
 
 @pytest.fixture(autouse=True)
 def _test_blueprints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
-    (tmp_path / "global.yaml").write_text(_GLOBAL_YAML)
-    (tmp_path / "area-backend.yaml").write_text(_BACKEND_YAML)
+    pool = [
+        {"id": content_id(_ACCOUNTS), "title": _ACCOUNTS},
+        {"id": content_id(_LOCAL_DB), "title": _LOCAL_DB},
+    ]
+    (tmp_path / "steps.yaml").write_text(yaml.safe_dump(pool))
+    (tmp_path / "global.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "scope": "global",
+                "version": "1",
+                "source": "authored",
+                "steps": [{"id": content_id(_ACCOUNTS), "requirement": "required"}],
+            }
+        )
+    )
+    (tmp_path / "area-backend.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "scope": "area:backend",
+                "version": "1",
+                "source": "authored",
+                "steps": [{"id": content_id(_LOCAL_DB), "requirement": "required"}],
+            }
+        )
+    )
     monkeypatch.setenv("BLUEPRINTS_PATH", str(tmp_path))
 
 
@@ -93,8 +101,8 @@ def test_required_steps_always_present(
     path = _path_event(events)["path"]
     ids = _all_step_ids(path)
 
-    assert "account-setup" in ids
-    assert "local-db-setup" in ids
+    assert content_id("Set up your accounts and access") in ids
+    assert content_id("Set up your local database") in ids
 
 
 def test_unknown_working_area_falls_back_to_global_only(
@@ -107,7 +115,7 @@ def test_unknown_working_area_falls_back_to_global_only(
     titles = [phase["title"] for phase in path["phases"]]
 
     assert titles == ["Getting started"]
-    assert "account-setup" in _all_step_ids(path)
+    assert content_id("Set up your accounts and access") in _all_step_ids(path)
 
 
 def test_unseen_experience_value_does_not_crash(
@@ -118,7 +126,7 @@ def test_unseen_experience_value_does_not_crash(
     events = _post(http, working_area="backend", experience="wizard")
     path = _path_event(events)["path"]
 
-    assert "account-setup" in _all_step_ids(path)
+    assert content_id("Set up your accounts and access") in _all_step_ids(path)
 
 
 def test_empty_corpus_produces_blueprint_only_path(
@@ -169,7 +177,12 @@ def test_grounded_llm_steps_are_added_and_cited(
     llm.embedding = _EMBED
     llm.generate_response = json.dumps(
         {
-            "enriched": [{"id": "local-db-setup", "chunk_ids": ["c1"]}],
+            "enriched": [
+                {
+                    "id": content_id("Set up your local database"),
+                    "chunk_ids": ["c1"],
+                }
+            ],
             "added": [
                 {
                     "title": "Read the deploy runbook",
@@ -208,7 +221,7 @@ def test_grounded_llm_steps_are_added_and_cited(
         s
         for phase in path["phases"]
         for s in phase["steps"]
-        if s["id"] == "local-db-setup"
+        if s["id"] == content_id("Set up your local database")
     )
     assert db_step["citations"][0]["chunk_id"] == "c1"
 
@@ -273,7 +286,9 @@ def test_yaml_endpoint_returns_valid_yaml(
     assert path["working_area"] == "backend"
     assert path["experience"] == "junior"
     assert any(
-        s["id"] == "account-setup" for phase in path["phases"] for s in phase["steps"]
+        s["id"] == content_id("Set up your accounts and access")
+        for phase in path["phases"]
+        for s in phase["steps"]
     )
 
 

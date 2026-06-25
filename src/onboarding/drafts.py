@@ -17,8 +17,9 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from onboarding.blueprints import blueprints_path, load_blueprints
-from onboarding.models import Blueprint
+from onboarding.blueprints import load_blueprints
+from onboarding.models import Blueprint, Skeleton
+from onboarding.registry import blueprints_path, load_pool, resolve
 
 logger = logging.getLogger(__name__)
 
@@ -88,25 +89,31 @@ def _draft_path(scope: str) -> Path:
 # --- io helpers ------------------------------------------------------------
 
 
-def _write(path: Path, blueprint: Blueprint) -> None:
+def _write(path: Path, skeleton: Skeleton) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = blueprint.model_dump(exclude_none=True)
+    payload = skeleton.model_dump(exclude_none=True)
     path.write_text(
         yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
 
 
-def _read(path: Path) -> Blueprint | None:
+def _read_skeleton(path: Path) -> Skeleton | None:
     if not path.is_file():
         return None
     try:
-        return Blueprint.model_validate(
-            yaml.safe_load(path.read_text(encoding="utf-8"))
-        )
+        return Skeleton.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
     except (yaml.YAMLError, ValidationError, OSError) as exc:
-        logger.warning("Skipping invalid blueprint %s: %s", path, exc)
+        logger.warning("Skipping invalid skeleton %s: %s", path, exc)
         return None
+
+
+def _read_resolved(path: Path) -> Blueprint | None:
+    """Read a skeleton and resolve it against the pool (the served view)."""
+    skeleton = _read_skeleton(path)
+    if skeleton is None:
+        return None
+    return resolve(skeleton, load_pool())
 
 
 # --- active blueprints -----------------------------------------------------
@@ -124,14 +131,14 @@ def active_blueprint(scope: str) -> Blueprint | None:
 # --- draft queue -----------------------------------------------------------
 
 
-def save_draft(blueprint: Blueprint) -> None:
-    _validate_scope(blueprint.scope)
-    _write(_draft_path(blueprint.scope), blueprint)
+def save_draft(skeleton: Skeleton) -> None:
+    _validate_scope(skeleton.scope)
+    _write(_draft_path(skeleton.scope), skeleton)
 
 
 def get_draft(scope: str) -> Blueprint | None:
     _validate_scope(scope)
-    return _read(_draft_path(scope))
+    return _read_resolved(_draft_path(scope))
 
 
 def list_drafts() -> list[Blueprint]:
@@ -140,7 +147,7 @@ def list_drafts() -> list[Blueprint]:
         return []
     drafts: list[Blueprint] = []
     for file in sorted(directory.glob("*.yaml")):
-        blueprint = _read(file)
+        blueprint = _read_resolved(file)
         if blueprint is not None:
             drafts.append(blueprint)
     return drafts
@@ -164,9 +171,9 @@ def _version_path(scope: str, version: str) -> Path:
     return _versions_dir() / _scope_stem(scope) / f"{version}.yaml"
 
 
-def _snapshot(blueprint: Blueprint) -> None:
-    """Retain a blueprint version so it can be rolled back to later."""
-    _write(_version_path(blueprint.scope, blueprint.version), blueprint)
+def _snapshot(skeleton: Skeleton) -> None:
+    """Retain a skeleton version so it can be rolled back to later."""
+    _write(_version_path(skeleton.scope, skeleton.version), skeleton)
 
 
 def list_versions(scope: str) -> list[str]:
@@ -178,39 +185,39 @@ def list_versions(scope: str) -> list[str]:
 
 
 def get_version(scope: str, version: str) -> Blueprint | None:
-    return _read(_version_path(scope, version))
+    return _read_resolved(_version_path(scope, version))
 
 
 def approve_draft(scope: str) -> Blueprint:
     """Promote a draft to active, retaining the outgoing version for rollback."""
     _validate_scope(scope)
-    draft = get_draft(scope)
+    draft = _read_skeleton(_draft_path(scope))
     if draft is None:
         raise FileNotFoundError(f"no draft for scope {scope!r}")
 
-    current = active_blueprint(scope)
+    current = _read_skeleton(_active_path(scope))
     if current is not None:
         _snapshot(current)
 
     _write(_active_path(scope), draft)
     discard_draft(scope)
-    return draft
+    return resolve(draft, load_pool())
 
 
 def rollback(scope: str, version: str) -> Blueprint:
     """Restore a retained version as the active blueprint."""
     _validate_scope(scope)
     _validate_version(version)
-    target = get_version(scope, version)
+    target = _read_skeleton(_version_path(scope, version))
     if target is None:
         raise FileNotFoundError(f"no version {version!r} for scope {scope!r}")
 
-    current = active_blueprint(scope)
+    current = _read_skeleton(_active_path(scope))
     if current is not None:
         _snapshot(current)
 
     _write(_active_path(scope), target)
-    return target
+    return resolve(target, load_pool())
 
 
 # --- diff ------------------------------------------------------------------

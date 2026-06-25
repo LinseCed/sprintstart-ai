@@ -8,6 +8,8 @@ extensible (``skills`` / ``tags``) so a future multi-dimensional skill profile
 slots in without reshaping the API or the blueprint step model.
 """
 
+import hashlib
+import re
 from typing import Literal
 
 import yaml
@@ -34,6 +36,20 @@ def experience_rank(level: str | None) -> int:
     if level is None:
         return 0
     return EXPERIENCE_LEVELS.get(level.strip().lower(), 0)
+
+
+def content_id(title: str) -> str:
+    """Content fingerprint of a step title: ``step-<8 hex>``.
+
+    Used two ways: as a step's **id at birth** (assigned once, then frozen and
+    stored — so renaming the title keeps the step's identity and history) and as
+    the **fingerprint** for write-time de-duplication (two steps with the same
+    normalized title share a fingerprint and collapse to one record).
+    Normalization is case- and whitespace-insensitive.
+    """
+    normalized = re.sub(r"\s+", " ", title).strip().lower()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return f"step-{digest[:8]}"
 
 
 class PersonProfile(BaseModel):
@@ -63,7 +79,37 @@ class CitationRef(BaseModel):
     chunk_id: str
 
 
+class StepRecord(BaseModel):
+    """A unit of onboarding content — the registry's aggregate root.
+
+    Stored in the step pool (``blueprints/steps.yaml``). The ``id`` is assigned
+    once at creation as ``content_id(title)`` and then *frozen* — editing the
+    title never changes it, so a step keeps its identity (and history) across
+    renames. Status (``requirement`` / ``invariant``) is deliberately absent: it
+    is structural and lives on the :class:`SkeletonRef` that points at the step,
+    so the same step can be required for one area and recommended for another.
+    """
+
+    id: str
+    title: str
+    description: str = ""
+    audience: list[str] = Field(default_factory=list)
+    min_experience: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    resources: list[Resource] = []
+    # Intrinsic grounding for AI-generated steps (issue #110); authored steps
+    # leave this empty and rely on the serve-time enrichment layer instead.
+    citations: list[CitationRef] = []
+
+
 class BlueprintStep(BaseModel):
+    """A step as *served*: a :class:`StepRecord`'s content merged with the
+    contextual status from the :class:`SkeletonRef` that referenced it.
+
+    This is the resolved view the pipeline, quality gate, diff, and management
+    API operate on — unchanged in shape so the registry stays internal.
+    """
+
     id: str
     title: str
     description: str = ""
@@ -72,8 +118,6 @@ class BlueprintStep(BaseModel):
     min_experience: str | None = None
     tags: list[str] = Field(default_factory=list)
     resources: list[Resource] = []
-    # Intrinsic grounding for AI-generated steps (issue #110); authored steps
-    # leave this empty and rely on the serve-time enrichment layer instead.
     citations: list[CitationRef] = []
     # Human-owned protection flag. An ``invariant`` step may not be removed or
     # downgraded by the generation job; such changes are blocked or escalated.
@@ -107,6 +151,35 @@ class Blueprint(BaseModel):
     version: str = "0"
     source: Source = "authored"
     steps: list[BlueprintStep] = []
+    provenance: BlueprintProvenance | None = None
+
+
+class SkeletonRef(BaseModel):
+    """A skeleton's ordered reference to a step in the pool.
+
+    ``requirement`` / ``invariant`` are properties of the step *in this path*,
+    not of the step itself, so a step can be required for one scope and merely
+    recommended for another.
+    """
+
+    id: str
+    requirement: Requirement = "recommended"
+    invariant: bool = False
+
+
+class Skeleton(BaseModel):
+    """The structural layer: an ordered, versioned selection of steps by scope.
+
+    Replaces the on-disk ``Blueprint``. Resolving a skeleton against the step
+    pool yields a :class:`Blueprint` — the unchanged served view. ``source`` +
+    ``version`` + ``provenance`` carry the same governance/rollback semantics as
+    before, now at the structural layer.
+    """
+
+    scope: str = Field(description="'global' or 'area:<name>'")
+    version: str = "0"
+    source: Source = "authored"
+    steps: list[SkeletonRef] = []
     provenance: BlueprintProvenance | None = None
 
 

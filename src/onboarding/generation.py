@@ -24,7 +24,6 @@ a separate, human-approved step.
 import hashlib
 import json
 import logging
-import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -39,7 +38,11 @@ from onboarding.models import (
     BlueprintProvenance,
     BlueprintStep,
     CitationRef,
+    Skeleton,
+    SkeletonRef,
+    StepRecord,
 )
+from onboarding.registry import load_pool, save_pool, upsert_step
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
 from store.base import VectorStore
@@ -70,7 +73,6 @@ class GenerationOutcome(BaseModel):
 
 
 class _GenStep(BaseModel):
-    id: str = ""
     title: str
     description: str = ""
     requirement: Literal["required", "recommended"] = "recommended"
@@ -125,11 +127,6 @@ def _scope_query(scope: str) -> str:
 # --- prompt / parsing ------------------------------------------------------
 
 
-def _slugify(text: str, fallback: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug or fallback
-
-
 def _build_prompt(
     scope: str,
     chunks: list[ScoredChunk],
@@ -138,9 +135,9 @@ def _build_prompt(
     evidence = "\n".join(f"[{c.id}] ({c.filename}) {c.text}" for c in chunks)
     exclusion = ""
     if global_steps:
-        covered = "\n".join(f"- {s.id}: {s.title}" for s in global_steps)
+        covered = "\n".join(f"- {s.title}" for s in global_steps)
         exclusion = (
-            "\n4. The global blueprint already covers these steps. Do NOT "
+            "\n3. The global blueprint already covers these steps. Do NOT "
             "duplicate or rephrase them; only propose steps specific to this "
             f"area:\n{covered}\n"
         )
@@ -154,9 +151,8 @@ def _build_prompt(
         "not invent sources.\n"
         "2. Mark foundational/mandatory steps as 'required', others as "
         "'recommended'.\n"
-        "3. Give each step a short kebab-case 'id'.\n"
         f"{exclusion}\n"
-        'JSON schema: {"steps": [{"id": str, "title": str, "description": str, '
+        'JSON schema: {"steps": [{"title": str, "description": str, '
         '"requirement": "required"|"recommended", "tags": [str], '
         '"chunk_ids": [str]}]}'
     )
@@ -171,9 +167,15 @@ def _draft_steps(
     scope: str,
     chunks: list[ScoredChunk],
     llm: LLMClient,
+    pool: dict[str, StepRecord],
     global_steps: list[BlueprintStep] | None = None,
-) -> list[BlueprintStep]:
-    """Ask the LLM for steps and keep only those grounded in the evidence."""
+) -> list[SkeletonRef]:
+    """Ask the LLM for steps, keep the grounded ones, and upsert them.
+
+    Grounded steps are written into ``pool`` (deduplicating by content
+    fingerprint) and returned as ordered skeleton references carrying the
+    proposed ``requirement``.
+    """
     raw = llm.generate(_build_prompt(scope, chunks, global_steps))
     try:
         payload = _GenPayload.model_validate_json(extract_json_object(raw))
@@ -192,51 +194,47 @@ def _draft_steps(
                 seen.add(chunk.id)
         return refs
 
-    steps: list[BlueprintStep] = []
-    used_ids: set[str] = set()
-    for i, item in enumerate(payload.steps, start=1):
+    refs: list[SkeletonRef] = []
+    seen_ids: set[str] = set()
+    for item in payload.steps:
         citations = resolve(item.chunk_ids)
         if not citations:
             continue  # grounding gate: drop ungrounded steps
-        base_id = _slugify(item.id or item.title, fallback=f"gen-{i}")
-        step_id = base_id
-        collision = 1
-        while step_id in used_ids:
-            step_id = f"{base_id}-{collision}"
-            collision += 1
-        used_ids.add(step_id)
-        steps.append(
-            BlueprintStep(
-                id=step_id,
-                title=item.title,
-                description=item.description,
-                requirement=item.requirement,
-                tags=item.tags,
-                citations=citations,
-            )
+        step_id = upsert_step(
+            pool,
+            title=item.title,
+            description=item.description,
+            tags=item.tags,
+            citations=citations,
         )
-    return steps
+        if step_id in seen_ids:
+            continue  # identical-title proposals collapse to one ref
+        seen_ids.add(step_id)
+        refs.append(SkeletonRef(id=step_id, requirement=item.requirement))
+    return refs
 
 
 # --- invariant gate --------------------------------------------------------
 
 
 def _enforce_invariants(
-    draft: Blueprint, active: Blueprint | None
-) -> tuple[Blueprint, list[str]]:
-    """Re-inject any human-owned step a draft would remove or downgrade.
+    draft: Skeleton, active: Blueprint | None
+) -> tuple[Skeleton, list[str]]:
+    """Re-inject any human-owned step a draft skeleton would remove or downgrade.
 
-    Protected = ``required`` or ``invariant`` in the active blueprint. Such
-    steps are never silently dropped: they are restored from the active
-    blueprint and the change is reported as an escalation.
+    Protected = ``required`` or ``invariant`` in the active (resolved) blueprint.
+    Such steps are never silently dropped: their reference is restored on the
+    draft skeleton and the change is reported as an escalation. The referenced
+    step already lives in the pool (it is an active step), so the restored ref
+    resolves.
 
-    Returns a *new* Blueprint — the input ``draft`` is never mutated.
+    Returns a *new* Skeleton — the input ``draft`` is never mutated.
     """
     if active is None:
         return draft, []
 
-    patched_steps = [s.model_copy(deep=True) for s in draft.steps]
-    by_id = {s.id: s for s in patched_steps}
+    patched_refs = [r.model_copy(deep=True) for r in draft.steps]
+    by_id = {r.id: r for r in patched_refs}
     notes: list[str] = []
     for prev in active.steps:
         protected = prev.requirement == "required" or prev.invariant
@@ -244,13 +242,24 @@ def _enforce_invariants(
             continue
         existing = by_id.get(prev.id)
         if existing is None:
-            patched_steps.append(prev.model_copy(deep=True))
-            notes.append(f"re-injected protected step removed by draft: {prev.id}")
+            patched_refs.append(
+                SkeletonRef(
+                    id=prev.id,
+                    requirement=prev.requirement,
+                    invariant=prev.invariant,
+                )
+            )
+            notes.append(
+                f"re-injected protected step removed by draft: "
+                f"{prev.title} ({prev.id})"
+            )
         elif existing.requirement != prev.requirement:
             existing.requirement = prev.requirement
             existing.invariant = existing.invariant or prev.invariant
-            notes.append(f"restored requirement of protected step: {prev.id}")
-    patched = draft.model_copy(update={"steps": patched_steps})
+            notes.append(
+                f"restored requirement of protected step: {prev.title} ({prev.id})"
+            )
+    patched = draft.model_copy(update={"steps": patched_refs})
     return patched, notes
 
 
@@ -316,17 +325,18 @@ def _generate_scope(
             scope=scope, status="skipped", notes=["no grounding evidence retrieved"]
         )
 
-    steps = _draft_steps(scope, chunks, llm, global_steps)
-    if not steps:
+    pool = load_pool()
+    refs = _draft_steps(scope, chunks, llm, pool, global_steps)
+    if not refs:
         return GenerationOutcome(
             scope=scope, status="skipped", notes=["no grounded steps proposed"]
         )
 
-    draft = Blueprint(
+    draft = Skeleton(
         scope=scope,
         version=_next_version(active),
         source="generated",
-        steps=steps,
+        steps=refs,
         provenance=BlueprintProvenance(
             corpus_fingerprint=fingerprint,
             generated_at=datetime.now(UTC).isoformat(),
@@ -338,6 +348,8 @@ def _generate_scope(
     if draft.provenance is not None:
         draft.provenance.notes = invariant_notes
 
+    # Persist the new step records before the draft that references them.
+    save_pool(pool)
     drafts.save_draft(draft)
 
     status: OutcomeStatus
@@ -352,7 +364,7 @@ def _generate_scope(
         status=status,
         draft_version=draft.version,
         chunks_retrieved=len(chunks),
-        steps_drafted=len(steps),
+        steps_drafted=len(refs),
         model=model,
         notes=invariant_notes,
     )

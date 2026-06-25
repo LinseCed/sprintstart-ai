@@ -28,6 +28,7 @@ from onboarding.models import (
     PathStep,
     PersonProfile,
     QualityReport,
+    Requirement,
     experience_rank,
 )
 from onboarding.quality import evaluate
@@ -69,7 +70,14 @@ def _step_applies(step: BlueprintStep, profile: PersonProfile) -> bool:
     if step.requirement == "required":
         return True
 
-    if step.audience:
+    # A skill the person listed that matches this step's tags surfaces it
+    # regardless of the step's audience — skills are role-orthogonal, so a
+    # listed skill can pull in a step outside one's working area.
+    skill_match = bool(
+        {s.lower() for s in profile.skills} & {t.lower() for t in step.tags}
+    )
+
+    if step.audience and not skill_match:
         haystack = {profile.working_area.lower(), *(t.lower() for t in profile.tags)}
         haystack.update(s.lower() for s in profile.skills)
         if not haystack & {a.lower() for a in step.audience}:
@@ -78,10 +86,17 @@ def _step_applies(step: BlueprintStep, profile: PersonProfile) -> bool:
     return experience_rank(profile.experience) >= experience_rank(step.min_experience)
 
 
-def _order_steps(steps: list[BlueprintStep]) -> list[BlueprintStep]:
-    """Required steps before recommended ones, preserving authored order."""
-    return [s for s in steps if s.requirement == "required"] + [
-        s for s in steps if s.requirement != "required"
+def _order_steps(
+    steps: list[BlueprintStep], required_ids: set[str]
+) -> list[BlueprintStep]:
+    """Required steps before recommended ones, preserving authored order.
+
+    ``required_ids`` is the cross-scope merge: a step required in *any* selected
+    skeleton is treated as required here, so a step that's recommended globally
+    but mandatory for an area sorts (and renders) as required.
+    """
+    return [s for s in steps if s.id in required_ids] + [
+        s for s in steps if s.id not in required_ids
     ]
 
 
@@ -169,6 +184,11 @@ class OnboardingPipeline:
             return []
         titles = "; ".join(s.title for s in steps)
         query = f"{profile.working_area} onboarding: {titles}".strip()
+        # Bias retrieval toward the person's skills/interests so the synthesis
+        # layer surfaces evidence relevant to what they actually bring.
+        focus = ", ".join([*profile.skills, *profile.tags])
+        if focus:
+            query = f"{query} (skills: {focus})"
         try:
             return hybrid_retrieve(
                 question=query,
@@ -195,13 +215,28 @@ def _build_phases(
 ) -> tuple[list[PathPhase], list[BlueprintStep]]:
     phases: list[PathPhase] = []
     kept_steps: list[BlueprintStep] = []
+    seen: set[str] = set()
+
+    # Cross-scope status merge: a step required in any selected skeleton is
+    # required in the path (contributors can mark a shared step mandatory for
+    # their area). This also feeds ordering and the rendered requirement.
+    required_ids = {
+        s.id for b in blueprints for s in b.steps if s.requirement == "required"
+    }
+
+    def _req(step_id: str) -> Requirement:
+        return "required" if step_id in required_ids else "recommended"
 
     for blueprint in blueprints:
         applicable = _order_steps(
-            [s for s in blueprint.steps if _step_applies(s, profile)]
+            [s for s in blueprint.steps if _step_applies(s, profile)], required_ids
         )
+        # Cross-source dedup: a step contributed by an earlier scope (global
+        # before area) wins; the same step id from a later scope is skipped.
+        applicable = [s for s in applicable if s.id not in seen]
         if not applicable:
             continue
+        seen.update(s.id for s in applicable)
         kept_steps.extend(applicable)
         phases.append(
             PathPhase(
@@ -212,7 +247,7 @@ def _build_phases(
                         id=s.id,
                         title=s.title,
                         description=s.description,
-                        requirement=s.requirement,
+                        requirement=_req(s.id),
                         origin="blueprint",
                         tags=s.tags,
                         citations=s.citations,
@@ -238,9 +273,17 @@ def _apply_enrichments(
 def _apply_grounding_gate(
     phases: list[PathPhase], added_steps: list[PathStep]
 ) -> list[str]:
-    """Drop LLM-added steps without a citation; append grounded ones."""
-    grounded = [s for s in added_steps if s.citations]
-    dropped = len(added_steps) - len(grounded)
+    """Drop LLM-added steps without a citation; append grounded, novel ones."""
+    present = {s.id for phase in phases for s in phase.steps}
+    grounded: list[PathStep] = []
+    for step in added_steps:
+        if not step.citations:
+            continue  # grounding gate
+        if step.id in present:
+            continue  # already covered by a blueprint step (cross-source dedup)
+        present.add(step.id)
+        grounded.append(step)
+    dropped = sum(1 for s in added_steps if not s.citations)
     notes: list[str] = []
     if dropped:
         notes.append(f"dropped {dropped} ungrounded LLM step(s)")
