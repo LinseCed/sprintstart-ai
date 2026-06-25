@@ -10,7 +10,7 @@ from tree_sitter_language_pack import (
     get_parser,
 )
 
-from ingestion.tree_sitter_languages import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
+from ingestion.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
 
 
 @dataclass
@@ -62,12 +62,13 @@ def parse_with_tree_sitter(filename: str, content: bytes) -> tuple[list[CodeSymb
         raise UnsupportedLanguageError(
             f"No tree-sitter support for extension '{extension}'."
         )
+    normalizedExtension: str = extension.lstrip(".")
     
-    code_language: str | None = detect_language_from_extension(extension)
+    code_language: str | None = detect_language_from_extension(normalizedExtension)
 
     if code_language is None:
         raise UnsupportedLanguageError(
-            f"Could not detect language for '{extension}'."
+            f"Could not detect language for '{normalizedExtension}'."
         )
     try:
         parser:Parser = get_cached_parser(code_language)

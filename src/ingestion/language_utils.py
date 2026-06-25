@@ -1,3 +1,5 @@
+import re
+
 TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
     ".py": {
         "function_definition",
@@ -97,4 +99,12 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "module",
     },
 
+}
+
+
+PATTERNS: dict[str, re.Pattern[str]] = {
+    ".py": re.compile(r"^(async\s+def |def |class )"),
+    ".js": re.compile(r"^(export\s+)?(async\s+)?(function|class|const|let|var)\b"),
+    ".ts": re.compile(r"^(export\s+)?(async\s+)?(function|class|const|let|var)\b"),
+    ".go": re.compile(r"func\s+\w+|type\s+\w+|const\s+\w+|var\s+\w+"),
 }
