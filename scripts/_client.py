@@ -27,6 +27,42 @@ CODE_EXTENSIONS = {".py", ".js", ".ts", ".go"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 INGESTABLE = TEXT_EXTENSIONS | CODE_EXTENSIONS | IMAGE_EXTENSIONS
 
+# Directory names (any path component) that are never ingested — caches, VCS
+# metadata, and virtual environments contain no meaningful project content.
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+}
+
+# Directory names that indicate test/fixture material.  Files under these paths
+# are still ingested (useful for Q&A) but tagged source_role="test" so that
+# consumers like the onboarding generator exclude them from grounding evidence.
+TEST_PATH_PARTS = {
+    "tests",
+    "test",
+    "spec",
+    "specs",
+    "demo-corpus",
+    "fixtures",
+    "testdata",
+    "__snapshots__",
+}
+
+
+def _source_role_from_path(path: Path, root: Path) -> str | None:
+    """Return ``"test"`` if any component of *path* relative to *root* looks
+    like test/fixture material, otherwise ``None`` (let the server classify)."""
+    parts = set(path.relative_to(root).parts[:-1])  # directory parts only
+    if parts & TEST_PATH_PARTS:
+        return "test"
+    return None
+
 
 def add_base_url_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -141,18 +177,24 @@ class ServiceClient:
 
         if path.is_dir():
             files = sorted(
-                p for p in path.rglob("*") if p.is_file() and p.suffix in INGESTABLE
+                p
+                for p in path.rglob("*")
+                if p.is_file()
+                and p.suffix in INGESTABLE
+                and not SKIP_DIRS.intersection(p.relative_to(path).parts)
             )
             if not files:
                 print(C.yellow(f"no ingestable files found under {path}"))
                 return
             print(C.dim(f"ingesting {len(files)} file(s) from {path}…"))
             for file in files:
-                self._ingest_file(file, artifact_id=None)
+                self._ingest_file(file, artifact_id=None, root=path)
         else:
-            self._ingest_file(path, artifact_id=artifact_id)
+            self._ingest_file(path, artifact_id=artifact_id, root=path.parent)
 
-    def _ingest_file(self, path: Path, artifact_id: str | None) -> None:
+    def _ingest_file(
+        self, path: Path, artifact_id: str | None, root: Path | None = None
+    ) -> None:
         suffix = path.suffix.lower()
         if suffix not in INGESTABLE:
             hint = ""
@@ -177,6 +219,10 @@ class ServiceClient:
             "filename": path.name,
             "content": content,
         }
+        if root is not None:
+            role = _source_role_from_path(path, root)
+            if role is not None:
+                body["source_role"] = role
 
         try:
             response = self.post("/api/v1/ingest", body)

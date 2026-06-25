@@ -265,6 +265,123 @@ def test_retrieve_query_includes_skills(monkeypatch: pytest.MonkeyPatch) -> None
     assert "fastapi" in captured["question"]
 
 
+def test_build_phases_drops_semantic_duplicate_across_scopes() -> None:
+    """An area step with different id but overlapping content is dropped."""
+    global_step = BlueprintStep(
+        id=content_id("Install Python 3.12 and verify version"),
+        title="Install Python 3.12 and verify version",
+        description="Ensure Python 3.12 is installed on your machine and verify.",
+        requirement="recommended",
+    )
+    # Different title/id but very similar content (high Jaccard overlap).
+    area_step = BlueprintStep(
+        id=content_id("Verify Python 3.12 installation and version"),
+        title="Verify Python 3.12 installation and version",
+        description="Ensure Python 3.12 is installed on your machine and verify.",
+        requirement="recommended",
+    )
+    blueprints = [
+        Blueprint(scope="global", steps=[global_step]),
+        Blueprint(scope="area:backend", steps=[area_step]),
+    ]
+    profile = PersonProfile(working_area="backend", experience="junior")
+
+    phases, kept = _build_phases(blueprints, profile)
+
+    all_ids = [s.id for p in phases for s in p.steps]
+    assert global_step.id in all_ids
+    assert area_step.id not in all_ids  # semantic duplicate dropped
+
+
+def test_build_phases_keeps_semantically_different_steps() -> None:
+    """Two steps with genuinely different content both survive."""
+    global_step = BlueprintStep(
+        id=content_id("Install Python 3.12"),
+        title="Install Python 3.12",
+        description="Install the Python runtime.",
+        requirement="recommended",
+    )
+    area_step = BlueprintStep(
+        id=content_id("Configure Docker networking"),
+        title="Configure Docker networking",
+        description="Set up container networking for local dev.",
+        requirement="recommended",
+    )
+    blueprints = [
+        Blueprint(scope="global", steps=[global_step]),
+        Blueprint(scope="area:backend", steps=[area_step]),
+    ]
+    profile = PersonProfile(working_area="backend", experience="junior")
+
+    phases, _ = _build_phases(blueprints, profile)
+
+    all_ids = [s.id for p in phases for s in p.steps]
+    assert global_step.id in all_ids
+    assert area_step.id in all_ids
+
+
+def test_build_phases_deduplicates_required_step_when_concept_already_covered() -> None:
+    """A required area step is dropped when its concept is already covered globally.
+
+    The old behaviour kept required steps unconditionally (bypassing semantic
+    dedup), which caused duplicate steps to appear across phases.  The new
+    behaviour deduplicates all steps; the coverage gate only re-injects a
+    missing required step when no semantically equivalent step is present.
+    """
+    global_step = BlueprintStep(
+        id=content_id("Install Python 3.12 and verify version"),
+        title="Install Python 3.12 and verify version",
+        description="Ensure Python 3.12 is installed on your machine and verify.",
+        requirement="recommended",
+    )
+    area_step = BlueprintStep(
+        id=content_id("Verify Python 3.12 installation and version"),
+        title="Verify Python 3.12 installation and version",
+        description="Ensure Python 3.12 is installed on your machine and verify.",
+        requirement="required",
+    )
+    blueprints = [
+        Blueprint(scope="global", steps=[global_step]),
+        Blueprint(scope="area:backend", steps=[area_step]),
+    ]
+    profile = PersonProfile(working_area="backend", experience="junior")
+
+    phases, _ = _build_phases(blueprints, profile)
+
+    all_ids = [s.id for p in phases for s in p.steps]
+    # Global step covers the concept; area step is a semantic duplicate and
+    # should be dropped — the concept appears exactly once in the path.
+    assert global_step.id in all_ids
+    assert area_step.id not in all_ids
+
+
+def test_enforce_coverage_reinjects_unique_required_step() -> None:
+    """A required step with no semantic equivalent in the path is re-injected."""
+    global_step = BlueprintStep(
+        id=content_id("Set up IDE"),
+        title="Set up IDE",
+        description="Install and configure your development environment.",
+        requirement="recommended",
+    )
+    area_step = BlueprintStep(
+        id=content_id("Configure Kubernetes access"),
+        title="Configure Kubernetes access",
+        description="Set up kubeconfig and verify cluster connectivity for deployments.",
+        requirement="required",
+    )
+    blueprints = [
+        Blueprint(scope="global", steps=[global_step]),
+        Blueprint(scope="area:backend", steps=[area_step]),
+    ]
+    profile = PersonProfile(working_area="backend", experience="junior")
+
+    phases, _ = _build_phases(blueprints, profile)
+
+    all_ids = [s.id for p in phases for s in p.steps]
+    assert global_step.id in all_ids
+    assert area_step.id in all_ids  # genuinely unique required step kept
+
+
 def test_path_serializes_to_yaml_round_trip() -> None:
     import yaml
 

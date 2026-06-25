@@ -16,6 +16,7 @@ import logging
 from collections.abc import Generator
 from dataclasses import dataclass
 
+from ingestion.source_role import SourceRole
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from onboarding.blueprints import load_blueprints, select_blueprints
@@ -32,6 +33,7 @@ from onboarding.models import (
     experience_rank,
 )
 from onboarding.quality import evaluate
+from onboarding.similarity import OVERLAP_THRESHOLD, step_text, text_overlap
 from onboarding.synthesis import SynthesisError, SynthesisResult, synthesize
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
@@ -40,6 +42,11 @@ from store.base import VectorStore
 logger = logging.getLogger(__name__)
 
 STAGES = ("select", "filter", "retrieve", "synthesize", "validate", "emit")
+
+# Test code and fixtures live in the corpus (for codebase Q&A) but don't
+# represent how the project actually works, so they are never used as grounding
+# evidence for onboarding paths.
+_GROUNDING_EXCLUDED_ROLES: frozenset[SourceRole] = frozenset({"test"})
 
 # Human-owned invariants: steps the assembler guarantees are present in every
 # path, regardless of blueprint source. Enforced in code, not in blueprint data.
@@ -197,6 +204,7 @@ class OnboardingPipeline:
                 top_k=self._top_k,
                 min_score=self._min_score,
                 bm25_cache=self._bm25_cache,
+                exclude_roles=_GROUNDING_EXCLUDED_ROLES,
             )
         except LLMUnavailableError:
             raise
@@ -210,12 +218,36 @@ _PLACEHOLDER_QUALITY = QualityReport(
 )
 
 
+def _is_semantic_duplicate(
+    step: BlueprintStep, seen_texts: list[str], seen_titles: list[str]
+) -> bool:
+    """Return True if *step* overlaps too much with an already-seen step.
+
+    Two signals are combined with MAX so that either one alone is enough:
+    - Full-text Jaccard (title + description) catches broad thematic overlap.
+    - Title-only Jaccard catches rewrites like "Run Service Locally" vs
+      "Run the Service Locally" where different descriptions would dilute the
+      combined score below the threshold.
+    """
+    full_text = step_text(step.title, step.description)
+    for seen_full, seen_title in zip(seen_texts, seen_titles):
+        score = max(
+            text_overlap(full_text, seen_full),
+            text_overlap(step.title, seen_title),
+        )
+        if score >= OVERLAP_THRESHOLD:
+            return True
+    return False
+
+
 def _build_phases(
     blueprints: list[Blueprint], profile: PersonProfile
 ) -> tuple[list[PathPhase], list[BlueprintStep]]:
     phases: list[PathPhase] = []
     kept_steps: list[BlueprintStep] = []
     seen: set[str] = set()
+    seen_texts: list[str] = []
+    seen_titles: list[str] = []
 
     # Cross-scope status merge: a step required in any selected skeleton is
     # required in the path (contributors can mark a shared step mandatory for
@@ -233,10 +265,21 @@ def _build_phases(
         )
         # Cross-source dedup: a step contributed by an earlier scope (global
         # before area) wins; the same step id from a later scope is skipped.
-        applicable = [s for s in applicable if s.id not in seen]
+        # Semantic dedup: steps with different ids but overlapping content are
+        # dropped across scopes — required or not. The coverage gate below only
+        # re-injects a required step if no semantically equivalent step is
+        # already present, so genuinely unique required steps are never lost.
+        applicable = [
+            s
+            for s in applicable
+            if s.id not in seen
+            and not _is_semantic_duplicate(s, seen_texts, seen_titles)
+        ]
         if not applicable:
             continue
         seen.update(s.id for s in applicable)
+        seen_texts.extend(step_text(s.title, s.description) for s in applicable)
+        seen_titles.extend(s.title for s in applicable)
         kept_steps.extend(applicable)
         phases.append(
             PathPhase(
@@ -295,13 +338,22 @@ def _apply_grounding_gate(
 def _enforce_coverage(
     phases: list[PathPhase], blueprints: list[Blueprint], profile: PersonProfile
 ) -> None:
-    """Guarantee every required blueprint step is present; re-inject if missing."""
+    """Guarantee every required blueprint step is present; re-inject if missing.
+
+    A step is only re-injected if it is absent both by ID *and* by semantic
+    equivalence — i.e. the concept it covers isn't already represented in the
+    path by a different step from an earlier scope.
+    """
     present = {s.id for p in phases for s in p.steps}
+    covered_texts = [step_text(s.title, s.description) for p in phases for s in p.steps]
+    covered_titles = [s.title for p in phases for s in p.steps]
     for blueprint in blueprints:
         missing = [
             s
             for s in blueprint.steps
-            if s.requirement == "required" and s.id not in present
+            if s.requirement == "required"
+            and s.id not in present
+            and not _is_semantic_duplicate(s, covered_texts, covered_titles)
         ]
         if not missing:
             continue
@@ -320,6 +372,8 @@ def _enforce_coverage(
                 ),
             )
             present.add(step.id)
+            covered_texts.append(step_text(step.title, step.description))
+            covered_titles.append(step.title)
 
 
 def _phase_for_scope(phases: list[PathPhase], scope: str) -> PathPhase:

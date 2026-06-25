@@ -5,8 +5,12 @@ import pytest
 import yaml
 
 from onboarding import drafts
-from onboarding.generation import corpus_fingerprint, generate_blueprints
-from onboarding.models import content_id
+from onboarding.generation import (
+    _filter_semantic_duplicates,
+    corpus_fingerprint,
+    generate_blueprints,
+)
+from onboarding.models import BlueprintStep, SkeletonRef, StepRecord, content_id
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -210,3 +214,117 @@ def test_identical_title_proposals_dedup() -> None:
 def test_empty_corpus_is_skipped() -> None:
     outcomes = generate_blueprints(_llm([]), StubVectorStore(), scopes=[_SCOPE])
     assert outcomes[0].status == "skipped"
+
+
+def test_filter_semantic_duplicates_drops_similar_steps() -> None:
+    """Area steps whose embeddings are too close to global steps are filtered."""
+    similar_embed = [1.0, 0.1] + [0.0] * 766
+    different_embed = [0.0, 1.0] + [0.0] * 766
+
+    def embed_fn(text: str) -> list[float]:
+        if "python" in text.lower():
+            return similar_embed
+        return different_embed
+
+    global_steps = [
+        BlueprintStep(
+            id=content_id("Verify Python 3.12+ installation"),
+            title="Verify Python 3.12+ installation",
+            description="Ensure Python 3.12 or later is installed.",
+        ),
+    ]
+    dup_id = content_id("Verify Python and Tooling Prerequisites")
+    unique_id = content_id("Understand the RAG pipeline")
+    pool = {
+        dup_id: StepRecord(
+            id=dup_id,
+            title="Verify Python and Tooling Prerequisites",
+            description="Ensure Python 3.12 or later is installed.",
+        ),
+        unique_id: StepRecord(
+            id=unique_id,
+            title="Understand the RAG pipeline",
+            description="Learn how retrieval augmented generation works.",
+        ),
+    }
+    refs = [SkeletonRef(id=dup_id), SkeletonRef(id=unique_id)]
+    llm = StubLLMClient(embed_fn=embed_fn)
+
+    kept = _filter_semantic_duplicates(refs, pool, global_steps, llm)
+
+    kept_ids = {r.id for r in kept}
+    assert dup_id not in kept_ids  # similar to global → dropped
+    assert unique_id in kept_ids  # different → kept
+
+
+def test_filter_semantic_duplicates_keeps_dissimilar_steps() -> None:
+    """Area steps with low similarity to global steps survive the filter."""
+    call_count = {"n": 0}
+
+    def embed_fn(text: str) -> list[float]:
+        call_count["n"] += 1
+        vec = [0.0] * 768
+        vec[call_count["n"] % 768] = 1.0
+        return vec
+
+    global_steps = [
+        BlueprintStep(
+            id=content_id("Verify Python 3.12+"),
+            title="Verify Python 3.12+",
+        ),
+    ]
+    docker_id = content_id("Set up Docker Compose")
+    pool = {
+        docker_id: StepRecord(
+            id=docker_id,
+            title="Set up Docker Compose",
+            description="Run docker-compose up for local development.",
+        ),
+    }
+    refs = [SkeletonRef(id=docker_id)]
+    llm = StubLLMClient(embed_fn=embed_fn)
+
+    kept = _filter_semantic_duplicates(refs, pool, global_steps, llm)
+
+    assert [r.id for r in kept] == [docker_id]
+
+
+def test_filter_semantic_duplicates_within_scope() -> None:
+    """Two near-identical steps in the same scope collapse to the first."""
+
+    def embed_fn(text: str) -> list[float]:
+        # Both "verify python" variants map to the same vector; docker differs.
+        if "python" in text.lower():
+            return [1.0, 0.0] + [0.0] * 766
+        return [0.0, 1.0] + [0.0] * 766
+
+    first_id = content_id("Verify Python version")
+    dup_id = content_id("Check the installed Python version")
+    docker_id = content_id("Start Docker Compose")
+    pool = {
+        first_id: StepRecord(
+            id=first_id,
+            title="Verify Python version",
+            description="Confirm the Python interpreter version.",
+        ),
+        dup_id: StepRecord(
+            id=dup_id,
+            title="Check the installed Python version",
+            description="Confirm the Python interpreter version.",
+        ),
+        docker_id: StepRecord(
+            id=docker_id,
+            title="Start Docker Compose",
+            description="Bring up the local stack.",
+        ),
+    }
+    refs = [SkeletonRef(id=first_id), SkeletonRef(id=dup_id), SkeletonRef(id=docker_id)]
+    llm = StubLLMClient(embed_fn=embed_fn)
+
+    # No global steps → pure within-scope dedup (as for the global scope itself).
+    kept = _filter_semantic_duplicates(refs, pool, [], llm)
+
+    kept_ids = [r.id for r in kept]
+    assert first_id in kept_ids  # first occurrence wins
+    assert dup_id not in kept_ids  # within-scope duplicate dropped
+    assert docker_id in kept_ids  # genuinely different step survives

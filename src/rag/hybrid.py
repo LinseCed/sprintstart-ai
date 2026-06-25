@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
+from ingestion.source_role import SourceRole
 from llm.base import LLMClient
 from rag.types import Chunk, ScoredChunk
 from store.base import VectorStore
@@ -15,6 +16,10 @@ if TYPE_CHECKING:
 RRF_K = 60
 RRF_MIN_RATIO = 0.15
 SEMANTIC_ONLY_CHUNK_LIMIT = 10_000
+
+# When a role filter is active we over-fetch from each retriever so that, after
+# excluded-role chunks are dropped, enough candidates remain to fill ``top_k``.
+_ROLE_FILTER_OVERFETCH = 5
 
 
 def tokenize(text: str) -> list[str]:
@@ -30,7 +35,16 @@ def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
         kind=chunk.kind,
         text=chunk.text,
         score=score,
+        source_role=chunk.source_role,
     )
+
+
+def _drop_excluded_roles(
+    chunks: list[ScoredChunk], exclude_roles: frozenset[SourceRole]
+) -> list[ScoredChunk]:
+    if not exclude_roles:
+        return chunks
+    return [c for c in chunks if c.source_role not in exclude_roles]
 
 
 def reciprocal_rank_fusion(
@@ -120,16 +134,28 @@ def hybrid_retrieve(
     top_k: int,
     min_score: float,
     bm25_cache: BM25IndexCache,
+    exclude_roles: frozenset[SourceRole] = frozenset(),
 ) -> list[ScoredChunk]:
+    """Hybrid (semantic + BM25) retrieval with reciprocal-rank fusion.
+
+    ``exclude_roles`` drops chunks of the given :data:`SourceRole`\\ s (e.g.
+    ``"test"``) from the candidates *before* fusion. Because each retriever
+    returns its own top-k, we over-fetch when a filter is active so excluded
+    chunks don't starve the result. Legacy chunks without a role default to
+    ``primary`` and are therefore never excluded.
+    """
     chunk_count = store.count()
+    # Over-fetch so role filtering still leaves enough candidates for top_k.
+    fetch_k = top_k * _ROLE_FILTER_OVERFETCH if exclude_roles else top_k
 
     if chunk_count > SEMANTIC_ONLY_CHUNK_LIMIT:
         embedding = llm.embed(question)
-        return store.query(
+        results = store.query(
             embedding=embedding,
-            top_k=top_k,
+            top_k=fetch_k,
             min_score=min_score,
         )
+        return _drop_excluded_roles(results, exclude_roles)[:top_k]
 
     bm25_index = bm25_cache.get(store)
 
@@ -137,7 +163,7 @@ def hybrid_retrieve(
         semantic_future = executor.submit(
             lambda: store.query(
                 embedding=llm.embed(question),
-                top_k=top_k,
+                top_k=fetch_k,
                 min_score=min_score,
             )
         )
@@ -145,12 +171,15 @@ def hybrid_retrieve(
         bm25_future = executor.submit(
             lambda: bm25_index.query(
                 question=question,
-                top_k=top_k,
+                top_k=fetch_k,
             )
         )
 
         semantic_results = semantic_future.result()
         bm25_results = bm25_future.result()
+
+    semantic_results = _drop_excluded_roles(semantic_results, exclude_roles)
+    bm25_results = _drop_excluded_roles(bm25_results, exclude_roles)
 
     if not semantic_results:
         return []

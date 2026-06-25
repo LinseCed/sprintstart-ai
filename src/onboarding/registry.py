@@ -26,6 +26,7 @@ from onboarding.models import (
     StepRecord,
     content_id,
 )
+from onboarding.similarity import OVERLAP_THRESHOLD, text_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -90,21 +91,39 @@ def upsert_step(
     """Add a step to the pool (or reuse an existing one) and return its id.
 
     The id is the content fingerprint of the title, so an identical-title step
-    de-duplicates to a single record. An existing record is reused as-is and
+    deduplicates to a single record. An existing record is reused as-is and
     never overwritten — content edits to a known step are an authoring action on
     the pool, not a side effect of generation.
+
+    A near-duplicate title check (Jaccard on the title tokens) is applied before
+    creating a new record: if an existing step's title overlaps at or above
+    ``OVERLAP_THRESHOLD``, that step's id is returned instead.  This prevents the
+    pool from accumulating multiple entries for the same concept (e.g. "Run
+    Service Locally" and "Run the Service Locally").
     """
     step_id = content_id(title)
-    if step_id not in pool:
-        pool[step_id] = StepRecord(
-            id=step_id,
-            title=title,
-            description=description,
-            tags=tags or [],
-            citations=citations or [],
-            audience=audience or [],
-            min_experience=min_experience,
-        )
+    if step_id in pool:
+        return step_id
+
+    for existing_id, record in pool.items():
+        if text_overlap(title, record.title) >= OVERLAP_THRESHOLD:
+            logger.debug(
+                "upsert_step: collapsed %r into existing step %r (%s)",
+                title,
+                record.title,
+                existing_id,
+            )
+            return existing_id
+
+    pool[step_id] = StepRecord(
+        id=step_id,
+        title=title,
+        description=description,
+        tags=tags or [],
+        citations=citations or [],
+        audience=audience or [],
+        min_experience=min_experience,
+    )
     return step_id
 
 

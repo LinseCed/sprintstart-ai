@@ -36,6 +36,15 @@ class IngestRequest(BaseModel):
             "and chunk_count will be 0."
         )
     )
+    source_role: Literal["primary", "test"] | None = Field(
+        default=None,
+        description=(
+            "Role of this document in the corpus. 'test' marks test code and "
+            "test fixtures/sample data — still searchable, but excluded from "
+            "onboarding grounding. Defaults to auto-detection from the filename."
+        ),
+        examples=["primary"],
+    )
 
     @field_validator("filename")
     @classmethod

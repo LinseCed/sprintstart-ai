@@ -1,6 +1,7 @@
 import hashlib
 
 from ingestion.models import ParsedChunk
+from ingestion.source_role import DEFAULT_SOURCE_ROLE, SourceRole
 from rag.types import Chunk
 
 
@@ -15,7 +16,12 @@ def _deterministic_id(artifact_id: str, content: str, position: int) -> str:
     return h.hexdigest()[:32]
 
 
-def to_chunk(parsed: ParsedChunk, artifact_id: str, embedding: list[float]) -> Chunk:
+def to_chunk(
+    parsed: ParsedChunk,
+    artifact_id: str,
+    embedding: list[float],
+    source_role: SourceRole = DEFAULT_SOURCE_ROLE,
+) -> Chunk:
     position = int(parsed.metadata.get("chunk_index", "0"))
     return Chunk(
         id=_deterministic_id(artifact_id, parsed.content, position),
@@ -25,4 +31,5 @@ def to_chunk(parsed: ParsedChunk, artifact_id: str, embedding: list[float]) -> C
         embedding=embedding,
         kind=parsed.kind,
         position=position,
+        source_role=source_role,
     )

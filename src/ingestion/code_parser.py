@@ -68,7 +68,17 @@ def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
         for chunk in chunk_code(filename, chunk_content):
             parsed_chunks.append(chunk)
 
-    return parsed_chunks
+    # Re-index with globally unique positions so chunk IDs are unique within
+    # the file even when multiple definitions produce chunks at index 0.
+    total = len(parsed_chunks)
+    return [
+        ParsedChunk(
+            content=chunk.content,
+            kind=chunk.kind,
+            metadata={**chunk.metadata, "chunk_index": str(i), "total_chunks": str(total)},
+        )
+        for i, chunk in enumerate(parsed_chunks)
+    ]
 
 
 def compute_boundaries(lines: list[str], pattern: re.Pattern[str]) -> list[int]:

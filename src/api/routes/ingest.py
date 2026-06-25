@@ -21,6 +21,7 @@ from ingestion.mapper import to_chunk
 from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from ingestion.models import ParsedChunk
 from ingestion.parser import parse
+from ingestion.source_role import classify_source_role
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
@@ -158,9 +159,20 @@ def ingest(
         raise HTTPException(status_code=422, detail=detail) from exc
 
     if not parsed_chunks:
-        detail = f"Unsupported file type: {body.filename}"
-        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
-        raise HTTPException(status_code=422, detail=detail)
+        try:
+            store.delete(body.artifact_id, exclude_ids=[])
+        except Exception as exc:
+            detail = f"Failed to delete existing vector chunks: {exc}"
+            metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
+            raise HTTPException(status_code=500, detail=detail) from exc
+        completed_artifact = replace(
+            artifact,
+            chunk_count=0,
+            status="completed",
+            updated_at=_utc_now(),
+        )
+        metadata_store.save_completed_artifact(completed_artifact)
+        return _response_from_records(completed_artifact, [])
 
     enriched: list[ParsedChunk] = []
     for chunk in parsed_chunks:
@@ -204,10 +216,16 @@ def ingest(
         metadata_store.save_completed_artifact(completed_artifact)
         return _response_from_records(completed_artifact, [])
 
+    source_role = body.source_role or classify_source_role(body.filename)
     try:
         chunks = [
             replace(
-                to_chunk(chunk, body.artifact_id, llm.embed(chunk.content)),
+                to_chunk(
+                    chunk,
+                    body.artifact_id,
+                    llm.embed(chunk.content),
+                    source_role=source_role,
+                ),
                 position=index,
             )
             for index, chunk in enumerate(enriched)

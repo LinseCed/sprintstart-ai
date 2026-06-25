@@ -29,6 +29,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from ingestion.source_role import SourceRole
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding import drafts
@@ -43,6 +44,11 @@ from onboarding.models import (
     StepRecord,
 )
 from onboarding.registry import load_pool, save_pool, upsert_step
+from onboarding.similarity import (
+    SIMILARITY_THRESHOLD,
+    cosine_similarity,
+    step_text,
+)
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
 from store.base import VectorStore
@@ -53,6 +59,10 @@ OutcomeStatus = Literal["created", "updated", "unchanged", "escalated", "skipped
 
 _TOP_K = 12
 _MIN_SCORE = 0.3
+
+# Test code/fixtures are searchable but not representative of how the project
+# works, so they never serve as grounding evidence for generated blueprints.
+_GROUNDING_EXCLUDED_ROLES: frozenset[SourceRole] = frozenset({"test"})
 
 
 class GenerationError(Exception):
@@ -127,6 +137,17 @@ def _scope_query(scope: str) -> str:
 # --- prompt / parsing ------------------------------------------------------
 
 
+_DUPLICATE_EXAMPLES = (
+    "Examples of what counts as a duplicate (WRONG) vs. an area-specific step (RIGHT):\n"
+    "  WRONG: 'Install packages'          — same concept as a global 'Install dependencies' step\n"
+    "  WRONG: 'Set up Python environment' — same concept as a global 'Verify prerequisites' step\n"
+    "  WRONG: 'Run the server'            — same concept as a global 'Start the service locally' step\n"
+    "  WRONG: 'Configure .env file'       — same concept as a global 'Configure environment variables' step\n"
+    "  RIGHT: 'Understand the RAG pipeline architecture'  — area-specific concept not in global\n"
+    "  RIGHT: 'Explore the agent tool registry'           — area-specific concept not in global\n"
+)
+
+
 def _build_prompt(
     scope: str,
     chunks: list[ScoredChunk],
@@ -135,11 +156,19 @@ def _build_prompt(
     evidence = "\n".join(f"[{c.id}] ({c.filename}) {c.text}" for c in chunks)
     exclusion = ""
     if global_steps:
-        covered = "\n".join(f"- {s.title}" for s in global_steps)
+        covered = "\n".join(
+            f"- {s.title}" + (f": {s.description}" if s.description else "")
+            for s in global_steps
+        )
         exclusion = (
-            "\n3. The global blueprint already covers these steps. Do NOT "
-            "duplicate or rephrase them; only propose steps specific to this "
-            f"area:\n{covered}\n"
+            "\n3. ALREADY COVERED — the global onboarding blueprint contains the "
+            "steps below. You MUST NOT propose any step whose concept overlaps "
+            "with them, even when phrased differently.\n\n"
+            f"Global steps (do not repeat these concepts):\n{covered}\n\n"
+            "Before writing each step, ask: \"Is this concept already covered "
+            "above, even under a different title?\" If yes, skip it.\n\n"
+            f"{_DUPLICATE_EXAMPLES}"
+            "Only propose steps that are genuinely specific to this area.\n"
         )
     system = (
         "You draft an onboarding blueprint for a software team from its knowledge "
@@ -151,7 +180,7 @@ def _build_prompt(
         "not invent sources.\n"
         "2. Mark foundational/mandatory steps as 'required', others as "
         "'recommended'.\n"
-        f"{exclusion}\n"
+        f"{exclusion}"
         'JSON schema: {"steps": [{"title": str, "description": str, '
         '"requirement": "required"|"recommended", "tags": [str], '
         '"chunk_ids": [str]}]}'
@@ -211,7 +240,56 @@ def _draft_steps(
             continue  # identical-title proposals collapse to one ref
         seen_ids.add(step_id)
         refs.append(SkeletonRef(id=step_id, requirement=item.requirement))
+
+    refs = _filter_semantic_duplicates(refs, pool, global_steps or [], llm)
     return refs
+
+
+# --- embedding-based semantic dedup ----------------------------------------
+
+
+def _filter_semantic_duplicates(
+    refs: list[SkeletonRef],
+    pool: dict[str, StepRecord],
+    global_steps: list[BlueprintStep],
+    llm: LLMClient,
+) -> list[SkeletonRef]:
+    """Drop steps that duplicate a prior step by embedding similarity.
+
+    A step is dropped if its embedding is too close to (a) any ``global_steps``
+    step (cross-scope: an area step rehashing a global one) or (b) any step
+    already kept earlier in this same list (within-scope: two near-identical
+    steps in one scope). The first occurrence wins; later duplicates are
+    dropped. Passing an empty ``global_steps`` performs pure within-scope dedup,
+    which is how the global scope itself is deduplicated.
+    """
+    # Seed the "already seen" embeddings with the global steps so area steps are
+    # compared against them; subsequent kept steps extend this list.
+    seen_embeddings: list[list[float]] = [
+        llm.embed(step_text(s.title, s.description)) for s in global_steps
+    ]
+
+    kept: list[SkeletonRef] = []
+    for ref in refs:
+        record = pool.get(ref.id)
+        if record is None:
+            kept.append(ref)
+            continue
+        embedding = llm.embed(step_text(record.title, record.description))
+        max_sim = max(
+            (cosine_similarity(embedding, prior) for prior in seen_embeddings),
+            default=0.0,
+        )
+        if max_sim >= SIMILARITY_THRESHOLD:
+            logger.info(
+                "Dropped duplicate step %r (sim=%.2f with an earlier step)",
+                record.title,
+                max_sim,
+            )
+            continue
+        kept.append(ref)
+        seen_embeddings.append(embedding)
+    return kept
 
 
 # --- invariant gate --------------------------------------------------------
@@ -318,10 +396,23 @@ def _generate_scope(
         top_k=_TOP_K,
         min_score=_MIN_SCORE,
         bm25_cache=bm25_cache,
+        exclude_roles=_GROUNDING_EXCLUDED_ROLES,
     )
     if not chunks:
         return GenerationOutcome(
             scope=scope, status="skipped", notes=["no grounding evidence retrieved"]
+        )
+
+    # Strip chunks already cited by global steps from the area evidence pool.
+    # The grounding gate requires every step to cite at least one chunk, so
+    # removing global-owned chunks makes it structurally impossible for the LLM
+    # to generate setup/install steps that merely rephrase what global covers.
+    if global_steps:
+        global_chunk_ids = {ref.chunk_id for s in global_steps for ref in s.citations}
+        chunks = [c for c in chunks if c.id not in global_chunk_ids]
+    if not chunks:
+        return GenerationOutcome(
+            scope=scope, status="skipped", notes=["no area-specific evidence after excluding global citations"]
         )
 
     pool = load_pool()
