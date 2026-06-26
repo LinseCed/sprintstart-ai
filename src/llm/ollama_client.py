@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, Protocol
 from uuid import uuid4
@@ -6,6 +7,8 @@ import ollama
 
 from llm.base import ChatResult, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+
+logger = logging.getLogger(__name__)
 
 
 def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
@@ -90,18 +93,50 @@ class OllamaBackend(Protocol):
 
 
 class _OllamaAdapter:
-    def __init__(self, host: str | None, temperature: float) -> None:
+    def __init__(
+        self, host: str | None, temperature: float, num_ctx: int | None = None
+    ) -> None:
         self._client = ollama.Client(host=host)
-        self._options = {"temperature": temperature}
+        self._options: dict[str, Any] = {"temperature": temperature}
+        # num_ctx must be set explicitly: Ollama otherwise defaults to a small
+        # context (typically 4096) and silently truncates oversized prompts,
+        # which breaks the onboarding synthesis step (large grounded prompt ->
+        # truncated -> non-JSON output -> SynthesisError fallback).
+        if num_ctx is not None:
+            self._options["num_ctx"] = num_ctx
+
+    def _warn_if_truncated(self, response: ollama.ChatResponse) -> None:
+        """Warn when the prompt filled (and was likely clipped to) the window.
+
+        Ollama silently truncates prompts larger than ``num_ctx`` to the last
+        ``num_ctx`` tokens, so ``prompt_eval_count >= num_ctx`` is a strong
+        signal the prompt was cut. Only checked when ``num_ctx`` is set; a warm
+        prompt cache can make the count smaller than the true prompt, so this
+        may under-report (never false-positive).
+        """
+        num_ctx = self._options.get("num_ctx")
+        if not num_ctx:
+            return
+        used = getattr(response, "prompt_eval_count", None)
+        if used is not None and used >= num_ctx:
+            logger.warning(
+                "Ollama prompt filled the context window "
+                "(prompt_eval_count=%s >= num_ctx=%s); the prompt was likely "
+                "truncated. Increase OLLAMA_NUM_CTX or reduce the prompt size.",
+                used,
+                num_ctx,
+            )
 
     def chat(
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
     ) -> ollama.ChatResponse:
-        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+        response = self._client.chat(  # pyright: ignore[reportUnknownMemberType]
             model=model, messages=list(messages or []), options=self._options
         )
+        self._warn_if_truncated(response)
+        return response
 
     def chat_tools(
         self,
@@ -109,24 +144,31 @@ class _OllamaAdapter:
         messages: Sequence[Mapping[str, Any]] | None = None,
         tools: Sequence[Mapping[str, Any]] | None = None,
     ) -> ollama.ChatResponse:
-        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+        response = self._client.chat(  # pyright: ignore[reportUnknownMemberType]
             model=model,
             messages=list(messages or []),
             tools=list(tools) if tools else None,
             options=self._options,
         )
+        self._warn_if_truncated(response)
+        return response
 
     def chat_stream(
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]:
-        return self._client.chat(  # type: ignore[return-value]
+        stream: Iterator[ollama.ChatResponse] = self._client.chat(  # type: ignore[assignment]
             model=model,
             messages=list(messages or []),
             stream=True,
             options=self._options,
         )
+        for chunk in stream:
+            # Truncation metadata rides on the final chunk; checking every chunk
+            # is harmless (it's None until then).
+            self._warn_if_truncated(chunk)
+            yield chunk
 
     def embeddings(
         self,
@@ -141,11 +183,13 @@ class _OllamaAdapter:
         prompt: str = "",
         images: list[bytes] | None = None,
     ) -> ollama.ChatResponse:
-        return self._client.chat(  # pyright: ignore[reportUnknownMemberType]
+        response = self._client.chat(  # pyright: ignore[reportUnknownMemberType]
             model=model,
             messages=[{"role": "user", "content": prompt, "images": images or []}],
             options=self._options,
         )
+        self._warn_if_truncated(response)
+        return response
 
 
 _DEFAULT_TEMPERATURE = 0.1
@@ -160,6 +204,7 @@ class OllamaClient:
         vision_model: str | None = None,
         client: OllamaBackend | None = None,
         temperature: float = _DEFAULT_TEMPERATURE,
+        num_ctx: int | None = None,
     ) -> None:
         self._host = host
         self._model = model
@@ -168,7 +213,7 @@ class OllamaClient:
         self._client: OllamaBackend = (
             client
             if client is not None
-            else _OllamaAdapter(host=host, temperature=temperature)
+            else _OllamaAdapter(host=host, temperature=temperature, num_ctx=num_ctx)
         )
 
     @property

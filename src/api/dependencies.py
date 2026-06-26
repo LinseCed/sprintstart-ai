@@ -28,12 +28,14 @@ def _build_client(backend: str) -> LLMClient:
     backend = backend.lower()
 
     if backend in {"ollama", "local"}:
+        num_ctx = os.getenv("OLLAMA_NUM_CTX", "").strip()
         return OllamaClient(
             host=os.getenv("OLLAMA_BASE_URL"),
             model=os.getenv("OLLAMA_MODEL"),
             embed_model=os.getenv("OLLAMA_EMBED_MODEL"),
             vision_model=os.getenv("OLLAMA_VISION_MODEL"),
             temperature=float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
+            num_ctx=int(num_ctx) if num_ctx else None,
         )
 
     if backend in {"openai", "openai-compatible", "litellm"}:
