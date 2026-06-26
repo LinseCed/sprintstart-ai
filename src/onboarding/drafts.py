@@ -18,8 +18,9 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from onboarding.blueprints import load_blueprints
-from onboarding.models import Blueprint, Skeleton
+from onboarding.models import Blueprint, Skeleton, StepRecord
 from onboarding.registry import blueprints_path, load_pool, resolve
+from onboarding.scope import Scope
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,9 @@ def _scope_stem(scope: str) -> str:
 
     Caller must validate ``scope`` before calling this function.
     """
-    if scope.startswith("area:"):
-        return "area-" + scope.split(":", 1)[1]
+    parsed = Scope.parse(scope)
+    if parsed.area is not None:
+        return "area-" + parsed.area
     return scope
 
 
@@ -108,12 +110,18 @@ def _read_skeleton(path: Path) -> Skeleton | None:
         return None
 
 
-def _read_resolved(path: Path) -> Blueprint | None:
-    """Read a skeleton and resolve it against the pool (the served view)."""
+def _read_resolved(
+    path: Path, pool: dict[str, StepRecord] | None = None
+) -> Blueprint | None:
+    """Read a skeleton and resolve it against the pool (the served view).
+
+    A caller resolving several skeletons (e.g. :func:`list_drafts`) can pass a
+    pre-loaded ``pool`` so the pool file isn't re-read per skeleton.
+    """
     skeleton = _read_skeleton(path)
     if skeleton is None:
         return None
-    return resolve(skeleton, load_pool())
+    return resolve(skeleton, pool if pool is not None else load_pool())
 
 
 # --- active blueprints -----------------------------------------------------
@@ -145,9 +153,10 @@ def list_drafts() -> list[Blueprint]:
     directory = _drafts_dir()
     if not directory.is_dir():
         return []
+    pool = load_pool()
     drafts: list[Blueprint] = []
     for file in sorted(directory.glob("*.yaml")):
-        blueprint = _read_resolved(file)
+        blueprint = _read_resolved(file, pool)
         if blueprint is not None:
             drafts.append(blueprint)
     return drafts
@@ -188,6 +197,20 @@ def get_version(scope: str, version: str) -> Blueprint | None:
     return _read_resolved(_version_path(scope, version))
 
 
+def _promote(scope: str, skeleton: Skeleton) -> Blueprint:
+    """Make ``skeleton`` the active blueprint, snapshotting the outgoing one.
+
+    The current active blueprint (if any) is retained under ``versions/`` first
+    so it can be rolled back to.
+    """
+    current = _read_skeleton(_active_path(scope))
+    if current is not None:
+        _snapshot(current)
+
+    _write(_active_path(scope), skeleton)
+    return resolve(skeleton, load_pool())
+
+
 def approve_draft(scope: str) -> Blueprint:
     """Promote a draft to active, retaining the outgoing version for rollback."""
     _validate_scope(scope)
@@ -195,13 +218,9 @@ def approve_draft(scope: str) -> Blueprint:
     if draft is None:
         raise FileNotFoundError(f"no draft for scope {scope!r}")
 
-    current = _read_skeleton(_active_path(scope))
-    if current is not None:
-        _snapshot(current)
-
-    _write(_active_path(scope), draft)
+    blueprint = _promote(scope, draft)
     discard_draft(scope)
-    return resolve(draft, load_pool())
+    return blueprint
 
 
 def rollback(scope: str, version: str) -> Blueprint:
@@ -212,12 +231,7 @@ def rollback(scope: str, version: str) -> Blueprint:
     if target is None:
         raise FileNotFoundError(f"no version {version!r} for scope {scope!r}")
 
-    current = _read_skeleton(_active_path(scope))
-    if current is not None:
-        _snapshot(current)
-
-    _write(_active_path(scope), target)
-    return resolve(target, load_pool())
+    return _promote(scope, target)
 
 
 # --- diff ------------------------------------------------------------------

@@ -12,10 +12,16 @@ from llm.ollama_client import OllamaClient
 from llm.openai_client import OpenAIClient
 from llm.split_client import SplitLLMClient
 from onboarding.orchestrator import OnboardingOrchestrator
+from rag.hybrid import BM25IndexCache
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
 
 logger = logging.getLogger(__name__)
+
+# Process-wide BM25 index, shared across onboarding requests. The cache rebuilds
+# itself only when the corpus size changes, so requests reuse a warm index
+# instead of re-tokenizing the whole corpus on every call.
+_onboarding_bm25_cache = BM25IndexCache()
 
 
 def _build_client(backend: str) -> LLMClient:
@@ -91,4 +97,4 @@ def get_onboarding_orchestrator(
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
 ) -> OnboardingOrchestrator:
-    return OnboardingOrchestrator(llm, store)
+    return OnboardingOrchestrator(llm, store, bm25_cache=_onboarding_bm25_cache)

@@ -19,15 +19,21 @@ Requirement = Literal["required", "recommended"]
 Origin = Literal["blueprint", "llm"]
 Source = Literal["authored", "generated"]
 
-# Coarse, ordinal experience levels used to gate steps by ``min_experience``.
-# Unknown values rank as 0 (most inclusive) so unseen experience never crashes
-# and required steps are re-injected by the coverage gate regardless.
+# Coarse, ordinal experience levels used to gate steps by ``min_experience`` and
+# to tune the synthesis verbosity. Single source of truth for both, so the two
+# consumers can't disagree about what a level means. Synonyms map to the same
+# rank. Unknown values rank as 0 (most inclusive) so unseen experience never
+# crashes and required steps are re-injected by the coverage gate regardless.
 EXPERIENCE_LEVELS: dict[str, int] = {
+    "intern": 1,
+    "entry": 1,
     "junior": 1,
     "mid": 2,
     "intermediate": 2,
     "senior": 3,
     "lead": 4,
+    "staff": 4,
+    "principal": 5,
 }
 
 
@@ -202,10 +208,14 @@ class PathPhase(BaseModel):
 class QualityReport(BaseModel):
     """Deterministic rubric over the assembled path; recorded for regression."""
 
-    coverage: float = Field(description="required steps present / expected")
-    grounded_ratio: float = Field(description="LLM steps cited / LLM steps")
-    ordering_valid: bool
-    score: float
+    coverage: float = Field(
+        default=0.0, description="required steps present / expected"
+    )
+    grounded_ratio: float = Field(
+        default=0.0, description="LLM steps cited / LLM steps"
+    )
+    ordering_valid: bool = False
+    score: float = 0.0
     notes: list[str] = Field(default_factory=list)
 
 
@@ -215,7 +225,7 @@ class OnboardingPath(BaseModel):
     phases: list[PathPhase] = []
     # Identifiable versions so onboarding outcomes can later be attributed.
     blueprint_versions: dict[str, str] = Field(default_factory=dict)
-    quality: QualityReport
+    quality: QualityReport = Field(default_factory=QualityReport)
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(self.model_dump(), sort_keys=False, allow_unicode=True)

@@ -29,21 +29,22 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from ingestion.source_role import SourceRole
+from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding import drafts
 from onboarding.blueprints import load_blueprints
+from onboarding.citations import resolve_citations
 from onboarding.models import (
     Blueprint,
     BlueprintProvenance,
     BlueprintStep,
-    CitationRef,
     Skeleton,
     SkeletonRef,
     StepRecord,
 )
 from onboarding.registry import load_pool, save_pool, upsert_step
+from onboarding.scope import GLOBAL, Scope
 from onboarding.similarity import (
     SIMILARITY_THRESHOLD,
     cosine_similarity,
@@ -59,10 +60,6 @@ OutcomeStatus = Literal["created", "updated", "unchanged", "escalated", "skipped
 
 _TOP_K = 12
 _MIN_SCORE = 0.3
-
-# Test code/fixtures are searchable but not representative of how the project
-# works, so they never serve as grounding evidence for generated blueprints.
-_GROUNDING_EXCLUDED_ROLES: frozenset[SourceRole] = frozenset({"test"})
 
 
 class GenerationError(Exception):
@@ -114,23 +111,25 @@ def corpus_fingerprint(store: VectorStore) -> str:
 def default_scopes() -> list[str]:
     """``global`` plus every area scope present among existing blueprints."""
     scopes = {b.scope for b in load_blueprints()}
-    scopes.add("global")
+    scopes.add(GLOBAL)
     return sorted(scopes)
 
 
 def _scope_label(scope: str) -> str:
-    if scope == "global":
+    parsed = Scope.parse(scope)
+    if parsed.is_global:
         return "everyone on the team, regardless of working area"
-    if scope.startswith("area:"):
-        return f"new team members working in {scope.split(':', 1)[1]}"
+    if parsed.area is not None:
+        return f"new team members working in {parsed.area}"
     return scope
 
 
 def _scope_query(scope: str) -> str:
-    if scope == "global":
+    parsed = Scope.parse(scope)
+    if parsed.is_global:
         return "team onboarding essentials getting started setup access"
-    if scope.startswith("area:"):
-        return f"{scope.split(':', 1)[1]} onboarding essentials setup workflow"
+    if parsed.area is not None:
+        return f"{parsed.area} onboarding essentials setup workflow"
     return f"{scope} onboarding"
 
 
@@ -220,20 +219,10 @@ def _draft_steps(
 
     chunks_by_id = {c.id: c for c in chunks}
 
-    def resolve(chunk_ids: list[str]) -> list[CitationRef]:
-        refs: list[CitationRef] = []
-        seen: set[str] = set()
-        for cid in chunk_ids:
-            chunk = chunks_by_id.get(cid)
-            if chunk is not None and chunk.id not in seen:
-                refs.append(CitationRef(filename=chunk.filename, chunk_id=chunk.id))
-                seen.add(chunk.id)
-        return refs
-
     refs: list[SkeletonRef] = []
     seen_ids: set[str] = set()
     for item in payload.steps:
-        citations = resolve(item.chunk_ids)
+        citations = resolve_citations(item.chunk_ids, chunks_by_id)
         if not citations:
             continue  # grounding gate: drop ungrounded steps
         step_id = upsert_step(
@@ -350,14 +339,6 @@ def _enforce_invariants(
 # --- job -------------------------------------------------------------------
 
 
-def _model_name(llm: LLMClient) -> str | None:
-    for attr in ("chat_model", "model"):
-        value = getattr(llm, attr, None)
-        if isinstance(value, str):
-            return value
-    return None
-
-
 def _next_version(active: Blueprint | None) -> str:
     if active is None:
         return "1"
@@ -403,7 +384,7 @@ def _generate_scope(
         top_k=_TOP_K,
         min_score=_MIN_SCORE,
         bm25_cache=bm25_cache,
-        exclude_roles=_GROUNDING_EXCLUDED_ROLES,
+        exclude_roles=GROUNDING_EXCLUDED_ROLES,
     )
     if not chunks:
         return GenerationOutcome(
@@ -478,14 +459,14 @@ def generate_blueprints(
     """Draft/update blueprints for each scope; write drafts to the review queue."""
     fingerprint = corpus_fingerprint(store)
     bm25_cache = BM25IndexCache()
-    model = _model_name(llm)
+    model = llm.model_name
 
     outcomes: list[GenerationOutcome] = []
     resolved_scopes = scopes or default_scopes()
 
     # Generate global first so area scopes can exclude its steps.
-    if "global" in resolved_scopes:
-        resolved_scopes = ["global"] + [s for s in resolved_scopes if s != "global"]
+    if GLOBAL in resolved_scopes:
+        resolved_scopes = [GLOBAL] + [s for s in resolved_scopes if s != GLOBAL]
 
     global_steps: list[BlueprintStep] | None = None
     for scope in resolved_scopes:
@@ -497,12 +478,12 @@ def generate_blueprints(
                 store=store,
                 bm25_cache=bm25_cache,
                 model=model,
-                global_steps=global_steps if scope != "global" else None,
+                global_steps=global_steps if scope != GLOBAL else None,
             )
             outcomes.append(outcome)
             # After global is generated, collect its steps for area scopes.
-            if scope == "global" and global_steps is None:
-                bp = drafts.get_draft("global") or drafts.active_blueprint("global")
+            if scope == GLOBAL and global_steps is None:
+                bp = drafts.get_draft(GLOBAL) or drafts.active_blueprint(GLOBAL)
                 if bp is not None:
                     global_steps = bp.steps
         except GenerationError as exc:

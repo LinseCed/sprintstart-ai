@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response, StreamingResponse
 
 from api.dependencies import get_onboarding_orchestrator
 from api.schemas import OnboardingPathRequest, ValidationErrorResponse
+from llm.errors import LLMUnavailableError
 from onboarding.orchestrator import OnboardingOrchestrator
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -94,11 +95,20 @@ def onboarding_path(
                 }
             },
         },
+        503: {
+            "description": "LLM backend unavailable",
+            "content": {
+                "application/json": {"example": {"detail": "LLM backend unreachable"}}
+            },
+        },
     },
 )
 def onboarding_path_yaml(
     body: OnboardingPathRequest,
     orchestrator: OnboardingOrchestrator = Depends(get_onboarding_orchestrator),
 ) -> Response:
-    path = orchestrator.run(body.to_profile())
+    try:
+        path = orchestrator.run(body.to_profile())
+    except LLMUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return Response(content=path.to_yaml(), media_type="application/x-yaml")

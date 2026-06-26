@@ -19,12 +19,14 @@ from pydantic import BaseModel, Field, ValidationError
 
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
+from onboarding.citations import resolve_citations
 from onboarding.models import (
     BlueprintStep,
     CitationRef,
     PathStep,
     PersonProfile,
     content_id,
+    experience_rank,
 )
 from rag.types import ScoredChunk
 
@@ -63,11 +65,15 @@ class _Payload(BaseModel):
 
 
 def _verbosity(profile: PersonProfile) -> str:
-    """Experience tunes how much the LLM expands vs. compresses each step."""
-    level = profile.experience.strip().lower()
-    if level in {"junior", "intern", "entry"}:
+    """Experience tunes how much the LLM expands vs. compresses each step.
+
+    Keyed off the shared :data:`EXPERIENCE_LEVELS` rank so this stays in step
+    with the gating logic. Unknown levels (rank 0) get balanced detail.
+    """
+    rank = experience_rank(profile.experience)
+    if rank == 1:  # intern / entry / junior
         return "Explain steps in extra detail; assume little prior context."
-    if level in {"senior", "lead", "staff", "principal"}:
+    if rank >= 3:  # senior / lead / staff / principal
         return "Keep steps concise; assume strong prior context."
     return "Use a balanced level of detail."
 
@@ -145,16 +151,6 @@ def synthesize(
         for chunk in chunks:
             all_chunks[chunk.id] = chunk
 
-    def resolve(chunk_ids: list[str]) -> list[CitationRef]:
-        refs: list[CitationRef] = []
-        seen: set[str] = set()
-        for cid in chunk_ids:
-            chunk = all_chunks.get(cid)
-            if chunk is not None and chunk.id not in seen:
-                refs.append(CitationRef(filename=chunk.filename, chunk_id=chunk.id))
-                seen.add(chunk.id)
-        return refs
-
     valid_ids = {s.id for s in steps}
     rewrites: dict[str, str] = {}
     enrichments: dict[str, list[CitationRef]] = {}
@@ -163,7 +159,7 @@ def synthesize(
             continue
         if item.rewritten.strip():
             rewrites[item.id] = item.rewritten
-        refs = resolve(item.chunk_ids)
+        refs = resolve_citations(item.chunk_ids, all_chunks)
         if refs:
             enrichments[item.id] = refs
 
@@ -175,7 +171,7 @@ def synthesize(
             requirement="recommended",
             origin="llm",
             tags=item.tags,
-            citations=resolve(item.chunk_ids),
+            citations=resolve_citations(item.chunk_ids, all_chunks),
         )
         for item in payload.added
     ]

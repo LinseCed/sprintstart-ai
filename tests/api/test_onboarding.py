@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api.dependencies import get_llm, get_store
+from llm.base import Message
+from llm.errors import LLMUnavailableError
 from onboarding.models import content_id
 from rag.types import Chunk
 from tests.conftest import parse_sse_events
@@ -365,3 +367,25 @@ def test_yaml_endpoint_missing_field_returns_422(
     response = http.post("/api/v1/onboarding/path/yaml", json={"experience": "junior"})
 
     assert response.status_code == 422
+
+
+def test_yaml_endpoint_returns_503_when_llm_unavailable(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, _, _ = client
+
+    class _DownLLM(StubLLMClient):
+        def generate(self, messages: list[Message]) -> str:
+            raise LLMUnavailableError("LLM backend unreachable")
+
+        def embed(self, text: str) -> list[float]:
+            raise LLMUnavailableError("LLM backend unreachable")
+
+    app.dependency_overrides[get_llm] = lambda: _DownLLM()
+
+    response = http.post(
+        "/api/v1/onboarding/path/yaml",
+        json={"working_area": "backend", "experience": "junior"},
+    )
+
+    assert response.status_code == 503

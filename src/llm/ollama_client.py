@@ -171,6 +171,10 @@ class OllamaClient:
             else _OllamaAdapter(host=host, temperature=temperature)
         )
 
+    @property
+    def model_name(self) -> str | None:
+        return self._model
+
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
     ) -> ChatResult:

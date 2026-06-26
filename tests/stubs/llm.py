@@ -18,6 +18,10 @@ class StubLLMClient:
         self.caption = caption
         self.embed_fn = embed_fn
 
+    @property
+    def model_name(self) -> str | None:
+        return "stub-model"
+
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
     ) -> ChatResult:
@@ -59,6 +63,10 @@ class ScriptedLLMClient:
         self.embedding = embedding or [0.0] * 768
         self.chat_calls: list[list[Message]] = []
         self.stream_calls: list[list[Message]] = []
+
+    @property
+    def model_name(self) -> str | None:
+        return "scripted-model"
 
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None

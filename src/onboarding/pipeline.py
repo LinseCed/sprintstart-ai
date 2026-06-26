@@ -16,7 +16,7 @@ import logging
 from collections.abc import Generator
 from dataclasses import dataclass
 
-from ingestion.source_role import SourceRole
+from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from onboarding.blueprints import load_blueprints, select_blueprints
@@ -28,11 +28,11 @@ from onboarding.models import (
     PathPhase,
     PathStep,
     PersonProfile,
-    QualityReport,
     Requirement,
     experience_rank,
 )
 from onboarding.quality import evaluate
+from onboarding.scope import Scope
 from onboarding.similarity import OVERLAP_THRESHOLD, step_text, text_overlap
 from onboarding.synthesis import SynthesisError, SynthesisResult, synthesize
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
@@ -42,11 +42,6 @@ from store.base import VectorStore
 logger = logging.getLogger(__name__)
 
 STAGES = ("select", "filter", "retrieve", "synthesize", "validate", "emit")
-
-# Test code and fixtures live in the corpus (for codebase Q&A) but don't
-# represent how the project actually works, so they are never used as grounding
-# evidence for onboarding paths.
-_GROUNDING_EXCLUDED_ROLES: frozenset[SourceRole] = frozenset({"test"})
 
 # Human-owned invariants: steps the assembler guarantees are present in every
 # path, regardless of blueprint source. Enforced in code, not in blueprint data.
@@ -61,10 +56,11 @@ class StageProgress:
 
 
 def _phase_title(scope: str) -> str:
-    if scope == "global":
+    parsed = Scope.parse(scope)
+    if parsed.is_global:
         return "Getting started"
-    if scope.startswith("area:"):
-        return f"{scope.split(':', 1)[1].capitalize()} essentials"
+    if parsed.area is not None:
+        return f"{parsed.area.capitalize()} essentials"
     return scope
 
 
@@ -114,11 +110,15 @@ class OnboardingPipeline:
         store: VectorStore,
         *,
         min_score: float = 0.3,
+        bm25_cache: BM25IndexCache | None = None,
     ) -> None:
         self._llm = llm
         self._store = store
         self._min_score = min_score
-        self._bm25_cache = BM25IndexCache()
+        # A shared cache lets the BM25 index persist across requests (it
+        # self-invalidates when the corpus size changes); falls back to a
+        # private cache when none is injected (e.g. in tests).
+        self._bm25_cache = bm25_cache or BM25IndexCache()
 
     def run(
         self, profile: PersonProfile
@@ -183,7 +183,6 @@ class OnboardingPipeline:
             experience=profile.experience,
             phases=phases,
             blueprint_versions=blueprint_versions,
-            quality=_PLACEHOLDER_QUALITY,
         )
         path.quality = evaluate(path, required_ids, notes)
         return path
@@ -206,7 +205,7 @@ class OnboardingPipeline:
                     top_k=4,
                     min_score=self._min_score,
                     bm25_cache=self._bm25_cache,
-                    exclude_roles=_GROUNDING_EXCLUDED_ROLES,
+                    exclude_roles=GROUNDING_EXCLUDED_ROLES,
                 )
             except LLMUnavailableError:
                 raise
@@ -217,11 +216,6 @@ class OnboardingPipeline:
                 )
                 result[step.id] = []
         return result
-
-
-_PLACEHOLDER_QUALITY = QualityReport(
-    coverage=0.0, grounded_ratio=0.0, ordering_valid=False, score=0.0
-)
 
 
 def _is_semantic_duplicate(
@@ -329,14 +323,15 @@ def _apply_grounding_gate(
     """Drop LLM-added steps without a citation; append grounded, novel ones."""
     present = {s.id for phase in phases for s in phase.steps}
     grounded: list[PathStep] = []
+    dropped = 0
     for step in added_steps:
         if not step.citations:
-            continue  # grounding gate
+            dropped += 1  # grounding gate
+            continue
         if step.id in present:
             continue  # already covered by a blueprint step (cross-source dedup)
         present.add(step.id)
         grounded.append(step)
-    dropped = sum(1 for s in added_steps if not s.citations)
     notes: list[str] = []
     if dropped:
         notes.append(f"dropped {dropped} ungrounded LLM step(s)")

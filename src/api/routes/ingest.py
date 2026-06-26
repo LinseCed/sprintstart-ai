@@ -148,15 +148,7 @@ def ingest(
         metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=413, detail=detail)
 
-    try:
-        parsed_chunks = parse(body.filename, content_bytes)
-    except NotImplementedError as exc:
-        suffix = (
-            body.filename.rsplit(".", 1)[-1] if "." in body.filename else body.filename
-        )
-        detail = f"Parsing .{suffix} files is not yet supported."
-        metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
-        raise HTTPException(status_code=422, detail=detail) from exc
+    parsed_chunks = parse(body.filename, content_bytes)
 
     if not parsed_chunks:
         try:
