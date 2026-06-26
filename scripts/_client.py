@@ -23,7 +23,12 @@ from rich.console import Console
 DEFAULT_BASE_URL = os.environ.get("SPRINTSTART_URL", "http://localhost:8000")
 
 TEXT_EXTENSIONS = {".txt", ".json", ".md", ".yaml", ".yml", ".toml"}
-CODE_EXTENSIONS = {".py", ".js", ".ts", ".go"}
+CODE_EXTENSIONS = {
+    ".py", ".js", ".ts", ".tsx",
+    ".go", ".java", ".kt", ".rs",
+    ".cpp", ".cc", ".cxx", ".c", ".cs",
+    ".php", ".rb",
+}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 INGESTABLE = TEXT_EXTENSIONS | CODE_EXTENSIONS | IMAGE_EXTENSIONS
 
