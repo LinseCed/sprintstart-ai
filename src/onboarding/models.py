@@ -85,6 +85,13 @@ class CitationRef(BaseModel):
     chunk_id: str
 
 
+class Task(BaseModel):
+    """An actionable sub-step within an onboarding step."""
+
+    title: str = Field(description="Actionable sub-step title")
+    description: str = Field(default="", description="Optional details for this task")
+
+
 class StepRecord(BaseModel):
     """A unit of onboarding content — the registry's aggregate root.
 
@@ -125,6 +132,7 @@ class BlueprintStep(BaseModel):
     tags: list[str] = Field(default_factory=list)
     resources: list[Resource] = []
     citations: list[CitationRef] = []
+    tasks: list[Task] = Field(default_factory=list)
     # Human-owned protection flag. An ``invariant`` step may not be removed or
     # downgraded by the generation job; such changes are blocked or escalated.
     invariant: bool = False
@@ -196,7 +204,9 @@ class PathStep(BaseModel):
     requirement: Requirement = "recommended"
     origin: Origin = "blueprint"
     tags: list[str] = Field(default_factory=list)
+    resources: list[Resource] = Field(default_factory=list)
     citations: list[CitationRef] = []
+    tasks: list[Task] = Field(default_factory=list)
 
 
 class PathPhase(BaseModel):

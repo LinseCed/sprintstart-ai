@@ -25,6 +25,7 @@ from onboarding.models import (
     CitationRef,
     PathStep,
     PersonProfile,
+    Task,
     content_id,
     experience_rank,
 )
@@ -44,6 +45,13 @@ class SynthesisResult(BaseModel):
     enrichments: dict[str, list[CitationRef]] = Field(default_factory=dict)
     # LLM-proposed steps (origin="llm"); ungrounded ones are dropped by the gate
     added_steps: list[PathStep] = []
+    # step id -> task suggestions from the LLM
+    tasks: dict[str, list[Task]] = Field(default_factory=dict)
+
+
+class _TaskSuggestion(BaseModel):
+    title: str
+    description: str = ""
 
 
 class _StepSynthesis(BaseModel):
@@ -57,11 +65,13 @@ class _AddedStep(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     chunk_ids: list[str] = Field(default_factory=list)
+    tasks: list[dict] = Field(default_factory=list)
 
 
 class _Payload(BaseModel):
     steps: list[_StepSynthesis] = []
     added: list[_AddedStep] = []
+    tasks: dict[str, list[_TaskSuggestion]] = Field(default_factory=dict)
 
 
 def _verbosity(profile: PersonProfile) -> str:
@@ -101,7 +111,7 @@ def _build_prompt(
         "For each step you are given its current description and evidence chunks "
         "retrieved specifically for that step. Each chunk is prefixed with its id "
         "in square brackets.\n\n"
-        "Do two things and return STRICT JSON only (no prose, no markdown fences):\n"
+        "Do three things and return STRICT JSON only (no prose, no markdown fences):\n"
         "1. 'steps': for every blueprint step, provide:\n"
         "   - 'rewritten': the description rewritten for this person's experience "
         "and skills. Use only what the evidence supports; keep it concrete.\n"
@@ -109,11 +119,15 @@ def _build_prompt(
         "no evidence was retrieved for it).\n"
         "2. 'added': extra project-specific steps not already covered by the "
         "blueprint. Every added step MUST cite at least one chunk id; do not "
-        "invent sources.\n\n"
+        "invent sources.\n"
+        "3. 'tasks': for each blueprint step id, an optional list of 1-3 concrete, "
+        "actionable sub-step tasks. Each task has a 'title' and optional "
+        "'description'.\n\n"
         f"{_verbosity(profile)}\n\n"
         'JSON schema: {"steps": [{"id": str, "rewritten": str, "chunk_ids": [str]}], '
         '"added": [{"title": str, "description": str, "tags": [str], '
-        '"chunk_ids": [str]}]}'
+        '"chunk_ids": [str], "tasks": [{"title": str, "description": str}]}], '
+        '"tasks": {"<step_id>": [{"title": str, "description": str}]}}'
     )
     skills = ", ".join(profile.skills) or "(none listed)"
     interests = ", ".join(profile.tags) or "(none listed)"
@@ -163,6 +177,14 @@ def synthesize(
         if refs:
             enrichments[item.id] = refs
 
+    tasks: dict[str, list[Task]] = {}
+    for step_id, suggestions in payload.tasks.items():
+        if step_id in valid_ids:
+            tasks[step_id] = [
+                Task(title=t.title, description=t.description)
+                for t in suggestions
+            ]
+
     added_steps = [
         PathStep(
             id=content_id(item.title),
@@ -172,10 +194,14 @@ def synthesize(
             origin="llm",
             tags=item.tags,
             citations=resolve_citations(item.chunk_ids, all_chunks),
+            tasks=[Task(title=t["title"], description=t.get("description", "")) for t in item.tasks],
         )
         for item in payload.added
     ]
 
     return SynthesisResult(
-        rewrites=rewrites, enrichments=enrichments, added_steps=added_steps
+        rewrites=rewrites,
+        enrichments=enrichments,
+        added_steps=added_steps,
+        tasks=tasks,
     )

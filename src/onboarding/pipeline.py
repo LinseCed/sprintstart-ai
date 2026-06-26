@@ -29,6 +29,7 @@ from onboarding.models import (
     PathStep,
     PersonProfile,
     Requirement,
+    Task,
     experience_rank,
 )
 from onboarding.quality import evaluate
@@ -167,7 +168,7 @@ class OnboardingPipeline:
             yield StageProgress("synthesize", "fallback: LLM synthesis unavailable")
 
         # (5) validate & quality gates
-        _apply_synthesis(phases, result.enrichments, result.rewrites)
+        _apply_synthesis(phases, result.enrichments, result.rewrites, result.tasks)
         gate_notes = _apply_grounding_gate(phases, result.added_steps)
         notes.extend(gate_notes)
         _enforce_coverage(phases, selected, profile)
@@ -293,7 +294,9 @@ def _build_phases(
                         requirement=_req(s.id),
                         origin="blueprint",
                         tags=s.tags,
+                        resources=s.resources,
                         citations=s.citations,
+                        tasks=s.tasks,
                     )
                     for s in applicable
                 ],
@@ -307,6 +310,7 @@ def _apply_synthesis(
     phases: list[PathPhase],
     enrichments: dict[str, list[CitationRef]],
     rewrites: dict[str, str],
+    tasks: dict[str, list[Task]] | None = None,
 ) -> None:
     for phase in phases:
         for step in phase.steps:
@@ -315,6 +319,8 @@ def _apply_synthesis(
             refs = enrichments.get(step.id)
             if refs:
                 step.citations = refs
+            if tasks and step.id in tasks:
+                step.tasks = tasks[step.id]
 
 
 def _apply_grounding_gate(
@@ -373,7 +379,9 @@ def _enforce_coverage(
                     requirement="required",
                     origin="blueprint",
                     tags=step.tags,
+                    resources=step.resources,
                     citations=step.citations,
+                    tasks=step.tasks,
                 ),
             )
             present.add(step.id)
