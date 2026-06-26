@@ -132,7 +132,7 @@ class BlueprintStep(BaseModel):
     tags: list[str] = Field(default_factory=list)
     resources: list[Resource] = []
     citations: list[CitationRef] = []
-    tasks: list[Task] = Field(default_factory=list)
+    tasks: list[Task] = []
     # Human-owned protection flag. An ``invariant`` step may not be removed or
     # downgraded by the generation job; such changes are blocked or escalated.
     invariant: bool = False
@@ -204,9 +204,9 @@ class PathStep(BaseModel):
     requirement: Requirement = "recommended"
     origin: Origin = "blueprint"
     tags: list[str] = Field(default_factory=list)
-    resources: list[Resource] = Field(default_factory=list)
+    resources: list[Resource] = []
     citations: list[CitationRef] = []
-    tasks: list[Task] = Field(default_factory=list)
+    tasks: list[Task] = []
 
 
 class PathPhase(BaseModel):

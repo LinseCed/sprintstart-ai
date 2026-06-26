@@ -65,7 +65,7 @@ class _AddedStep(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     chunk_ids: list[str] = Field(default_factory=list)
-    tasks: list[dict] = Field(default_factory=list)
+    tasks: list[dict[str, str]] = []
 
 
 class _Payload(BaseModel):
@@ -181,8 +181,7 @@ def synthesize(
     for step_id, suggestions in payload.tasks.items():
         if step_id in valid_ids:
             tasks[step_id] = [
-                Task(title=t.title, description=t.description)
-                for t in suggestions
+                Task(title=t.title, description=t.description) for t in suggestions
             ]
 
     added_steps = [
@@ -194,7 +193,10 @@ def synthesize(
             origin="llm",
             tags=item.tags,
             citations=resolve_citations(item.chunk_ids, all_chunks),
-            tasks=[Task(title=t["title"], description=t.get("description", "")) for t in item.tasks],
+            tasks=[
+                Task(title=t["title"], description=t.get("description", ""))
+                for t in item.tasks
+            ],
         )
         for item in payload.added
     ]
