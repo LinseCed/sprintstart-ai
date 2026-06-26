@@ -1,23 +1,86 @@
+import logging
 import re
 from pathlib import Path
 
 from ingestion.chunker import chunk_code
+from ingestion.language_utils import PATTERNS
 from ingestion.models import ParsedChunk
 from ingestion.text_parser import parse_text
+from ingestion.tree_sitter_parser import parse_with_tree_sitter
 
-PATTERNS: dict[str, re.Pattern[str]] = {
-    ".py": re.compile(r"^(async\s+def |def |class )"),
-    ".js": re.compile(r"^(export\s+)?(async\s+)?(function|class|const|let|var)\b"),
-    ".ts": re.compile(r"^(export\s+)?(async\s+)?(function|class|const|let|var)\b"),
-    ".go": re.compile(r"func\s+\w+|type\s+\w+|const\s+\w+|var\s+\w+"),
-}
+logger = logging.getLogger(__name__)
 
 
 def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
+    """Parse source code into semantic code chunks.
+
+    The parser first attempts AST-based parsing via tree-sitter to
+    extract top-level symbols (e.g. functions, classes, interfaces)
+    together with the file preamble such as imports or module headers.
+
+    Each extracted symbol is converted into one or more code chunks when surpassing the
+    max chunk size.
+    Symbol metadata is attached to every chunk:
+
+    - symbol_name (e.g. the function name)
+    - symbol_kind (e.g. function_definition)
+
+    If tree-sitter parsing fails, the parser falls back to the
+    legacy regex-based parser. If no symbols can be identified,
+    the file is parsed as plain text.
+
+    Args:
+        filename (str):
+            Name of the source file including extension.
+
+        content (bytes):
+            Raw file content as bytes.
+
+    Returns:
+        list[ParsedChunk]:
+            Parsed code chunks enriched with symbol metadata when
+            tree-sitter extraction succeeds. Falls back to regex-
+            based code chunks or text chunks when necessary.
+    """
+
+    try:
+        symbols, preamble = parse_with_tree_sitter(filename, content)
+    except Exception as exc:
+        logger.warning(
+            "Tree-sitter parsing failed for %s. Falling back to regex parser.",
+            filename,
+            exc_info=exc,
+        )
+        return fallback_regex_parser(filename, content)
+
+    if not symbols:
+        return parse_text(filename, content)
+
+    chunks: list[ParsedChunk] = []
+
+    for symbol in symbols:
+        full_content = f"{preamble}\n\n{symbol.content}" if preamble else symbol.content
+
+        code_chunks = chunk_code(filename, full_content)
+
+        for chunk in code_chunks:
+            chunk.metadata = {
+                **chunk.metadata,
+                "symbol_name": symbol.name or "",
+                "symbol_kind": symbol.kind,
+            }
+
+        chunks.extend(code_chunks)
+
+    return chunks
+
+
+def fallback_regex_parser(filename: str, content: bytes) -> list[ParsedChunk]:
     """Parse source code files into code-aware chunks.
 
     The parser detects top-level definitions such as functions and
-    classes and creates self-contained chunks by prepending the file
+    classes by matching with a regex pattern and creates self-contained chunks
+    by prepending the file
     preamble (e.g. imports or module headers).
 
     If the language is unsupported or no top-level definitions are
