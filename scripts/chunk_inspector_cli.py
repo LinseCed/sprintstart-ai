@@ -211,7 +211,7 @@ def print_chunks(
             )
         elif isCode:
             console.rule(
-                title=f"Chunk {chunk.metadata['chunk_index']} - {chunk.metadata['symbol_kind']}: {chunk.metadata['symbol_name']}",  # noqa: E501
+                title=f"Chunk {chunk.metadata['chunk_index']} - {chunk.metadata.get('symbol_kind', "-")}: {chunk.metadata.get('symbol_name', "-")}",  # noqa: E501
                 characters="=",
             )
         else:
@@ -252,7 +252,7 @@ def print_chunks(
                 row.append(str(chunk.metadata["global_pdf_chunk_index"]))
 
             if isCode:
-                row.append(chunk.metadata["symbol_name"])
+                row.append(chunk.metadata.get('symbol_name', "-"))
 
             row.extend(
                 [
