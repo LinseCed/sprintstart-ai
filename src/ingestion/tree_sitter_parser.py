@@ -1,5 +1,5 @@
+import threading
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 from tree_sitter_language_pack import (
@@ -22,9 +22,20 @@ class CodeSymbol:
     end_byte: int
 
 
-@lru_cache(maxsize=32)
+# tree-sitter Parser objects are unsendable (pyo3): a parser may only be used on
+# the thread that created it. Cache per-thread so parsers created on a FastAPI
+# threadpool worker are never reused on another thread.
+_thread_local_parsers = threading.local()
+
+
 def get_cached_parser(language: str) -> Parser:
-    return get_parser(language)
+    cache: dict[str, Parser] = getattr(_thread_local_parsers, "parsers", None) or {}
+    parser = cache.get(language)
+    if parser is None:
+        parser = get_parser(language)
+        cache[language] = parser
+        _thread_local_parsers.parsers = cache
+    return parser
 
 
 def parse_with_tree_sitter(
