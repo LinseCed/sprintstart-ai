@@ -1,7 +1,3 @@
-from pathlib import Path
-
-import pytest
-
 from onboarding.models import (
     CitationRef,
     Skeleton,
@@ -9,15 +5,7 @@ from onboarding.models import (
     StepRecord,
     content_id,
 )
-from onboarding.registry import load_pool, resolve, save_pool, upsert_step
-
-
-@pytest.fixture(autouse=True)
-def _tmp_blueprints(  # pyright: ignore[reportUnusedFunction]
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Path:
-    monkeypatch.setenv("BLUEPRINTS_PATH", str(tmp_path))
-    return tmp_path
+from onboarding.registry import resolve, upsert_step
 
 
 def _record(title: str, **kwargs: object) -> StepRecord:
@@ -49,21 +37,6 @@ def test_resolve_merges_pool_content_with_ref_status() -> None:
 def test_resolve_skips_dangling_ref() -> None:
     skel = Skeleton(scope="global", steps=[SkeletonRef(id="step-missing")])
     assert resolve(skel, {}).steps == []
-
-
-def test_frozen_id_survives_rename() -> None:
-    record = _record("Set up DB")
-    save_pool({record.id: record})
-    sid = record.id
-
-    pool = load_pool()
-    pool[sid].title = "Provision the database"  # rename in place
-    save_pool(pool)
-    reloaded = load_pool()
-
-    assert sid in reloaded  # id is frozen, not recomputed from the new title
-    assert reloaded[sid].title == "Provision the database"
-    assert content_id("Provision the database") != sid
 
 
 def test_upsert_dedups_by_fingerprint() -> None:

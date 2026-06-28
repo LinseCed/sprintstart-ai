@@ -1,10 +1,9 @@
 """Parsing of the onboarding scope identifier.
 
 A scope is either the global scope (``"global"``) or a named area
-(``"area:<name>"``). The string form is the persisted/serialized identity (it
-lives on :class:`~onboarding.models.Blueprint` / ``Skeleton``); this value object
-centralizes how that string is *interpreted* so the ``area:`` prefix and
-delimiter live in one place rather than being re-parsed at each call site.
+(``"area:<name>"``). The string form lives on
+:class:`~onboarding.models.Blueprint`; this value object centralizes how that
+string is interpreted so the ``area:`` prefix lives in one place.
 """
 
 from dataclasses import dataclass

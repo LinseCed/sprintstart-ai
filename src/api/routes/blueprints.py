@@ -1,4 +1,4 @@
-"""Generation API for AI-proposed onboarding blueprints (issue #110).
+"""Generation API for AI-proposed onboarding blueprints.
 
 The AI service is stateless: this router runs the batch generation job over the
 ingested corpus and returns the resulting blueprints. The backend owns

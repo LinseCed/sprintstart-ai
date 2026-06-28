@@ -1,4 +1,4 @@
-"""AI-authoring of onboarding blueprints from the ingested corpus (issue #110).
+"""AI-authoring of onboarding blueprints from the ingested corpus.
 
 A batch, re-runnable job that drafts/updates blueprints (``scope: global`` and
 ``scope: area:<name>``) as ``source: generated`` artifacts. It reuses the
@@ -11,11 +11,10 @@ The job is deliberately conservative:
   ungrounded steps are dropped (consistent with the path-generation grounding
   gate in ``onboarding/pipeline.py``).
 * **Idempotent** — a blueprint records the ``corpus_fingerprint`` it was drafted
-  from. Re-running against an unchanged corpus is a no-op (no draft churn).
+  from. Re-running against an unchanged corpus is a no-op.
 * **Invariant-safe** — it may not remove or downgrade a human-owned step
   (``required`` or ``invariant`` in the active blueprint). Such changes are
-  blocked: the protected step is re-injected and the draft is escalated, never
-  silently applied.
+  blocked: the protected step is re-injected and the outcome is escalated.
 
 The backend owns blueprint persistence; the AI service is stateless and only
 returns generated data.
@@ -41,7 +40,7 @@ from onboarding.models import (
     SkeletonRef,
     StepRecord,
 )
-from onboarding.registry import load_pool, resolve, upsert_step
+from onboarding.registry import resolve, upsert_step
 from onboarding.scope import GLOBAL, Scope
 from onboarding.similarity import (
     SIMILARITY_THRESHOLD,
@@ -402,7 +401,7 @@ def _generate_scope(
             notes=["no area-specific evidence after excluding global citations"],
         )
 
-    pool = load_pool()
+    pool: dict[str, StepRecord] = {}
     # Seed the pool with the active blueprint's steps so protected steps that
     # _enforce_invariants re-injects can be resolved (the backend owns the pool;
     # the active blueprint is the only state passed in).

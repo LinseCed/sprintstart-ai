@@ -93,14 +93,13 @@ class Task(BaseModel):
 
 
 class StepRecord(BaseModel):
-    """A unit of onboarding content — the registry's aggregate root.
+    """A unit of onboarding content held in the in-memory step pool during generation.
 
-    Stored in the step pool (``blueprints/steps.yaml``). The ``id`` is assigned
-    once at creation as ``content_id(title)`` and then *frozen* — editing the
-    title never changes it, so a step keeps its identity (and history) across
-    renames. Status (``requirement`` / ``invariant``) is deliberately absent: it
-    is structural and lives on the :class:`SkeletonRef` that points at the step,
-    so the same step can be required for one area and recommended for another.
+    The ``id`` is assigned once as ``content_id(title)`` and then frozen —
+    renaming the title keeps the step's identity across revisions. Status
+    (``requirement`` / ``invariant``) is absent here: it is structural and lives
+    on the :class:`SkeletonRef` that references the step, so the same step can be
+    required for one scope and recommended for another.
     """
 
     id: str
@@ -110,17 +109,13 @@ class StepRecord(BaseModel):
     min_experience: str | None = None
     tags: list[str] = Field(default_factory=list)
     resources: list[Resource] = []
-    # Intrinsic grounding for AI-generated steps (issue #110); authored steps
-    # leave this empty and rely on the serve-time enrichment layer instead.
     citations: list[CitationRef] = []
 
 
 class BlueprintStep(BaseModel):
-    """A step as *served*: a :class:`StepRecord`'s content merged with the
-    contextual status from the :class:`SkeletonRef` that referenced it.
-
-    This is the resolved view the pipeline, quality gate, diff, and management
-    API operate on — unchanged in shape so the registry stays internal.
+    """A step as served: content from a :class:`StepRecord` merged with the
+    contextual status (requirement, invariant) from the :class:`SkeletonRef`
+    that referenced it. This is the view the pipeline and quality gate operate on.
     """
 
     id: str
@@ -156,9 +151,8 @@ class BlueprintProvenance(BaseModel):
 class Blueprint(BaseModel):
     """A versioned, scoped set of onboarding steps.
 
-    ``source`` + ``version`` give provenance/rollback. ``source`` is the
-    pluggable seam: ``authored`` and ``generated`` (issue #110) share the
-    identical serve path. ``provenance`` is populated for generated blueprints.
+    ``source`` distinguishes human-authored from AI-generated blueprints.
+    ``provenance`` is populated for generated blueprints and drives idempotency.
     """
 
     scope: str = Field(description="'global' or 'area:<name>'")
@@ -182,12 +176,10 @@ class SkeletonRef(BaseModel):
 
 
 class Skeleton(BaseModel):
-    """The structural layer: an ordered, versioned selection of steps by scope.
+    """Internal generation structure: an ordered, versioned list of step refs by scope.
 
-    Replaces the on-disk ``Blueprint``. Resolving a skeleton against the step
-    pool yields a :class:`Blueprint` — the unchanged served view. ``source`` +
-    ``version`` + ``provenance`` carry the same governance/rollback semantics as
-    before, now at the structural layer.
+    Resolving a skeleton against the in-memory step pool yields a
+    :class:`Blueprint` — the view returned to the backend.
     """
 
     scope: str = Field(description="'global' or 'area:<name>'")
