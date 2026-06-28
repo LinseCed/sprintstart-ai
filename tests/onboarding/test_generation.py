@@ -86,7 +86,10 @@ def test_unchanged_corpus_is_a_noop() -> None:
     first = generate_blueprints(llm, store, scopes=[_SCOPE])
     # The backend persists the result and passes it back as the active blueprint.
     again = generate_blueprints(
-        llm, store, scopes=[_SCOPE], active=[first[0].blueprint]  # type: ignore[list-item]
+        llm,
+        store,
+        scopes=[_SCOPE],
+        active=[first[0].blueprint],  # type: ignore[list-item]
     )
 
     assert again[0].status == "unchanged"
