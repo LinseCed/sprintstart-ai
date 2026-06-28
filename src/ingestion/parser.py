@@ -3,19 +3,14 @@ from pathlib import Path
 
 from ingestion.code_parser import parse_code
 from ingestion.image_parser import parse_image
+from ingestion.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
 from ingestion.models import ParsedChunk
 from ingestion.pdf_parser import parse_pdf
 from ingestion.text_parser import parse_text
 
 logger = logging.getLogger(__name__)
 
-# TODO: discuss what to add
-CODE_EXTENSIONS = {
-    ".py",
-    ".js",
-    ".ts",
-    ".go",
-}
+CODE_EXTENSIONS = set(TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES.keys())
 
 PDF_EXTENSION = {".pdf"}
 
