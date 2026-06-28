@@ -17,8 +17,8 @@ The job is deliberately conservative:
   blocked: the protected step is re-injected and the draft is escalated, never
   silently applied.
 
-It writes to the review queue (``onboarding/drafts.py``); promotion to active is
-a separate, human-approved step.
+The backend owns blueprint persistence; the AI service is stateless and only
+returns generated data.
 """
 
 import hashlib
@@ -32,8 +32,6 @@ from pydantic import BaseModel, Field, ValidationError
 from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
-from onboarding import drafts
-from onboarding.blueprints import load_blueprints
 from onboarding.citations import resolve_citations
 from onboarding.models import (
     Blueprint,
@@ -43,7 +41,7 @@ from onboarding.models import (
     SkeletonRef,
     StepRecord,
 )
-from onboarding.registry import load_pool, save_pool, upsert_step
+from onboarding.registry import load_pool, resolve, upsert_step
 from onboarding.scope import GLOBAL, Scope
 from onboarding.similarity import (
     SIMILARITY_THRESHOLD,
@@ -69,6 +67,7 @@ class GenerationError(Exception):
 class GenerationOutcome(BaseModel):
     scope: str
     status: OutcomeStatus
+    blueprint: Blueprint | None = None
     draft_version: str | None = None
     chunks_retrieved: int = 0
     steps_drafted: int = 0
@@ -108,9 +107,9 @@ def corpus_fingerprint(store: VectorStore) -> str:
 # --- scope helpers ---------------------------------------------------------
 
 
-def default_scopes() -> list[str]:
-    """``global`` plus every area scope present among existing blueprints."""
-    scopes = {b.scope for b in load_blueprints()}
+def default_scopes(active: list[Blueprint]) -> list[str]:
+    """``global`` plus every area scope present among the active blueprints."""
+    scopes = {b.scope for b in active}
     scopes.add(GLOBAL)
     return sorted(scopes)
 
@@ -356,21 +355,19 @@ def _generate_scope(
     store: VectorStore,
     bm25_cache: BM25IndexCache,
     model: str | None,
+    active: Blueprint | None = None,
     global_steps: list[BlueprintStep] | None = None,
 ) -> GenerationOutcome:
-    active = drafts.active_blueprint(scope)
-
-    # Idempotency: skip if active (or a pending draft) already reflects this corpus.
-    for existing in (active, drafts.get_draft(scope)):
-        if (
-            existing is not None
-            and existing.source == "generated"
-            and existing.provenance is not None
-            and existing.provenance.corpus_fingerprint == fingerprint
-        ):
-            return GenerationOutcome(
-                scope=scope, status="unchanged", notes=["corpus unchanged since draft"]
-            )
+    # Idempotency: skip if the active blueprint already reflects this corpus.
+    if (
+        active is not None
+        and active.source == "generated"
+        and active.provenance is not None
+        and active.provenance.corpus_fingerprint == fingerprint
+    ):
+        return GenerationOutcome(
+            scope=scope, status="unchanged", notes=["corpus unchanged since active"]
+        )
 
     if store.count() == 0:
         return GenerationOutcome(
@@ -406,6 +403,23 @@ def _generate_scope(
         )
 
     pool = load_pool()
+    # Seed the pool with the active blueprint's steps so protected steps that
+    # _enforce_invariants re-injects can be resolved (the backend owns the pool;
+    # the active blueprint is the only state passed in).
+    for step in active.steps if active is not None else []:
+        pool.setdefault(
+            step.id,
+            StepRecord(
+                id=step.id,
+                title=step.title,
+                description=step.description,
+                audience=step.audience,
+                min_experience=step.min_experience,
+                tags=step.tags,
+                resources=step.resources,
+                citations=step.citations,
+            ),
+        )
     refs = _draft_steps(scope, chunks, llm, pool, global_steps)
     if not refs:
         return GenerationOutcome(
@@ -428,9 +442,7 @@ def _generate_scope(
     if draft.provenance is not None:
         draft.provenance.notes = invariant_notes
 
-    # Persist the new step records before the draft that references them.
-    save_pool(pool)
-    drafts.save_draft(draft)
+    resolved = resolve(draft, pool)
 
     status: OutcomeStatus
     if invariant_notes:
@@ -442,6 +454,7 @@ def _generate_scope(
     return GenerationOutcome(
         scope=scope,
         status=status,
+        blueprint=resolved,
         draft_version=draft.version,
         chunks_retrieved=len(chunks),
         steps_drafted=len(refs),
@@ -455,14 +468,21 @@ def generate_blueprints(
     store: VectorStore,
     *,
     scopes: list[str] | None = None,
+    active: list[Blueprint] | None = None,
 ) -> list[GenerationOutcome]:
-    """Draft/update blueprints for each scope; write drafts to the review queue."""
+    """Draft/update blueprints for each scope; returns data without persisting.
+
+    ``active`` is the set of currently-active blueprints owned by the backend.
+    They drive idempotency (skip when the corpus fingerprint is unchanged) and
+    version numbering; the AI service holds no state of its own.
+    """
     fingerprint = corpus_fingerprint(store)
     bm25_cache = BM25IndexCache()
     model = llm.model_name
 
+    active_by_scope = {b.scope: b for b in (active or [])}
     outcomes: list[GenerationOutcome] = []
-    resolved_scopes = scopes or default_scopes()
+    resolved_scopes = scopes or default_scopes(active or [])
 
     # Generate global first so area scopes can exclude its steps.
     if GLOBAL in resolved_scopes:
@@ -478,14 +498,18 @@ def generate_blueprints(
                 store=store,
                 bm25_cache=bm25_cache,
                 model=model,
+                active=active_by_scope.get(scope),
                 global_steps=global_steps if scope != GLOBAL else None,
             )
             outcomes.append(outcome)
-            # After global is generated, collect its steps for area scopes.
-            if scope == GLOBAL and global_steps is None:
-                bp = drafts.get_draft(GLOBAL) or drafts.active_blueprint(GLOBAL)
-                if bp is not None:
-                    global_steps = bp.steps
+            # After global is generated, capture its steps for area scopes
+            # from the outcome (no disk reads).
+            if (
+                scope == GLOBAL
+                and global_steps is None
+                and outcome.blueprint is not None
+            ):
+                global_steps = outcome.blueprint.steps
         except GenerationError as exc:
             logger.warning("Generation failed for scope %s: %s", scope, exc)
             outcomes.append(

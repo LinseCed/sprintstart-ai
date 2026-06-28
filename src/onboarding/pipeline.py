@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from onboarding.blueprints import load_blueprints, select_blueprints
+from onboarding.blueprints import select_blueprints
 from onboarding.models import (
     Blueprint,
     BlueprintStep,
@@ -122,11 +122,12 @@ class OnboardingPipeline:
         self._bm25_cache = bm25_cache or BM25IndexCache()
 
     def run(
-        self, profile: PersonProfile
+        self,
+        profile: PersonProfile,
+        blueprints: list[Blueprint],
     ) -> Generator[StageProgress, None, OnboardingPath]:
-        # (1) select
-        all_blueprints = load_blueprints()
-        selected = select_blueprints(all_blueprints, profile)
+        # (1) select — blueprints are always provided by the backend
+        selected = select_blueprints(blueprints, profile)
         total_steps = sum(len(b.steps) for b in selected)
         scopes = ", ".join(b.scope for b in selected) or "none"
         yield StageProgress(

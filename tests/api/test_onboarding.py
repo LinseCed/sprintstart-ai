@@ -1,10 +1,8 @@
 import json
 from collections.abc import Generator
-from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from api.app import app
@@ -23,35 +21,34 @@ _EMBED = [1.0] + [0.0] * 767
 _ACCOUNTS = "Set up your accounts and access"
 _LOCAL_DB = "Set up your local database"
 
-
-@pytest.fixture(autouse=True)
-def _test_blueprints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
-    pool = [
-        {"id": content_id(_ACCOUNTS), "title": _ACCOUNTS},
-        {"id": content_id(_LOCAL_DB), "title": _LOCAL_DB},
-    ]
-    (tmp_path / "steps.yaml").write_text(yaml.safe_dump(pool))
-    (tmp_path / "global.yaml").write_text(
-        yaml.safe_dump(
+# The AI service is stateless: the backend supplies active blueprints on every
+# request. These mirror what the backend would send for a backend user.
+_BLUEPRINTS: list[dict[str, Any]] = [
+    {
+        "scope": "global",
+        "version": "1",
+        "source": "authored",
+        "steps": [
             {
-                "scope": "global",
-                "version": "1",
-                "source": "authored",
-                "steps": [{"id": content_id(_ACCOUNTS), "requirement": "required"}],
+                "id": content_id(_ACCOUNTS),
+                "title": _ACCOUNTS,
+                "requirement": "required",
             }
-        )
-    )
-    (tmp_path / "area-backend.yaml").write_text(
-        yaml.safe_dump(
+        ],
+    },
+    {
+        "scope": "area:backend",
+        "version": "1",
+        "source": "authored",
+        "steps": [
             {
-                "scope": "area:backend",
-                "version": "1",
-                "source": "authored",
-                "steps": [{"id": content_id(_LOCAL_DB), "requirement": "required"}],
+                "id": content_id(_LOCAL_DB),
+                "title": _LOCAL_DB,
+                "requirement": "required",
             }
-        )
-    )
-    monkeypatch.setenv("BLUEPRINTS_PATH", str(tmp_path))
+        ],
+    },
+]
 
 
 @pytest.fixture
@@ -68,6 +65,7 @@ def client() -> Generator[tuple[TestClient, StubLLMClient, StubVectorStore], Any
 
 
 def _post(http: TestClient, **body: Any) -> list[dict[str, Any]]:
+    body.setdefault("blueprints", _BLUEPRINTS)
     response = http.post("/api/v1/onboarding/path", json=body)
     assert response.status_code == 200
     return parse_sse_events(response.text)
@@ -323,7 +321,11 @@ def test_yaml_endpoint_returns_valid_yaml(
 
     response = http.post(
         "/api/v1/onboarding/path/yaml",
-        json={"working_area": "backend", "experience": "junior"},
+        json={
+            "working_area": "backend",
+            "experience": "junior",
+            "blueprints": _BLUEPRINTS,
+        },
     )
 
     assert response.status_code == 200
@@ -348,7 +350,11 @@ def test_yaml_endpoint_includes_quality_report(
 
     response = http.post(
         "/api/v1/onboarding/path/yaml",
-        json={"working_area": "backend", "experience": "junior"},
+        json={
+            "working_area": "backend",
+            "experience": "junior",
+            "blueprints": _BLUEPRINTS,
+        },
     )
 
     import yaml
@@ -385,7 +391,11 @@ def test_yaml_endpoint_returns_503_when_llm_unavailable(
 
     response = http.post(
         "/api/v1/onboarding/path/yaml",
-        json={"working_area": "backend", "experience": "junior"},
+        json={
+            "working_area": "backend",
+            "experience": "junior",
+            "blueprints": _BLUEPRINTS,
+        },
     )
 
     assert response.status_code == 503

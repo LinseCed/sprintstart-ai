@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import BaseModel, Field, field_validator
 
 if TYPE_CHECKING:
-    from onboarding.models import PersonProfile
+    from onboarding.models import Blueprint, PersonProfile
 
 
 class IngestRequest(BaseModel):
@@ -420,6 +420,62 @@ class ErrorEvent(BaseModel):
     message: str
 
 
+class BlueprintStepSchema(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    requirement: str = "recommended"
+    audience: list[str] = Field(default_factory=list)
+    min_experience: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    invariant: bool = False
+
+
+class BlueprintProvenanceSchema(BaseModel):
+    corpus_fingerprint: str | None = None
+    generated_at: str | None = None
+    model: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class BlueprintSchema(BaseModel):
+    scope: str
+    version: str = "0"
+    source: str = "authored"
+    steps: list[BlueprintStepSchema] = []
+    # Carried so the backend can round-trip it: ``corpus_fingerprint`` is what
+    # lets a re-generation against an unchanged corpus short-circuit.
+    provenance: BlueprintProvenanceSchema | None = None
+
+    def to_model(self) -> "Blueprint":
+        """Convert the wire schema into the internal Blueprint model."""
+        from onboarding.models import Blueprint, BlueprintProvenance, BlueprintStep
+
+        return Blueprint(
+            scope=self.scope,
+            version=self.version,
+            source=self.source,  # type: ignore[arg-type]
+            steps=[
+                BlueprintStep(
+                    id=s.id,
+                    title=s.title,
+                    description=s.description,
+                    requirement=s.requirement,  # type: ignore[arg-type]
+                    audience=s.audience,
+                    min_experience=s.min_experience,
+                    tags=s.tags,
+                    invariant=s.invariant,
+                )
+                for s in self.steps
+            ],
+            provenance=(
+                BlueprintProvenance(**self.provenance.model_dump())
+                if self.provenance is not None
+                else None
+            ),
+        )
+
+
 class OnboardingPathRequest(BaseModel):
     working_area: Annotated[
         str,
@@ -448,6 +504,13 @@ class OnboardingPathRequest(BaseModel):
         default_factory=list,
         description="Optional free-form tags used for step targeting.",
     )
+    blueprints: list[BlueprintSchema] = Field(
+        description=(
+            "Active blueprints provided by the backend. The AI service is "
+            "stateless — the backend owns blueprint persistence and must supply "
+            "these on every request."
+        ),
+    )
 
     def to_profile(self) -> "PersonProfile":
         from onboarding.models import PersonProfile
@@ -466,6 +529,21 @@ class OnboardingPathRequest(BaseModel):
                 "experience": "junior",
                 "skills": [],
                 "tags": [],
+                "blueprints": [
+                    {
+                        "scope": "global",
+                        "version": "3",
+                        "source": "generated",
+                        "steps": [
+                            {
+                                "id": "step-abc123",
+                                "title": "Set up development environment",
+                                "description": "Install prerequisites",
+                                "requirement": "required",
+                            }
+                        ],
+                    }
+                ],
             }
         }
     }
@@ -479,13 +557,14 @@ class GenerateBlueprintsRequest(BaseModel):
             "Omit to refresh 'global' plus any active blueprint scopes."
         ),
     )
-
-
-class RollbackBlueprintRequest(BaseModel):
-    version: Annotated[
-        str,
-        Field(min_length=1, description="The retained version to restore as active."),
-    ]
+    active: list[BlueprintSchema] = Field(
+        default=[],
+        description=(
+            "The backend's currently-active blueprints. The AI service is "
+            "stateless, so these drive idempotency and version numbering — pass "
+            "them on every request."
+        ),
+    )
 
 
 class StageEvent(BaseModel):
