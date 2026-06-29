@@ -1,6 +1,9 @@
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from onboarding.models import Blueprint, PersonProfile
 
 
 class IngestRequest(BaseModel):
@@ -32,6 +35,15 @@ class IngestRequest(BaseModel):
             "If a vision model is not configured, image chunks are silently skipped "
             "and chunk_count will be 0."
         )
+    )
+    source_role: Literal["primary", "test"] | None = Field(
+        default=None,
+        description=(
+            "Role of this document in the corpus. 'test' marks test code and "
+            "test fixtures/sample data — still searchable, but excluded from "
+            "onboarding grounding. Defaults to auto-detection from the filename."
+        ),
+        examples=["primary"],
     )
 
     @field_validator("filename")
@@ -212,17 +224,6 @@ class HealthResponse(BaseModel):
 
 
 class TitleRequest(BaseModel):
-    """
-    Request model for generating a title from a user prompt.
-
-    Args:
-        prompt: Input prompt used for title generation.
-        max_length: Maximum allowed length of the generated title.
-
-    Raises:
-        ValueError: If prompt is empty or contains only whitespace.
-    """
-
     prompt: Annotated[
         str,
         Field(
@@ -248,32 +249,13 @@ class TitleRequest(BaseModel):
     @field_validator("prompt")
     @classmethod
     def prompt_not_blank(cls, value: str) -> str:
-        """
-        Validate that the prompt is not blank.
-
-        Args:
-            value: Prompt string to validate.
-
-        Raises:
-            ValueError: If the prompt is empty or only whitespace.
-
-        Returns:
-            str: Validated prompt string.
-        """
         if not value.strip():
             raise ValueError("prompt cannot be blank")
         return value
 
 
 class TitleResponse(BaseModel):
-    """
-    Response model containing the generated title.
-
-    Args:
-        title: Generated title based on the provided prompt.
-    """
-
-    title: str = Field(description="From the prompt generated title.")
+    title: str = Field(description="Generated title based on the provided prompt.")
 
     model_config = {
         "json_schema_extra": {"example": {"title": "REST vs GraphQL: key differences"}}
@@ -406,3 +388,193 @@ class DoneEvent(BaseModel):
 class ErrorEvent(BaseModel):
     type: Literal["error"]
     message: str
+
+
+class BlueprintStepSchema(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    requirement: str = "recommended"
+    audience: list[str] = Field(default_factory=list)
+    min_experience: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    invariant: bool = False
+
+
+class BlueprintProvenanceSchema(BaseModel):
+    corpus_fingerprint: str | None = None
+    generated_at: str | None = None
+    model: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class BlueprintSchema(BaseModel):
+    scope: str
+    version: str = "0"
+    source: str = "authored"
+    steps: list[BlueprintStepSchema] = []
+    # Carried so the backend can round-trip it: ``corpus_fingerprint`` is what
+    # lets a re-generation against an unchanged corpus short-circuit.
+    provenance: BlueprintProvenanceSchema | None = None
+
+    def to_model(self) -> "Blueprint":
+        """Convert the wire schema into the internal Blueprint model."""
+        from onboarding.models import Blueprint, BlueprintProvenance, BlueprintStep
+
+        return Blueprint(
+            scope=self.scope,
+            version=self.version,
+            source=self.source,  # type: ignore[arg-type]
+            steps=[
+                BlueprintStep(
+                    id=s.id,
+                    title=s.title,
+                    description=s.description,
+                    requirement=s.requirement,  # type: ignore[arg-type]
+                    audience=s.audience,
+                    min_experience=s.min_experience,
+                    tags=s.tags,
+                    invariant=s.invariant,
+                )
+                for s in self.steps
+            ],
+            provenance=(
+                BlueprintProvenance(**self.provenance.model_dump())
+                if self.provenance is not None
+                else None
+            ),
+        )
+
+
+class SkillAssessmentSchema(BaseModel):
+    name: Annotated[
+        str,
+        Field(min_length=1, description="Skill tag, e.g. kotlin.", examples=["kotlin"]),
+    ]
+    level: Annotated[
+        str,
+        Field(
+            default="beginner",
+            description=(
+                "Proficiency level: beginner, intermediate, advanced, expert. "
+                "Case-insensitive; unknown values are handled gracefully."
+            ),
+            examples=["advanced"],
+        ),
+    ] = "beginner"
+
+
+class OnboardingPathRequest(BaseModel):
+    working_area: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="The person's working area, e.g. backend, frontend, devops.",
+            examples=["backend"],
+        ),
+    ]
+    experience: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description=(
+                "Coarse experience level, e.g. junior, mid, senior. Not a fixed "
+                "enum: unknown values are handled gracefully."
+            ),
+            examples=["junior"],
+        ),
+    ]
+    skills: list[SkillAssessmentSchema] = Field(
+        default_factory=list[SkillAssessmentSchema],
+        description=(
+            "Optional leveled skills ({name, level}); the backend supplies the "
+            "user's skill assessments so proficiency drives personalization."
+        ),
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Optional free-form tags used for step targeting.",
+    )
+    blueprints: list[BlueprintSchema] = Field(
+        description=(
+            "Active blueprints provided by the backend. The AI service is "
+            "stateless — the backend owns blueprint persistence and must supply "
+            "these on every request."
+        ),
+    )
+
+    def to_profile(self) -> "PersonProfile":
+        from onboarding.models import PersonProfile, SkillAssessment
+
+        return PersonProfile(
+            working_area=self.working_area,
+            experience=self.experience,
+            skills=[SkillAssessment(name=s.name, level=s.level) for s in self.skills],
+            tags=self.tags,
+        )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "working_area": "backend",
+                "experience": "junior",
+                "skills": [{"name": "kotlin", "level": "advanced"}],
+                "tags": [],
+                "blueprints": [
+                    {
+                        "scope": "global",
+                        "version": "3",
+                        "source": "generated",
+                        "steps": [
+                            {
+                                "id": "step-abc123",
+                                "title": "Set up development environment",
+                                "description": "Install prerequisites",
+                                "requirement": "required",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    }
+
+
+class GenerateBlueprintsRequest(BaseModel):
+    scopes: list[str] | None = Field(
+        default=None,
+        description=(
+            "Scopes to (re)generate, e.g. ['global', 'area:backend', 'area:frontend']. "
+            "Omit to refresh 'global' plus any active blueprint scopes."
+        ),
+    )
+    active: list[BlueprintSchema] = Field(
+        default=[],
+        description=(
+            "The backend's currently-active blueprints. The AI service is "
+            "stateless, so these drive idempotency and version numbering — pass "
+            "them on every request."
+        ),
+    )
+
+
+class StageEvent(BaseModel):
+    type: Literal["stage"]
+    name: Annotated[
+        str,
+        Field(
+            description="The pipeline stage that just started.",
+            examples=["retrieve"],
+        ),
+    ]
+
+
+class PathEvent(BaseModel):
+    type: Literal["path"]
+    path: dict[str, object] = Field(
+        description="The structured onboarding path (OnboardingPath model)."
+    )
+    path_yaml: str = Field(description="The onboarding path serialized to YAML.")
+    quality: dict[str, object] = Field(
+        description="The deterministic quality report for the path."
+    )

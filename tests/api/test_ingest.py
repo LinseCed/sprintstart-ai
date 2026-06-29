@@ -157,3 +157,62 @@ def test_failed_embedding_marks_artifact_failed(
     assert "embedding backend unavailable" in artifact.error_message
 
     assert vector_store.all_chunks() == []
+
+
+def test_ingest_auto_classifies_test_filename(
+    client: TestClient,
+    vector_store: StubVectorStore,
+) -> None:
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-test",
+            "filename": "test_agent.py",
+            "content": "def test_something(): assert True",
+        },
+    )
+
+    assert response.status_code == 200
+    chunks = vector_store.all_chunks()
+    assert chunks
+    assert all(chunk.source_role == "test" for chunk in chunks)
+
+
+def test_ingest_respects_explicit_source_role(
+    client: TestClient,
+    vector_store: StubVectorStore,
+) -> None:
+    # A non-test filename explicitly marked as test material.
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-fixture",
+            "filename": "scenario.json",
+            "content": '{"sample": "data"}',
+            "source_role": "test",
+        },
+    )
+
+    assert response.status_code == 200
+    chunks = vector_store.all_chunks()
+    assert chunks
+    assert all(chunk.source_role == "test" for chunk in chunks)
+
+
+def test_ingest_defaults_to_primary_for_normal_files(
+    client: TestClient,
+    vector_store: StubVectorStore,
+) -> None:
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-doc",
+            "filename": "dev-setup.md",
+            "content": "# Dev setup\nInstall the toolchain.",
+        },
+    )
+
+    assert response.status_code == 200
+    chunks = vector_store.all_chunks()
+    assert chunks
+    assert all(chunk.source_role == "primary" for chunk in chunks)

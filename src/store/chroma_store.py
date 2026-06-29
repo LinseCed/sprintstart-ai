@@ -1,12 +1,24 @@
+from collections.abc import Mapping
 from typing import cast
 
 import chromadb
 import chromadb.api
 from chromadb.api.types import PyEmbeddings
 
+from ingestion.source_role import DEFAULT_SOURCE_ROLE, SourceRole, is_source_role
 from rag.types import Chunk, ScoredChunk, is_chunk_kind
 
 _NO_POSITION: int = -1
+
+
+def _source_role_of(metadata: Mapping[str, object]) -> SourceRole:
+    """Read the source role from chunk metadata.
+
+    Legacy chunks ingested before roles existed have no ``source_role`` key;
+    they default to ``primary`` so existing corpora keep behaving as before.
+    """
+    raw = str(metadata.get("source_role", DEFAULT_SOURCE_ROLE))
+    return raw if is_source_role(raw) else DEFAULT_SOURCE_ROLE
 
 
 class ChromaVectorStore:
@@ -46,6 +58,7 @@ class ChromaVectorStore:
                         chunk.position if chunk.position is not None else _NO_POSITION
                     ),
                     "kind": chunk.kind,
+                    "source_role": chunk.source_role,
                 }
                 for chunk in chunks
             ],
@@ -106,6 +119,7 @@ class ChromaVectorStore:
                     kind=kind_str,
                     text=str(text),
                     score=score,
+                    source_role=_source_role_of(metadata),
                 )
             )
 
@@ -178,6 +192,7 @@ class ChromaVectorStore:
                     kind=kind_str,
                     text=str(text),
                     embedding=list(embedding),
+                    source_role=_source_role_of(metadata),
                 )
             )
 
@@ -233,6 +248,7 @@ class ChromaVectorStore:
                     kind=kind_str,
                     text=str(text),
                     embedding=list(embedding),
+                    source_role=_source_role_of(metadata),
                 )
             )
 

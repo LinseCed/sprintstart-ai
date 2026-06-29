@@ -10,6 +10,7 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "function_declaration",
         "class_declaration",
         "lexical_declaration",
+        "export_statement",
     },
     ".ts": {
         "function_declaration",
@@ -24,6 +25,8 @@ TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES = {
         "function_declaration",
         "method_declaration",
         "type_declaration",
+        "const_declaration",
+        "var_declaration",
     },
     ".java": {
         "class_declaration",

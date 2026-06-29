@@ -17,7 +17,8 @@ class StubVectorStore:
         self.chunks: list[Chunk] = []
 
     def add(self, chunks: list[Chunk]) -> None:
-        self.chunks = self.chunks + chunks
+        new_ids = {c.id for c in chunks}
+        self.chunks = [c for c in self.chunks if c.id not in new_ids] + chunks
 
     def query(
         self,
@@ -34,6 +35,7 @@ class StubVectorStore:
                 kind=chunk.kind,
                 text=chunk.text,
                 score=cosine_similarity(embedding, chunk.embedding),
+                source_role=chunk.source_role,
             )
             for chunk in self.chunks
         ]
@@ -48,12 +50,29 @@ class StubVectorStore:
             if chunk.score >= min_score
         ]
 
-    def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> None:
+    def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> int:
+        before = len(self.chunks)
         self.chunks = [
             chunk
             for chunk in self.chunks
             if chunk.artifact_id != artifact_id or chunk.id in (exclude_ids or [])
         ]
+        return before - len(self.chunks)
+
+    def list_chunks(self, limit: int, offset: int = 0) -> list[Chunk]:
+        return list(self.chunks[offset : offset + limit])
+
+    def list_chunks_by_artifact(
+        self,
+        artifact_id: str,
+        limit: int,
+        offset: int = 0,
+    ) -> list[Chunk]:
+        matching = [c for c in self.chunks if c.artifact_id == artifact_id]
+        return matching[offset : offset + limit]
+
+    def count_by_artifact(self, artifact_id: str) -> int:
+        return sum(1 for c in self.chunks if c.artifact_id == artifact_id)
 
     def all_chunks(self) -> list[Chunk]:
         return list(self.chunks)

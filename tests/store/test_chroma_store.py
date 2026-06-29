@@ -212,6 +212,49 @@ def test_chroma_ephemeral_constructor_requires_no_args() -> None:
     assert len(result) == 1
 
 
+def test_chroma_round_trips_source_role() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(collection_name="test_source_role", client=client)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-test",
+                artifact_id="artifact-1",
+                filename="test_foo.py",
+                text="test material",
+                embedding=[1.0, 0.0],
+                source_role="test",
+            ),
+        ]
+    )
+
+    scored = store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.1)
+    assert scored[0].source_role == "test"
+
+    listed = store.all_chunks()
+    assert listed[0].source_role == "test"
+
+
+def test_chroma_legacy_chunks_default_to_primary() -> None:
+    """A chunk stored without a source_role reads back as 'primary'."""
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(
+        name="legacy", metadata={"hnsw:space": "cosine"}
+    )
+    collection.add(
+        ids=["legacy-1"],
+        documents=["legacy text"],
+        embeddings=[[1.0, 0.0]],
+        metadatas=[{"artifact_id": "a", "filename": "doc.md", "kind": "text"}],
+    )
+    store = ChromaVectorStore(collection_name="legacy", client=client)
+
+    scored = store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.1)
+
+    assert scored[0].source_role == "primary"
+
+
 def test_chroma_persistent_constructor(tmp_path: Path) -> None:
     store = ChromaVectorStore(
         collection_name="test_persistent",

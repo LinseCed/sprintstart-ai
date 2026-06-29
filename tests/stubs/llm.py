@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 
 from llm.base import ChatResult, Message, ToolCall, ToolSpec
 
@@ -11,10 +11,16 @@ class StubLLMClient:
         generate_response: str = "stub answer",
         embedding: list[float] | None = None,
         caption: str = "stub caption",
+        embed_fn: Callable[[str], list[float]] | None = None,
     ) -> None:
         self.generate_response = generate_response
         self.embedding = embedding or [0.0] * 768
         self.caption = caption
+        self.embed_fn = embed_fn
+
+    @property
+    def model_name(self) -> str | None:
+        return "stub-model"
 
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
@@ -28,6 +34,8 @@ class StubLLMClient:
         yield self.generate_response
 
     def embed(self, text: str) -> list[float]:
+        if self.embed_fn is not None:
+            return self.embed_fn(text)
         return self.embedding
 
     def caption_image(self, image_bytes: bytes) -> str:
@@ -55,6 +63,10 @@ class ScriptedLLMClient:
         self.embedding = embedding or [0.0] * 768
         self.chat_calls: list[list[Message]] = []
         self.stream_calls: list[list[Message]] = []
+
+    @property
+    def model_name(self) -> str | None:
+        return "scripted-model"
 
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import TypeGuard
 
 from ingestion.models import ChunkKind
+from ingestion.source_role import DEFAULT_SOURCE_ROLE, SourceRole
 
 
 def is_chunk_kind(value: str) -> TypeGuard[ChunkKind]:
@@ -17,6 +18,7 @@ class Chunk:
     embedding: list[float]
     position: int | None = None
     kind: ChunkKind = "text"
+    source_role: SourceRole = DEFAULT_SOURCE_ROLE
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class ScoredChunk:
     score: float
     position: int | None = None
     kind: ChunkKind = "text"
+    source_role: SourceRole = DEFAULT_SOURCE_ROLE
 
 
 @dataclass(frozen=True)

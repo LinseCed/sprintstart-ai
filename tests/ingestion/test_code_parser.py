@@ -268,3 +268,67 @@ func hello() {
     result = parse("test.go", code)
 
     assert result[0].metadata["symbol_kind"] == "function_declaration"
+
+
+def test_non_ascii_source_is_not_corrupted():
+    # tree-sitter reports byte offsets; a multi-byte char before the symbol used
+    # to shift str-based slicing and garble the extracted name + content.
+    code = "# café ☕ module header\n\ndef greet():\n    return 'hi'\n".encode()
+
+    result = parse("test.py", code)
+
+    contents = " ".join(chunk.content for chunk in result)
+    assert "def greet():" in contents
+    assert "return 'hi'" in contents
+    assert any(chunk.metadata.get("symbol_name") == "greet" for chunk in result)
+
+
+def test_trailing_module_level_code_is_kept():
+    # Top-level statements after the first symbol must stay searchable.
+    code = b"""
+def main():
+    return 1
+
+
+SENTINEL_CONSTANT = 42
+
+if __name__ == "__main__":
+    main()
+"""
+
+    result = parse("test.py", code)
+
+    contents = " ".join(chunk.content for chunk in result)
+    assert "SENTINEL_CONSTANT = 42" in contents
+    assert '__name__ == "__main__"' in contents
+
+
+def test_duplicate_symbols_get_unique_chunk_positions():
+    # Two byte-identical definitions must not collide on the deterministic chunk
+    # id (which is derived from content + chunk_index).
+    code = b"""
+def helper():
+    return 1
+
+
+def helper_copy():
+    return 1
+"""
+
+    result = parse("test.py", code)
+
+    indices = [chunk.metadata["chunk_index"] for chunk in result]
+    assert len(indices) == len(set(indices))
+
+
+def test_javascript_exported_function_is_a_symbol():
+    code = b"""
+export function multiply(a, b) {
+    return a * b;
+}
+"""
+
+    result = parse("test.js", code)
+
+    assert any("multiply" in chunk.content for chunk in result)
+    assert any(chunk.metadata["symbol_kind"] == "export_statement" for chunk in result)
