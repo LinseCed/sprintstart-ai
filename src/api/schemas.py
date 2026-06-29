@@ -446,6 +446,24 @@ class BlueprintSchema(BaseModel):
         )
 
 
+class SkillAssessmentSchema(BaseModel):
+    name: Annotated[
+        str,
+        Field(min_length=1, description="Skill tag, e.g. kotlin.", examples=["kotlin"]),
+    ]
+    level: Annotated[
+        str,
+        Field(
+            default="beginner",
+            description=(
+                "Proficiency level: beginner, intermediate, advanced, expert. "
+                "Case-insensitive; unknown values are handled gracefully."
+            ),
+            examples=["advanced"],
+        ),
+    ] = "beginner"
+
+
 class OnboardingPathRequest(BaseModel):
     working_area: Annotated[
         str,
@@ -466,9 +484,12 @@ class OnboardingPathRequest(BaseModel):
             examples=["junior"],
         ),
     ]
-    skills: list[str] = Field(
-        default_factory=list,
-        description="Optional skill tags; forward-compatible with a richer profile.",
+    skills: list[SkillAssessmentSchema] = Field(
+        default_factory=list[SkillAssessmentSchema],
+        description=(
+            "Optional leveled skills ({name, level}); the backend supplies the "
+            "user's skill assessments so proficiency drives personalization."
+        ),
     )
     tags: list[str] = Field(
         default_factory=list,
@@ -483,12 +504,14 @@ class OnboardingPathRequest(BaseModel):
     )
 
     def to_profile(self) -> "PersonProfile":
-        from onboarding.models import PersonProfile
+        from onboarding.models import PersonProfile, SkillAssessment
 
         return PersonProfile(
             working_area=self.working_area,
             experience=self.experience,
-            skills=self.skills,
+            skills=[
+                SkillAssessment(name=s.name, level=s.level) for s in self.skills
+            ],
             tags=self.tags,
         )
 
@@ -497,7 +520,7 @@ class OnboardingPathRequest(BaseModel):
             "example": {
                 "working_area": "backend",
                 "experience": "junior",
-                "skills": [],
+                "skills": [{"name": "kotlin", "level": "advanced"}],
                 "tags": [],
                 "blueprints": [
                     {

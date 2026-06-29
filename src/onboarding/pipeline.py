@@ -77,13 +77,12 @@ def _step_applies(step: BlueprintStep, profile: PersonProfile) -> bool:
     # A skill the person listed that matches this step's tags surfaces it
     # regardless of the step's audience — skills are role-orthogonal, so a
     # listed skill can pull in a step outside one's working area.
-    skill_match = bool(
-        {s.lower() for s in profile.skills} & {t.lower() for t in step.tags}
-    )
+    skill_names = {s.name.lower() for s in profile.skills}
+    skill_match = bool(skill_names & {t.lower() for t in step.tags})
 
     if step.audience and not skill_match:
         haystack = {profile.working_area.lower(), *(t.lower() for t in profile.tags)}
-        haystack.update(s.lower() for s in profile.skills)
+        haystack.update(skill_names)
         if not haystack & {a.lower() for a in step.audience}:
             return False
 

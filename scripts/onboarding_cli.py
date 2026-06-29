@@ -16,7 +16,7 @@ def _generate(
     client: ServiceClient,
     working_area: str,
     experience: str,
-    skills: list[str],
+    skills: list[dict[str, str]],
     tags: list[str],
 ) -> dict[str, Any] | None:
     """Stream a path; print stage progress; return the final `path` event."""
@@ -103,6 +103,17 @@ def _csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _skills(value: str) -> list[dict[str, str]]:
+    """Parse ``name:level`` pairs; level defaults to ``beginner`` when omitted."""
+    skills: list[dict[str, str]] = []
+    for item in _csv(value):
+        name, _, level = item.partition(":")
+        name = name.strip()
+        if name:
+            skills.append({"name": name, "level": level.strip() or "beginner"})
+    return skills
+
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-a",
@@ -115,7 +126,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Coarse experience level, e.g. junior, mid, senior. Prompted if omitted.",
     )
     parser.add_argument(
-        "--skills", default="", help="Comma-separated skill tags (optional)."
+        "--skills",
+        default="",
+        help="Comma-separated skills as name:level pairs, e.g. kotlin:advanced,docker.",
     )
     parser.add_argument(
         "--tags", default="", help="Comma-separated free-form tags (optional)."
@@ -152,7 +165,7 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         event = _generate(
-            client, working_area, experience, _csv(args.skills), _csv(args.tags)
+            client, working_area, experience, _skills(args.skills), _csv(args.tags)
         )
     finally:
         client.close()

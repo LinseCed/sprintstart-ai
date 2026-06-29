@@ -12,6 +12,7 @@ from onboarding.models import (
     PathStep,
     PersonProfile,
     QualityReport,
+    SkillAssessment,
     content_id,
     experience_rank,
 )
@@ -193,7 +194,9 @@ def test_skill_tag_match_surfaces_step_outside_audience() -> None:
         tags=["kubernetes"],
     )
     skilled = PersonProfile(
-        working_area="backend", experience="junior", skills=["kubernetes"]
+        working_area="backend",
+        experience="junior",
+        skills=[SkillAssessment(name="kubernetes", level="advanced")],
     )
     assert _step_applies(step, skilled) is True
 

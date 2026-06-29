@@ -44,6 +44,25 @@ def experience_rank(level: str | None) -> int:
     return EXPERIENCE_LEVELS.get(level.strip().lower(), 0)
 
 
+# Ordinal skill-proficiency levels, aligned 1:1 with the backend ``SkillLevel``
+# enum and the frontend ``SkillLevel`` union so all three services agree on what
+# a level means. Matching is case-insensitive; unknown values rank as 0 (treated
+# as no demonstrated proficiency) so an unseen level never crashes generation.
+SKILL_LEVELS: dict[str, int] = {
+    "beginner": 1,
+    "intermediate": 2,
+    "advanced": 3,
+    "expert": 4,
+}
+
+
+def skill_rank(level: str | None) -> int:
+    """Ordinal rank for a skill-proficiency level; unknown/None -> 0."""
+    if level is None:
+        return 0
+    return SKILL_LEVELS.get(level.strip().lower(), 0)
+
+
 def content_id(title: str) -> str:
     """Content fingerprint of a step title: ``step-<8 hex>``.
 
@@ -58,16 +77,31 @@ def content_id(title: str) -> str:
     return f"step-{digest[:8]}"
 
 
+class SkillAssessment(BaseModel):
+    """A single assessed skill with a proficiency level.
+
+    ``name`` is a free-form skill tag (e.g. ``kotlin``); ``level`` is one of the
+    canonical :data:`SKILL_LEVELS` (``beginner``..``expert``), case-insensitive,
+    with unknown values ranking as 0 so an unseen level never crashes generation.
+    This mirrors the backend ``SkillAssessmentDto`` / frontend ``UserSkillAssessment``
+    so a user's leveled skills survive end to end instead of being flattened away.
+    """
+
+    name: str
+    level: str = Field(default="beginner", description="beginner..expert")
+
+
 class PersonProfile(BaseModel):
     """Who the path is generated for.
 
-    ``experience`` is a coarse level today; ``skills``/``tags`` make the input
-    forward-compatible with a richer, LLM-derived skill evaluation later.
+    ``experience`` is a coarse level today; ``skills`` carry per-skill proficiency
+    levels and ``tags`` keep the input forward-compatible with a richer, LLM-derived
+    skill evaluation later.
     """
 
     working_area: str = Field(description="e.g. backend, frontend, devops")
     experience: str = Field(description="Coarse experience level, e.g. junior")
-    skills: list[str] = Field(default_factory=list)
+    skills: list[SkillAssessment] = Field(default_factory=list[SkillAssessment])
     tags: list[str] = Field(default_factory=list)
 
 

@@ -129,7 +129,9 @@ def _build_prompt(
         '"chunk_ids": [str], "tasks": [{"title": str, "description": str}]}], '
         '"tasks": {"<step_id>": [{"title": str, "description": str}]}}'
     )
-    skills = ", ".join(profile.skills) or "(none listed)"
+    skills = (
+        ", ".join(f"{s.name} ({s.level})" for s in profile.skills) or "(none listed)"
+    )
     interests = ", ".join(profile.tags) or "(none listed)"
     user = (
         f"Working area: {profile.working_area}\n"
