@@ -153,9 +153,7 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        event = _generate(
-            client, working_area, _skills(args.skills), _csv(args.tags)
-        )
+        event = _generate(client, working_area, _skills(args.skills), _csv(args.tags))
     finally:
         client.close()
 

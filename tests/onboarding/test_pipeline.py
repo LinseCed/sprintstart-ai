@@ -80,9 +80,7 @@ def test_recommended_step_filtered_by_audience() -> None:
     backend = PersonProfile(working_area="backend")
     assert _step_applies(step, backend) is False
 
-    tagged = PersonProfile(
-        working_area="backend", tags=["frontend"]
-    )
+    tagged = PersonProfile(working_area="backend", tags=["frontend"])
     assert _step_applies(step, tagged) is True
 
 
