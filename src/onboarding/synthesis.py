@@ -120,9 +120,11 @@ def _build_prompt(
         "2. 'added': extra project-specific steps not already covered by the "
         "blueprint. Every added step MUST cite at least one chunk id; do not "
         "invent sources.\n"
-        "3. 'tasks': for each blueprint step id, an optional list of 1-3 concrete, "
-        "actionable sub-step tasks. Each task has a 'title' and optional "
-        "'description'.\n\n"
+        "3. 'tasks': for each blueprint step id, an optional list of concrete, "
+        "actionable sub-step tasks — as many as the step genuinely needs (usually "
+        "a handful; add more only when the work truly calls for it). Prefer fewer, "
+        "high-signal tasks over padding with filler. Each task has a 'title' and "
+        "optional 'description'.\n\n"
         f"{_verbosity(profile)}\n\n"
         'JSON schema: {"steps": [{"id": str, "rewritten": str, "chunk_ids": [str]}], '
         '"added": [{"title": str, "description": str, "tags": [str], '
