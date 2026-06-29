@@ -509,9 +509,7 @@ class OnboardingPathRequest(BaseModel):
         return PersonProfile(
             working_area=self.working_area,
             experience=self.experience,
-            skills=[
-                SkillAssessment(name=s.name, level=s.level) for s in self.skills
-            ],
+            skills=[SkillAssessment(name=s.name, level=s.level) for s in self.skills],
             tags=self.tags,
         )
 
