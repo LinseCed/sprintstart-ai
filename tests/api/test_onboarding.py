@@ -84,7 +84,7 @@ def test_streams_stages_path_and_done(
 ) -> None:
     http, _, _ = client
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     types = [e["type"] for e in events]
 
     assert "stage" in types
@@ -97,7 +97,7 @@ def test_required_steps_always_present(
 ) -> None:
     http, _, _ = client
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     path = _path_event(events)["path"]
     ids = _all_step_ids(path)
 
@@ -110,7 +110,7 @@ def test_unknown_working_area_falls_back_to_global_only(
 ) -> None:
     http, _, _ = client
 
-    events = _post(http, working_area="unknown-area", experience="junior")
+    events = _post(http, working_area="unknown-area")
     path = _path_event(events)["path"]
     titles = [phase["title"] for phase in path["phases"]]
 
@@ -118,12 +118,16 @@ def test_unknown_working_area_falls_back_to_global_only(
     assert content_id("Set up your accounts and access") in _all_step_ids(path)
 
 
-def test_unseen_experience_value_does_not_crash(
+def test_unseen_skill_level_does_not_crash(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
     http, _, _ = client
 
-    events = _post(http, working_area="backend", experience="wizard")
+    events = _post(
+        http,
+        working_area="backend",
+        skills=[{"name": "kotlin", "level": "wizard"}],
+    )
     path = _path_event(events)["path"]
 
     assert content_id("Set up your accounts and access") in _all_step_ids(path)
@@ -135,7 +139,7 @@ def test_empty_corpus_produces_blueprint_only_path(
     http, _, store = client
     assert store.count() == 0
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     path = _path_event(events)["path"]
     origins = {s["origin"] for phase in path["phases"] for s in phase["steps"]}
 
@@ -160,7 +164,7 @@ def test_invalid_llm_output_falls_back_without_error(
         ]
     )
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     types = [e["type"] for e in events]
     path = _path_event(events)["path"]
 
@@ -206,7 +210,7 @@ def test_grounded_llm_steps_are_added_and_cited(
         ]
     )
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     path = _path_event(events)["path"]
     quality = _path_event(events)["quality"]
 
@@ -258,7 +262,7 @@ def test_synthesis_rewrites_step_description(
         ]
     )
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     path = _path_event(events)["path"]
 
     db_step = next(
@@ -294,7 +298,7 @@ def test_ungrounded_llm_step_is_dropped(
         ]
     )
 
-    events = _post(http, working_area="backend", experience="junior")
+    events = _post(http, working_area="backend")
     path = _path_event(events)["path"]
 
     origins = {s["origin"] for phase in path["phases"] for s in phase["steps"]}
@@ -306,7 +310,7 @@ def test_missing_request_field_returns_422(
 ) -> None:
     http, _, _ = client
 
-    response = http.post("/api/v1/onboarding/path", json={"experience": "junior"})
+    response = http.post("/api/v1/onboarding/path", json={"skills": []})
 
     assert response.status_code == 422
 
@@ -323,7 +327,6 @@ def test_yaml_endpoint_returns_valid_yaml(
         "/api/v1/onboarding/path/yaml",
         json={
             "working_area": "backend",
-            "experience": "junior",
             "blueprints": _BLUEPRINTS,
         },
     )
@@ -335,7 +338,6 @@ def test_yaml_endpoint_returns_valid_yaml(
 
     path = yaml.safe_load(response.text)
     assert path["working_area"] == "backend"
-    assert path["experience"] == "junior"
     assert any(
         s["id"] == content_id("Set up your accounts and access")
         for phase in path["phases"]
@@ -352,7 +354,6 @@ def test_yaml_endpoint_includes_quality_report(
         "/api/v1/onboarding/path/yaml",
         json={
             "working_area": "backend",
-            "experience": "junior",
             "blueprints": _BLUEPRINTS,
         },
     )
@@ -370,7 +371,7 @@ def test_yaml_endpoint_missing_field_returns_422(
 ) -> None:
     http, _, _ = client
 
-    response = http.post("/api/v1/onboarding/path/yaml", json={"experience": "junior"})
+    response = http.post("/api/v1/onboarding/path/yaml", json={"skills": []})
 
     assert response.status_code == 422
 
@@ -393,7 +394,6 @@ def test_yaml_endpoint_returns_503_when_llm_unavailable(
         "/api/v1/onboarding/path/yaml",
         json={
             "working_area": "backend",
-            "experience": "junior",
             "blueprints": _BLUEPRINTS,
         },
     )

@@ -63,6 +63,18 @@ def skill_rank(level: str | None) -> int:
     return SKILL_LEVELS.get(level.strip().lower(), 0)
 
 
+def proficiency_rank(skills: "list[SkillAssessment]") -> int:
+    """Overall proficiency for gating/verbosity, derived from a person's skills.
+
+    Taken as the highest skill level held (``0`` when no skills are listed, which
+    is the most inclusive — every step surfaces). The :data:`SKILL_LEVELS` scale
+    lines up rank-for-rank with :data:`EXPERIENCE_LEVELS`
+    (beginner↔junior, intermediate↔mid, advanced↔senior, expert↔lead), so this
+    rank is directly comparable to a step's ``min_experience`` rank.
+    """
+    return max((skill_rank(s.level) for s in skills), default=0)
+
+
 def content_id(title: str) -> str:
     """Content fingerprint of a step title: ``step-<8 hex>``.
 
@@ -94,13 +106,13 @@ class SkillAssessment(BaseModel):
 class PersonProfile(BaseModel):
     """Who the path is generated for.
 
-    ``experience`` is a coarse level today; ``skills`` carry per-skill proficiency
-    levels and ``tags`` keep the input forward-compatible with a richer, LLM-derived
-    skill evaluation later.
+    ``skills`` carry per-skill proficiency levels — the source of truth for how
+    experienced the person is. Step gating and synthesis verbosity derive an
+    overall level from them via :func:`proficiency_rank`. ``tags`` keep the input
+    forward-compatible with richer targeting.
     """
 
     working_area: str = Field(description="e.g. backend, frontend, devops")
-    experience: str = Field(description="Coarse experience level, e.g. junior")
     skills: list[SkillAssessment] = Field(default_factory=list[SkillAssessment])
     tags: list[str] = Field(default_factory=list)
 
@@ -257,7 +269,6 @@ class QualityReport(BaseModel):
 
 class OnboardingPath(BaseModel):
     working_area: str
-    experience: str
     phases: list[PathPhase] = []
     # Identifiable versions so onboarding outcomes can later be attributed.
     blueprint_versions: dict[str, str] = Field(default_factory=dict)

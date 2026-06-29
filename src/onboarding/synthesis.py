@@ -2,7 +2,7 @@
 
 Given the filtered blueprint steps and per-step grounding evidence retrieved
 across the corpus, the LLM (a) rewrites each step's description for the person's
-experience and skills, (b) attaches document references to blueprint steps, and
+skills and proficiency, (b) attaches document references to blueprint steps, and
 (c) proposes additional project-specific steps. The layer is *additive*: it never
 drops required steps (the pipeline's coverage gate enforces that), and every
 added step must cite real evidence (the grounding gate enforces that).
@@ -27,7 +27,7 @@ from onboarding.models import (
     PersonProfile,
     Task,
     content_id,
-    experience_rank,
+    proficiency_rank,
 )
 from rag.types import ScoredChunk
 
@@ -75,15 +75,15 @@ class _Payload(BaseModel):
 
 
 def _verbosity(profile: PersonProfile) -> str:
-    """Experience tunes how much the LLM expands vs. compresses each step.
+    """Proficiency tunes how much the LLM expands vs. compresses each step.
 
-    Keyed off the shared :data:`EXPERIENCE_LEVELS` rank so this stays in step
-    with the gating logic. Unknown levels (rank 0) get balanced detail.
+    Keyed off the same skills-derived :func:`proficiency_rank` as the gating
+    logic, so the two stay in step. No skills (rank 0) gets balanced detail.
     """
-    rank = experience_rank(profile.experience)
-    if rank == 1:  # intern / entry / junior
+    rank = proficiency_rank(profile.skills)
+    if rank == 1:  # beginner
         return "Explain steps in extra detail; assume little prior context."
-    if rank >= 3:  # senior / lead / staff / principal
+    if rank >= 3:  # advanced / expert
         return "Keep steps concise; assume strong prior context."
     return "Use a balanced level of detail."
 
@@ -113,8 +113,8 @@ def _build_prompt(
         "in square brackets.\n\n"
         "Do three things and return STRICT JSON only (no prose, no markdown fences):\n"
         "1. 'steps': for every blueprint step, provide:\n"
-        "   - 'rewritten': the description rewritten for this person's experience "
-        "and skills. Use only what the evidence supports; keep it concrete.\n"
+        "   - 'rewritten': the description rewritten for this person's skills and "
+        "proficiency levels. Use only what the evidence supports; keep it concrete.\n"
         "   - 'chunk_ids': the chunk ids that ground this step (may be empty if "
         "no evidence was retrieved for it).\n"
         "2. 'added': extra project-specific steps not already covered by the "
@@ -137,7 +137,6 @@ def _build_prompt(
     interests = ", ".join(profile.tags) or "(none listed)"
     user = (
         f"Working area: {profile.working_area}\n"
-        f"Experience: {profile.experience}\n"
         f"Skills: {skills}\n"
         f"Interests: {interests}\n\n"
         "Blueprint steps:\n\n" + "\n\n".join(step_blocks)

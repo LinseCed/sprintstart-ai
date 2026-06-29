@@ -32,7 +32,6 @@ from tests.stubs.store import StubVectorStore
 def _path(phases: list[PathPhase]) -> OnboardingPath:
     return OnboardingPath(
         working_area="backend",
-        experience="junior",
         phases=phases,
         quality=QualityReport(
             coverage=0.0, grounded_ratio=0.0, ordering_valid=False, score=0.0
@@ -46,21 +45,29 @@ def test_experience_rank_unknown_is_zero() -> None:
     assert experience_rank(None) == 0
 
 
-def test_required_step_always_applies_regardless_of_experience() -> None:
+def test_required_step_always_applies_regardless_of_proficiency() -> None:
     step = BlueprintStep(
         id="x", title="X", requirement="required", min_experience="senior"
     )
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     assert _step_applies(step, profile) is True
 
 
 def test_recommended_step_filtered_by_min_experience() -> None:
+    # A step's min_experience is gated against the person's overall proficiency,
+    # derived from their highest skill level (advanced↔senior on the shared scale).
     step = BlueprintStep(
         id="x", title="X", requirement="recommended", min_experience="senior"
     )
-    junior = PersonProfile(working_area="backend", experience="junior")
-    senior = PersonProfile(working_area="backend", experience="senior")
+    junior = PersonProfile(
+        working_area="backend",
+        skills=[SkillAssessment(name="python", level="beginner")],
+    )
+    senior = PersonProfile(
+        working_area="backend",
+        skills=[SkillAssessment(name="python", level="advanced")],
+    )
 
     assert _step_applies(step, junior) is False
     assert _step_applies(step, senior) is True
@@ -70,11 +77,11 @@ def test_recommended_step_filtered_by_audience() -> None:
     step = BlueprintStep(
         id="x", title="X", requirement="recommended", audience=["frontend"]
     )
-    backend = PersonProfile(working_area="backend", experience="junior")
+    backend = PersonProfile(working_area="backend")
     assert _step_applies(step, backend) is False
 
     tagged = PersonProfile(
-        working_area="backend", experience="junior", tags=["frontend"]
+        working_area="backend", tags=["frontend"]
     )
     assert _step_applies(step, tagged) is True
 
@@ -96,7 +103,7 @@ def test_coverage_gate_reinjects_missing_required_step() -> None:
             steps=[PathStep(id="sec", title="Security", requirement="required")],
         )
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     _enforce_coverage(phases, blueprints, profile)
 
@@ -195,13 +202,12 @@ def test_skill_tag_match_surfaces_step_outside_audience() -> None:
     )
     skilled = PersonProfile(
         working_area="backend",
-        experience="junior",
         skills=[SkillAssessment(name="kubernetes", level="advanced")],
     )
     assert _step_applies(step, skilled) is True
 
     # Without the matching skill, the devops-only step stays hidden for backend.
-    plain = PersonProfile(working_area="backend", experience="junior")
+    plain = PersonProfile(working_area="backend")
     assert _step_applies(step, plain) is False
     # Surfacing by skill never promotes a recommended step to required.
     assert step.requirement == "recommended"
@@ -215,7 +221,7 @@ def test_build_phases_dedups_step_across_scopes() -> None:
         Blueprint(scope="global", steps=[shared]),
         Blueprint(scope="area:backend", steps=[shared.model_copy(deep=True)]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     phases, _ = _build_phases(blueprints, profile)
 
@@ -234,7 +240,7 @@ def test_cross_scope_status_merge_required_wins() -> None:
         Blueprint(scope="global", steps=[recommended]),
         Blueprint(scope="area:backend", steps=[required]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     phases, _ = _build_phases(blueprints, profile)
 
@@ -292,7 +298,7 @@ def test_build_phases_drops_semantic_duplicate_across_scopes() -> None:
         Blueprint(scope="global", steps=[global_step]),
         Blueprint(scope="area:backend", steps=[area_step]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     phases, _ = _build_phases(blueprints, profile)
 
@@ -319,7 +325,7 @@ def test_build_phases_keeps_semantically_different_steps() -> None:
         Blueprint(scope="global", steps=[global_step]),
         Blueprint(scope="area:backend", steps=[area_step]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     phases, _ = _build_phases(blueprints, profile)
 
@@ -352,7 +358,7 @@ def test_build_phases_deduplicates_required_step_when_concept_already_covered() 
         Blueprint(scope="global", steps=[global_step]),
         Blueprint(scope="area:backend", steps=[area_step]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     phases, _ = _build_phases(blueprints, profile)
 
@@ -383,7 +389,7 @@ def test_enforce_coverage_reinjects_unique_required_step() -> None:
         Blueprint(scope="global", steps=[global_step]),
         Blueprint(scope="area:backend", steps=[area_step]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     phases, _ = _build_phases(blueprints, profile)
 

@@ -473,17 +473,6 @@ class OnboardingPathRequest(BaseModel):
             examples=["backend"],
         ),
     ]
-    experience: Annotated[
-        str,
-        Field(
-            min_length=1,
-            description=(
-                "Coarse experience level, e.g. junior, mid, senior. Not a fixed "
-                "enum: unknown values are handled gracefully."
-            ),
-            examples=["junior"],
-        ),
-    ]
     skills: list[SkillAssessmentSchema] = Field(
         default_factory=list[SkillAssessmentSchema],
         description=(
@@ -508,7 +497,6 @@ class OnboardingPathRequest(BaseModel):
 
         return PersonProfile(
             working_area=self.working_area,
-            experience=self.experience,
             skills=[SkillAssessment(name=s.name, level=s.level) for s in self.skills],
             tags=self.tags,
         )
@@ -517,7 +505,6 @@ class OnboardingPathRequest(BaseModel):
         "json_schema_extra": {
             "example": {
                 "working_area": "backend",
-                "experience": "junior",
                 "skills": [{"name": "kotlin", "level": "advanced"}],
                 "tags": [],
                 "blueprints": [

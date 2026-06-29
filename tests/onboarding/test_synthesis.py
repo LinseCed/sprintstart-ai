@@ -7,7 +7,6 @@ from onboarding.synthesis import _build_prompt
 def test_synthesis_prompt_includes_skills_and_interests() -> None:
     profile = PersonProfile(
         working_area="backend",
-        experience="junior",
         skills=[
             SkillAssessment(name="python", level="expert"),
             SkillAssessment(name="fastapi", level="beginner"),
