@@ -231,7 +231,10 @@ class ServiceClient:
             content = raw.decode("utf-8", errors="replace")
 
         body: dict[str, object] = {
-            "artifact_id": artifact_id or path.name,
+            # Relative path (not bare name) so same-named files in different
+            # folders get distinct ids — a shared id would overwrite the corpus.
+            "artifact_id": artifact_id
+            or (str(path.relative_to(root)).replace("\\", "/") if root else path.name),
             "filename": path.name,
             "content": content,
         }
