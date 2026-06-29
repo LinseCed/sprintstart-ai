@@ -1,6 +1,6 @@
 """Deterministic staged pipeline that assembles a personalized onboarding path.
 
-Stages: (1) select blueprints by scope, (2) filter/order steps by experience,
+Stages: (1) select blueprints by scope, (2) filter/order steps by proficiency,
 (3) retrieve grounding evidence across the corpus, (4) LLM synthesis of the
 personalized layer, (5) validation & quality gates, (6) emit. The pipeline is a
 generator that yields :class:`StageProgress` markers (the orchestrator turns
@@ -31,6 +31,7 @@ from onboarding.models import (
     Requirement,
     Task,
     experience_rank,
+    proficiency_rank,
 )
 from onboarding.quality import evaluate
 from onboarding.scope import Scope
@@ -66,7 +67,7 @@ def _phase_title(scope: str) -> str:
 
 
 def _step_applies(step: BlueprintStep, profile: PersonProfile) -> bool:
-    """Filter a step by audience and experience.
+    """Filter a step by audience and proficiency.
 
     Required steps always apply (they are guaranteed by the coverage gate);
     recommended steps are gated by ``audience`` and ``min_experience``.
@@ -86,7 +87,7 @@ def _step_applies(step: BlueprintStep, profile: PersonProfile) -> bool:
         if not haystack & {a.lower() for a in step.audience}:
             return False
 
-    return experience_rank(profile.experience) >= experience_rank(step.min_experience)
+    return proficiency_rank(profile.skills) >= experience_rank(step.min_experience)
 
 
 def _order_steps(
@@ -181,7 +182,6 @@ class OnboardingPipeline:
         yield StageProgress("emit")
         path = OnboardingPath(
             working_area=profile.working_area,
-            experience=profile.experience,
             phases=phases,
             blueprint_versions=blueprint_versions,
         )

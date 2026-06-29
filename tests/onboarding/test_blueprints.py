@@ -8,7 +8,7 @@ def test_select_includes_global_and_matching_area() -> None:
         Blueprint(scope="area:backend", steps=[BlueprintStep(id="b", title="B")]),
         Blueprint(scope="area:frontend", steps=[BlueprintStep(id="c", title="C")]),
     ]
-    profile = PersonProfile(working_area="backend", experience="junior")
+    profile = PersonProfile(working_area="backend")
 
     selected = select_blueprints(blueprints, profile)
 
@@ -20,7 +20,7 @@ def test_select_unknown_area_yields_global_only() -> None:
         Blueprint(scope="global", steps=[BlueprintStep(id="a", title="A")]),
         Blueprint(scope="area:backend", steps=[BlueprintStep(id="b", title="B")]),
     ]
-    profile = PersonProfile(working_area="quantum-computing", experience="junior")
+    profile = PersonProfile(working_area="quantum-computing")
 
     selected = select_blueprints(blueprints, profile)
 

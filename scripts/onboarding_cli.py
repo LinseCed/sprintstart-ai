@@ -15,14 +15,12 @@ console = Console()
 def _generate(
     client: ServiceClient,
     working_area: str,
-    experience: str,
     skills: list[dict[str, str]],
     tags: list[str],
 ) -> dict[str, Any] | None:
     """Stream a path; print stage progress; return the final `path` event."""
     payload: dict[str, object] = {
         "working_area": working_area,
-        "experience": experience,
         "skills": skills,
         "tags": tags,
     }
@@ -47,8 +45,7 @@ def _render_path(event: dict[str, Any]) -> None:
     quality = event.get("quality", {})
 
     area = path.get("working_area", "?")
-    experience = path.get("experience", "?")
-    console.rule(title=f"Onboarding path — {area} / {experience}", characters="=")
+    console.rule(title=f"Onboarding path — {area}", characters="=")
 
     for phase in path.get("phases", []):
         print("")
@@ -121,11 +118,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Working area, e.g. backend, frontend, devops. Prompted if omitted.",
     )
     parser.add_argument(
-        "-e",
-        "--experience",
-        help="Coarse experience level, e.g. junior, mid, senior. Prompted if omitted.",
-    )
-    parser.add_argument(
         "--skills",
         default="",
         help="Comma-separated skills as name:level pairs, e.g. kotlin:advanced,docker.",
@@ -147,26 +139,21 @@ def run(args: argparse.Namespace) -> int:
     print("")
 
     working_area = args.working_area
-    experience = args.experience
     try:
         if not working_area:
             working_area = input(C.cyan("working area> ")).strip()
-        if not experience:
-            experience = input(C.cyan("experience> ")).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         client.close()
         return 1
 
-    if not working_area or not experience:
-        print(C.red("[error] working area and experience are required"))
+    if not working_area:
+        print(C.red("[error] working area is required"))
         client.close()
         return 1
 
     try:
-        event = _generate(
-            client, working_area, experience, _skills(args.skills), _csv(args.tags)
-        )
+        event = _generate(client, working_area, _skills(args.skills), _csv(args.tags))
     finally:
         client.close()
 
