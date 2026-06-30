@@ -37,7 +37,10 @@ def client(
     app.dependency_overrides.clear()
 
 
-def _file_artifact(artifact_id: str = "uuid-1") -> dict:
+Artifact = dict[str, object]
+
+
+def _file_artifact(artifact_id: str = "uuid-1") -> Artifact:
     return {
         "artifactId": artifact_id,
         "sourceSystem": "GITHUB",
@@ -51,7 +54,7 @@ def _file_artifact(artifact_id: str = "uuid-1") -> dict:
     }
 
 
-def _issue_artifact(artifact_id: str = "uuid-2") -> dict:
+def _issue_artifact(artifact_id: str = "uuid-2") -> Artifact:
     return {
         "artifactId": artifact_id,
         "sourceSystem": "GITHUB",
@@ -127,7 +130,7 @@ def test_ingest_run_empty_body_returns_empty_list(client: TestClient) -> None:
 def test_ingest_run_artifact_with_no_content_returns_zero_chunks(
     client: TestClient,
 ) -> None:
-    artifact = _file_artifact()
+    artifact: Artifact = _file_artifact()
     artifact["bodyText"] = None
     artifact["title"] = None
 
