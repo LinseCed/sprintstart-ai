@@ -206,4 +206,10 @@ def ingest_run(
         for artifact in body.artifacts_to_ingest
     ]
 
+    logger.info(
+        "Sync complete: %d ingested, %d deindexed",
+        len(results),
+        len(body.artifacts_to_deindex),
+    )
+
     return RunArtifactsSyncResponse(artifacts=results)

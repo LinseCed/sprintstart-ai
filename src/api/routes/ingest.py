@@ -244,4 +244,11 @@ def ingest(
 
     metadata_store.save_completed_artifact(completed_artifact)
 
+    logger.info(
+        "Ingested artifact %s (%d chunks) from %s",
+        body.artifact_id,
+        len(chunks),
+        body.filename,
+    )
+
     return _response_from_records(completed_artifact, chunks)
