@@ -19,6 +19,9 @@ class Chunk:
     position: int | None = None
     kind: ChunkKind = "text"
     source_role: SourceRole = DEFAULT_SOURCE_ROLE
+    source_url: str | None = None
+    artifact_type: str | None = None
+    language: str | None = None
 
 
 @dataclass(frozen=True)
@@ -31,9 +34,13 @@ class ScoredChunk:
     position: int | None = None
     kind: ChunkKind = "text"
     source_role: SourceRole = DEFAULT_SOURCE_ROLE
+    source_url: str | None = None
+    artifact_type: str | None = None
+    language: str | None = None
 
 
 @dataclass(frozen=True)
 class Citation:
     filename: str
     chunk_id: str
+    source_url: str | None = None

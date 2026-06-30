@@ -41,11 +41,11 @@ def _file_artifact(artifact_id: str = "uuid-1") -> dict:
     return {
         "artifactId": artifact_id,
         "sourceSystem": "GITHUB",
-        "sourceId": f"github:owner/repo:FILE:src/main/App.kt",
+        "sourceId": "github:owner/repo:FILE:src/main/App.kt",
         "sourceUrl": "https://github.com/owner/repo/blob/main/src/main/App.kt",
         "artifactType": "FILE",
         "title": None,
-        "bodyText": "fun main() { println(\"hello\") }",
+        "bodyText": 'fun main() { println("hello") }',
         "mime": None,
         "language": "kotlin",
     }
@@ -146,7 +146,10 @@ def test_ingest_run_filename_derived_from_source_id_for_files(
 ) -> None:
     client.post(
         "/api/v1/ingest/sync",
-        json={"artifactsToIngest": [_file_artifact("uuid-kt")], "artifactsToDeindex": []},
+        json={
+            "artifactsToIngest": [_file_artifact("uuid-kt")],
+            "artifactsToDeindex": [],
+        },
     )
 
     record = metadata_store.get_artifact("uuid-kt")
@@ -160,7 +163,10 @@ def test_ingest_run_filename_derived_for_issue(
 ) -> None:
     client.post(
         "/api/v1/ingest/sync",
-        json={"artifactsToIngest": [_issue_artifact("uuid-issue")], "artifactsToDeindex": []},
+        json={
+            "artifactsToIngest": [_issue_artifact("uuid-issue")],
+            "artifactsToDeindex": [],
+        },
     )
 
     record = metadata_store.get_artifact("uuid-issue")

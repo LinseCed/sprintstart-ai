@@ -11,6 +11,12 @@ from rag.types import Chunk, ScoredChunk, is_chunk_kind
 _NO_POSITION: int = -1
 
 
+def _optional_str(metadata: Mapping[str, object], key: str) -> str | None:
+    """Return the metadata value as a non-empty string, or None."""
+    raw = metadata.get(key)
+    return str(raw) if raw else None
+
+
 def _source_role_of(metadata: Mapping[str, object]) -> SourceRole:
     """Read the source role from chunk metadata.
 
@@ -59,6 +65,9 @@ class ChromaVectorStore:
                     ),
                     "kind": chunk.kind,
                     "source_role": chunk.source_role,
+                    "source_url": chunk.source_url or "",
+                    "artifact_type": chunk.artifact_type or "",
+                    "language": chunk.language or "",
                 }
                 for chunk in chunks
             ],
@@ -120,6 +129,9 @@ class ChromaVectorStore:
                     text=str(text),
                     score=score,
                     source_role=_source_role_of(metadata),
+                    source_url=_optional_str(metadata, "source_url"),
+                    artifact_type=_optional_str(metadata, "artifact_type"),
+                    language=_optional_str(metadata, "language"),
                 )
             )
 
@@ -193,6 +205,9 @@ class ChromaVectorStore:
                     text=str(text),
                     embedding=list(embedding),
                     source_role=_source_role_of(metadata),
+                    source_url=_optional_str(metadata, "source_url"),
+                    artifact_type=_optional_str(metadata, "artifact_type"),
+                    language=_optional_str(metadata, "language"),
                 )
             )
 
@@ -249,6 +264,9 @@ class ChromaVectorStore:
                     text=str(text),
                     embedding=list(embedding),
                     source_role=_source_role_of(metadata),
+                    source_url=_optional_str(metadata, "source_url"),
+                    artifact_type=_optional_str(metadata, "artifact_type"),
+                    language=_optional_str(metadata, "language"),
                 )
             )
 

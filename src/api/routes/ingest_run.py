@@ -94,6 +94,10 @@ def _ingest_one(
         status="processing",
         created_at=created_at,
         updated_at=request_time,
+        source_id=artifact.source_id,
+        source_url=artifact.source_url,
+        artifact_type=artifact.artifact_type,
+        language=artifact.language,
     )
     metadata_store.save_artifact(record)
 
@@ -126,6 +130,9 @@ def _ingest_one(
                     source_role=source_role,
                 ),
                 position=index,
+                source_url=artifact.source_url,
+                artifact_type=artifact.artifact_type,
+                language=artifact.language,
             )
             for index, chunk in enumerate(parsed_chunks)
         ]
@@ -173,9 +180,7 @@ def ingest_run(
         try:
             store.delete(artifact_id, exclude_ids=[])
         except Exception:
-            logger.warning(
-                "Failed to deindex artifact %s", artifact_id, exc_info=True
-            )
+            logger.warning("Failed to deindex artifact %s", artifact_id, exc_info=True)
 
     results = [
         _ingest_one(artifact, llm, store, metadata_store)

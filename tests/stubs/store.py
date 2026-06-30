@@ -36,6 +36,9 @@ class StubVectorStore:
                 text=chunk.text,
                 score=cosine_similarity(embedding, chunk.embedding),
                 source_role=chunk.source_role,
+                source_url=chunk.source_url,
+                artifact_type=chunk.artifact_type,
+                language=chunk.language,
             )
             for chunk in self.chunks
         ]

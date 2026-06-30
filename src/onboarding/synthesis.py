@@ -96,9 +96,17 @@ def _build_prompt(
     step_blocks: list[str] = []
     for step in steps:
         chunks = chunks_per_step.get(step.id, [])
+
+        def _evidence_line(c: ScoredChunk) -> str:
+            meta = c.artifact_type or "FILE"
+            if c.language:
+                meta += f"/{c.language}"
+            if c.source_url:
+                meta += f" {c.source_url}"
+            return f"  [{c.id}] ({c.filename} | {meta}) {c.text}"
+
         evidence = (
-            "\n".join(f"  [{c.id}] ({c.filename}) {c.text}" for c in chunks)
-            or "  (no documents retrieved)"
+            "\n".join(_evidence_line(c) for c in chunks) or "  (no documents retrieved)"
         )
         step_blocks.append(
             f"Step {step.id}: {step.title}\n"

@@ -6,6 +6,7 @@ def build_citations(chunks: list[ScoredChunk]) -> list[Citation]:
         Citation(
             filename=chunk.filename,
             chunk_id=chunk.id,
+            source_url=chunk.source_url,
         )
         for chunk in chunks
     ]
