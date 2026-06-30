@@ -98,6 +98,21 @@ class IngestionMetadataStore:
             )
             self._connection.commit()
 
+    def mark_deindexed(self, artifact_id: str, updated_at: str) -> None:
+        with self._lock:
+            self._connection.execute(
+                """
+                UPDATE artifacts
+                SET status = ?,
+                    chunk_count = ?,
+                    updated_at = ?,
+                    error_message = ?
+                WHERE id = ?
+                """,
+                ("deindexed", 0, updated_at, None, artifact_id),
+            )
+            self._connection.commit()
+
     def get_artifact(self, artifact_id: str) -> ArtifactRecord | None:
         with self._lock:
             cursor = self._connection.execute(

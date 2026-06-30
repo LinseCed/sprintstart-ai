@@ -154,7 +154,7 @@ def test_ingest_run_filename_derived_from_source_id_for_files(
 
     record = metadata_store.get_artifact("uuid-kt")
     assert record is not None
-    assert record.filename == "App.kt"
+    assert record.filename == "src/main/App.kt"
 
 
 def test_ingest_run_filename_derived_for_issue(

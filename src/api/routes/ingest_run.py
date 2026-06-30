@@ -1,4 +1,4 @@
-"""POST /api/v1/ingest/run — batch ingest for completed GitHub ingestion runs."""
+"""POST /api/v1/ingest/sync — batch ingest for completed GitHub ingestion runs."""
 
 import logging
 import os
@@ -33,16 +33,17 @@ def _utc_now() -> str:
 
 
 def _filename_for(artifact: ArtifactRunIngestRequest) -> str:
-    """Derive a filename (with extension) from the artifact metadata.
+    """Derive a filename from the artifact metadata.
 
-    For FILE artifacts the path is embedded in sourceId as the last
-    colon-separated segment, so we extract the real basename and preserve the
-    extension for the code/text parser dispatch.  All other types use .md.
+    For FILE artifacts the relative path is embedded in sourceId as the last
+    colon-separated segment, so we preserve it in full (including directory) so
+    that citations remain unambiguous when multiple files share the same basename.
+    All other types use .md.
     """
     if artifact.artifact_type == "FILE":
         # sourceId format: "github:owner/repo:FILE:src/main/App.kt"
         path_segment = artifact.source_id.rsplit(":", 1)[-1]
-        return path_segment.rsplit("/", 1)[-1] or f"{artifact.artifact_id}.txt"
+        return path_segment or f"{artifact.artifact_id}.txt"
 
     slug = artifact.source_id.rsplit(":", 1)[-1]
     type_prefix = artifact.artifact_type.lower().replace("_", "-")
@@ -70,16 +71,6 @@ def _ingest_one(
     content_bytes = content.encode("utf-8")
 
     max_length = int(os.getenv("INGEST_MAX_CONTENT_LENGTH", "500000"))
-    if len(content) > max_length:
-        logger.warning(
-            "Artifact %s exceeds max content length (%d > %d), skipping",
-            artifact.artifact_id,
-            len(content),
-            max_length,
-        )
-        return ArtifactRunIngestResponse(
-            artifact_id=artifact.artifact_id, chunk_count=0
-        )
 
     existing = metadata_store.get_artifact(artifact.artifact_id)
     created_at = existing.created_at if existing is not None else request_time
@@ -99,6 +90,20 @@ def _ingest_one(
         artifact_type=artifact.artifact_type,
         language=artifact.language,
     )
+
+    if len(content) > max_length:
+        logger.warning(
+            "Artifact %s exceeds max content length (%d > %d), skipping",
+            artifact.artifact_id,
+            len(content),
+            max_length,
+        )
+        completed = replace(record, status="completed", updated_at=_utc_now())
+        metadata_store.save_completed_artifact(completed)
+        return ArtifactRunIngestResponse(
+            artifact_id=artifact.artifact_id, chunk_count=0
+        )
+
     metadata_store.save_artifact(record)
 
     if not content:
@@ -108,7 +113,19 @@ def _ingest_one(
             artifact_id=artifact.artifact_id, chunk_count=0
         )
 
-    parsed_chunks = parse(filename, content_bytes)
+    try:
+        parsed_chunks = parse(filename, content_bytes)
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse artifact %s (%s): %s",
+            artifact.artifact_id,
+            filename,
+            exc,
+        )
+        metadata_store.mark_failed(artifact.artifact_id, str(exc), _utc_now())
+        return ArtifactRunIngestResponse(
+            artifact_id=artifact.artifact_id, chunk_count=0
+        )
 
     if not parsed_chunks:
         store.delete(artifact.artifact_id, exclude_ids=[])
@@ -178,9 +195,11 @@ def ingest_run(
 ) -> RunArtifactsSyncResponse:
     for artifact_id in body.artifacts_to_deindex:
         try:
-            store.delete(artifact_id, exclude_ids=[])
+            deleted_count = store.delete(artifact_id, exclude_ids=[])
+            if deleted_count > 0:
+                metadata_store.mark_deindexed(artifact_id, _utc_now())
         except Exception:
-            logger.warning("Failed to deindex artifact %s", artifact_id, exc_info=True)
+            logger.exception("Failed to deindex artifact %s", artifact_id)
 
     results = [
         _ingest_one(artifact, llm, store, metadata_store)
