@@ -49,6 +49,7 @@ class ChatOrchestrator:
                         "type": "citation",
                         "chunk_id": citation.chunk_id,
                         "filename": citation.filename,
+                        "source_url": citation.source_url,
                     }
                 )
 

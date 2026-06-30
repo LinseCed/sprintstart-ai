@@ -19,6 +19,12 @@ def resolve_citations(
     for cid in chunk_ids:
         chunk = chunks_by_id.get(cid)
         if chunk is not None and chunk.id not in seen:
-            refs.append(CitationRef(filename=chunk.filename, chunk_id=chunk.id))
+            refs.append(
+                CitationRef(
+                    filename=chunk.filename,
+                    chunk_id=chunk.id,
+                    source_url=chunk.source_url,
+                )
+            )
             seen.add(chunk.id)
     return refs

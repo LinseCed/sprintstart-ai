@@ -129,6 +129,7 @@ class CitationRef(BaseModel):
 
     filename: str
     chunk_id: str
+    source_url: str | None = None
 
 
 class Task(BaseModel):

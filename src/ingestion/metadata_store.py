@@ -21,6 +21,10 @@ class ArtifactRecord:
     created_at: str
     updated_at: str
     error_message: str | None = None
+    source_id: str | None = None
+    source_url: str | None = None
+    artifact_type: str | None = None
+    language: str | None = None
 
 
 class IngestionMetadataStore:
@@ -49,7 +53,11 @@ class IngestionMetadataStore:
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    error_message TEXT
+                    error_message TEXT,
+                    source_id TEXT,
+                    source_url TEXT,
+                    artifact_type TEXT,
+                    language TEXT
                 )
                 """
             )
@@ -90,6 +98,21 @@ class IngestionMetadataStore:
             )
             self._connection.commit()
 
+    def mark_deindexed(self, artifact_id: str, updated_at: str) -> None:
+        with self._lock:
+            self._connection.execute(
+                """
+                UPDATE artifacts
+                SET status = ?,
+                    chunk_count = ?,
+                    updated_at = ?,
+                    error_message = ?
+                WHERE id = ?
+                """,
+                ("deindexed", 0, updated_at, None, artifact_id),
+            )
+            self._connection.commit()
+
     def get_artifact(self, artifact_id: str) -> ArtifactRecord | None:
         with self._lock:
             cursor = self._connection.execute(
@@ -104,7 +127,11 @@ class IngestionMetadataStore:
                     status,
                     created_at,
                     updated_at,
-                    error_message
+                    error_message,
+                    source_id,
+                    source_url,
+                    artifact_type,
+                    language
                 FROM artifacts
                 WHERE id = ?
                 """,
@@ -128,6 +155,12 @@ class IngestionMetadataStore:
             error_message=(
                 None if row["error_message"] is None else str(row["error_message"])
             ),
+            source_id=None if row["source_id"] is None else str(row["source_id"]),
+            source_url=None if row["source_url"] is None else str(row["source_url"]),
+            artifact_type=(
+                None if row["artifact_type"] is None else str(row["artifact_type"])
+            ),
+            language=None if row["language"] is None else str(row["language"]),
         )
 
     def _upsert_artifact(self, artifact: ArtifactRecord) -> None:
@@ -143,9 +176,13 @@ class IngestionMetadataStore:
                 status,
                 created_at,
                 updated_at,
-                error_message
+                error_message,
+                source_id,
+                source_url,
+                artifact_type,
+                language
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 artifact.id,
@@ -158,5 +195,9 @@ class IngestionMetadataStore:
                 artifact.created_at,
                 artifact.updated_at,
                 artifact.error_message,
+                artifact.source_id,
+                artifact.source_url,
+                artifact.artifact_type,
+                artifact.language,
             ),
         )
