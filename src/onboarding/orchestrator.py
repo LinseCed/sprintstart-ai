@@ -84,7 +84,6 @@ class OnboardingOrchestrator:
                 {
                     "type": "path",
                     "path": path.model_dump(),
-                    "path_yaml": path.to_yaml(),
                     "quality": path.quality.model_dump(),
                 }
             )
