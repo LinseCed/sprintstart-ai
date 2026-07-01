@@ -38,7 +38,12 @@ def parse_sse_events(text: str) -> list[dict[str, Any]]:
 
 @pytest.fixture(autouse=True)
 def clear_dependency_caches() -> None:
-    from api.dependencies import get_llm, get_store
+    from api.dependencies import (
+        get_ingestion_metadata_store,
+        get_llm,
+        get_store,
+    )
 
     get_llm.cache_clear()
     get_store.cache_clear()
+    get_ingestion_metadata_store.cache_clear()

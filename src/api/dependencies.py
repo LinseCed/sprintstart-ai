@@ -5,27 +5,37 @@ from functools import lru_cache
 from fastapi import Depends
 
 from agents.orchestrator import ChatOrchestrator
+from ingestion.metadata_store import IngestionMetadataStore
 from llm.anthropic_client import AnthropicClient
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
 from llm.openai_client import OpenAIClient
 from llm.split_client import SplitLLMClient
+from onboarding.orchestrator import OnboardingOrchestrator
+from rag.hybrid import BM25IndexCache
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
 
 logger = logging.getLogger(__name__)
+
+# Process-wide BM25 index, shared across onboarding requests. The cache rebuilds
+# itself only when the corpus size changes, so requests reuse a warm index
+# instead of re-tokenizing the whole corpus on every call.
+_onboarding_bm25_cache = BM25IndexCache()
 
 
 def _build_client(backend: str) -> LLMClient:
     backend = backend.lower()
 
     if backend in {"ollama", "local"}:
+        num_ctx = os.getenv("OLLAMA_NUM_CTX", "").strip()
         return OllamaClient(
             host=os.getenv("OLLAMA_BASE_URL"),
             model=os.getenv("OLLAMA_MODEL"),
             embed_model=os.getenv("OLLAMA_EMBED_MODEL"),
             vision_model=os.getenv("OLLAMA_VISION_MODEL"),
             temperature=float(os.getenv("OLLAMA_TEMPERATURE", "0.1")),
+            num_ctx=int(num_ctx) if num_ctx else None,
         )
 
     if backend in {"openai", "openai-compatible", "litellm"}:
@@ -72,8 +82,21 @@ def get_store() -> VectorStore:
     return ChromaVectorStore(path=path)
 
 
+@lru_cache
+def get_ingestion_metadata_store() -> IngestionMetadataStore:
+    path = os.getenv("APP_DB_PATH", "").strip() or "data/sprintstart.db"
+    return IngestionMetadataStore(path=path)
+
+
 def get_orchestrator(
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
 ) -> ChatOrchestrator:
     return ChatOrchestrator(llm, store)
+
+
+def get_onboarding_orchestrator(
+    llm: LLMClient = Depends(get_llm),
+    store: VectorStore = Depends(get_store),
+) -> OnboardingOrchestrator:
+    return OnboardingOrchestrator(llm, store, bm25_cache=_onboarding_bm25_cache)

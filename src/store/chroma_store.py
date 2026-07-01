@@ -1,12 +1,30 @@
+from collections.abc import Mapping
 from typing import cast
 
 import chromadb
 import chromadb.api
 from chromadb.api.types import PyEmbeddings
 
+from ingestion.source_role import DEFAULT_SOURCE_ROLE, SourceRole, is_source_role
 from rag.types import Chunk, ScoredChunk, is_chunk_kind
 
 _NO_POSITION: int = -1
+
+
+def _optional_str(metadata: Mapping[str, object], key: str) -> str | None:
+    """Return the metadata value as a non-empty string, or None."""
+    raw = metadata.get(key)
+    return str(raw) if raw else None
+
+
+def _source_role_of(metadata: Mapping[str, object]) -> SourceRole:
+    """Read the source role from chunk metadata.
+
+    Legacy chunks ingested before roles existed have no ``source_role`` key;
+    they default to ``primary`` so existing corpora keep behaving as before.
+    """
+    raw = str(metadata.get("source_role", DEFAULT_SOURCE_ROLE))
+    return raw if is_source_role(raw) else DEFAULT_SOURCE_ROLE
 
 
 class ChromaVectorStore:
@@ -42,11 +60,14 @@ class ChromaVectorStore:
                 {
                     "artifact_id": chunk.artifact_id,
                     "filename": chunk.filename,
-                    "heading_path": chunk.heading_path or "",
                     "position": (
                         chunk.position if chunk.position is not None else _NO_POSITION
                     ),
                     "kind": chunk.kind,
+                    "source_role": chunk.source_role,
+                    "source_url": chunk.source_url or "",
+                    "artifact_type": chunk.artifact_type or "",
+                    "language": chunk.language or "",
                 }
                 for chunk in chunks
             ],
@@ -86,9 +107,6 @@ class ChromaVectorStore:
             if score < min_score:
                 continue
 
-            raw_heading_path = metadata.get("heading_path")
-            heading_path = str(raw_heading_path) if raw_heading_path else None
-
             raw_position = metadata.get("position")
             position = (
                 None
@@ -106,18 +124,25 @@ class ChromaVectorStore:
                     id=str(chunk_id),
                     artifact_id=str(metadata["artifact_id"]),
                     filename=str(metadata["filename"]),
-                    heading_path=heading_path,
                     position=position,
                     kind=kind_str,
                     text=str(text),
                     score=score,
+                    source_role=_source_role_of(metadata),
+                    source_url=_optional_str(metadata, "source_url"),
+                    artifact_type=_optional_str(metadata, "artifact_type"),
+                    language=_optional_str(metadata, "language"),
                 )
             )
 
         results.sort(key=lambda c: c.score, reverse=True)
         return results
 
-    def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> None:
+    def delete(
+        self,
+        artifact_id: str,
+        exclude_ids: list[str] | None = None,
+    ) -> int:
         raw_result = self._collection.get(
             where={"artifact_id": artifact_id},
             include=[],
@@ -126,14 +151,20 @@ class ChromaVectorStore:
         ids = raw_result["ids"]
 
         if exclude_ids:
-            ids = [i for i in ids if i not in exclude_ids]
+            ids = [chunk_id for chunk_id in ids if chunk_id not in exclude_ids]
+
+        deleted_count = len(ids)
 
         if ids:
             self._collection.delete(ids=ids)
 
-    def all_chunks(self) -> list[Chunk]:
+        return deleted_count
+
+    def list_chunks(self, limit: int, offset: int = 0) -> list[Chunk]:
         raw_result = self._collection.get(
             include=["documents", "metadatas", "embeddings"],
+            limit=limit,
+            offset=offset,
         )
 
         ids = raw_result["ids"]
@@ -152,9 +183,6 @@ class ChromaVectorStore:
             embeddings,
             strict=True,
         ):
-            raw_heading_path = metadata.get("heading_path")
-            heading_path = str(raw_heading_path) if raw_heading_path else None
-
             raw_position = metadata.get("position")
             position = (
                 None
@@ -172,15 +200,92 @@ class ChromaVectorStore:
                     id=str(chunk_id),
                     artifact_id=str(metadata["artifact_id"]),
                     filename=str(metadata["filename"]),
-                    heading_path=heading_path,
                     position=position,
                     kind=kind_str,
                     text=str(text),
                     embedding=list(embedding),
+                    source_role=_source_role_of(metadata),
+                    source_url=_optional_str(metadata, "source_url"),
+                    artifact_type=_optional_str(metadata, "artifact_type"),
+                    language=_optional_str(metadata, "language"),
                 )
             )
 
         return chunks
+
+    def list_chunks_by_artifact(
+        self,
+        artifact_id: str,
+        limit: int,
+        offset: int = 0,
+    ) -> list[Chunk]:
+        raw_result = self._collection.get(
+            where={"artifact_id": artifact_id},
+            include=["documents", "metadatas", "embeddings"],
+            limit=limit,
+            offset=offset,
+        )
+
+        ids = raw_result["ids"]
+        documents = raw_result["documents"] or []
+        metadatas = raw_result["metadatas"] or []
+        embeddings = (
+            raw_result["embeddings"] if raw_result["embeddings"] is not None else []
+        )
+
+        chunks: list[Chunk] = []
+
+        for chunk_id, text, metadata, embedding in zip(
+            ids,
+            documents,
+            metadatas,
+            embeddings,
+            strict=True,
+        ):
+            raw_position = metadata.get("position")
+            position = (
+                None
+                if not isinstance(raw_position, (int, float))
+                or raw_position == _NO_POSITION
+                else int(raw_position)
+            )
+
+            kind_str = str(metadata.get("kind", "text"))
+            if not is_chunk_kind(kind_str):
+                raise ValueError(f"Unknown chunk kind {kind_str!r}")
+
+            chunks.append(
+                Chunk(
+                    id=str(chunk_id),
+                    artifact_id=str(metadata["artifact_id"]),
+                    filename=str(metadata["filename"]),
+                    position=position,
+                    kind=kind_str,
+                    text=str(text),
+                    embedding=list(embedding),
+                    source_role=_source_role_of(metadata),
+                    source_url=_optional_str(metadata, "source_url"),
+                    artifact_type=_optional_str(metadata, "artifact_type"),
+                    language=_optional_str(metadata, "language"),
+                )
+            )
+
+        return chunks
+
+    def count_by_artifact(self, artifact_id: str) -> int:
+        raw_result = self._collection.get(
+            where={"artifact_id": artifact_id},
+            include=[],
+        )
+        return len(raw_result["ids"])
+
+    def all_chunks(self) -> list[Chunk]:
+        total = self.count()
+
+        if total == 0:
+            return []
+
+        return self.list_chunks(limit=total, offset=0)
 
     def count(self) -> int:
         return self._collection.count()

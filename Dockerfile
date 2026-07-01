@@ -16,9 +16,9 @@ RUN uv sync --frozen --no-dev
 COPY src ./src
 
 RUN groupadd --gid 1001 appuser && \
-    useradd --uid 1001 --gid 1001 --no-create-home appuser && \
+    useradd --uid 1001 --gid 1001 --create-home appuser && \
     mkdir -p /app/data && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app /home/appuser
 
 USER appuser
 

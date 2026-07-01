@@ -1,6 +1,10 @@
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic.alias_generators import to_camel
+
+if TYPE_CHECKING:
+    from onboarding.models import Blueprint, PersonProfile
 
 
 class IngestRequest(BaseModel):
@@ -33,6 +37,15 @@ class IngestRequest(BaseModel):
             "and chunk_count will be 0."
         )
     )
+    source_role: Literal["primary", "test"] | None = Field(
+        default=None,
+        description=(
+            "Role of this document in the corpus. 'test' marks test code and "
+            "test fixtures/sample data — still searchable, but excluded from "
+            "onboarding grounding. Defaults to auto-detection from the filename."
+        ),
+        examples=["primary"],
+    )
 
     @field_validator("filename")
     @classmethod
@@ -52,21 +65,105 @@ class IngestRequest(BaseModel):
     }
 
 
-class IngestResponse(BaseModel):
-    artifact_id: str
-    chunk_count: int = Field(
-        description=(
-            "Number of chunks stored. "
-            "0 indicates the file was recognised but produced no storable content "
-            "(e.g. an image file when no vision model is configured)."
-        )
+class IngestArtifactResponse(BaseModel):
+    id: str = Field(description="Artifact identifier.")
+    filename: str = Field(description="Original source filename.")
+    content_type: str = Field(description="Detected or inferred content type.")
+    source_type: str = Field(description="Source type, e.g. file, text, or url.")
+    size_bytes: int = Field(description="Size of the ingested content in bytes.")
+    chunk_count: int = Field(description="Number of chunks created for this artifact.")
+    status: str = Field(
+        description="Ingestion status, e.g. processing, completed, or failed."
+    )
+    created_at: str = Field(description="ISO timestamp when ingestion started.")
+    updated_at: str = Field(description="ISO timestamp when ingestion last changed.")
+    error_message: str | None = Field(
+        default=None,
+        description="Failure reason if ingestion failed.",
     )
 
     model_config = {
         "json_schema_extra": {
             "example": {
+                "id": "sprint-42-retro",
+                "filename": "retro.md",
+                "content_type": "text/markdown",
+                "source_type": "file",
+                "size_bytes": 1234,
+                "chunk_count": 2,
+                "status": "completed",
+                "created_at": "2026-06-21T12:00:00+00:00",
+                "updated_at": "2026-06-21T12:00:01+00:00",
+                "error_message": None,
+            }
+        }
+    }
+
+
+class IngestChunkResponse(BaseModel):
+    id: str = Field(description="Chunk identifier.")
+    artifact_id: str = Field(description="Artifact this chunk belongs to.")
+    filename: str = Field(description="Original source filename.")
+    text: str = Field(description="Stored chunk text.")
+    chunk_index: int = Field(description="Position of this chunk within the artifact.")
+    vector_store_id: str = Field(description="Identifier used in the vector store.")
+    kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "id": "chunk-1",
                 "artifact_id": "sprint-42-retro",
-                "chunk_count": 4,
+                "filename": "retro.md",
+                "text": "Good collaboration and faster CI feedback...",
+                "chunk_index": 0,
+                "vector_store_id": "chunk-1",
+                "kind": "text",
+            }
+        }
+    }
+
+
+class IngestResponse(BaseModel):
+    artifact_id: str = Field(description="Created or updated artifact identifier.")
+    chunk_count: int = Field(
+        description=(
+            "Number of chunks stored. 0 indicates the file was recognised "
+            "but produced no storable content, e.g. an image file when "
+            "no vision model is configured."
+        )
+    )
+    artifact: IngestArtifactResponse
+    chunks: list[IngestChunkResponse]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "artifact_id": "sprint-42-retro",
+                "chunk_count": 2,
+                "artifact": {
+                    "id": "sprint-42-retro",
+                    "filename": "retro.md",
+                    "content_type": "text/markdown",
+                    "source_type": "file",
+                    "size_bytes": 1234,
+                    "chunk_count": 2,
+                    "status": "completed",
+                    "created_at": "2026-06-21T12:00:00+00:00",
+                    "updated_at": "2026-06-21T12:00:01+00:00",
+                    "error_message": None,
+                },
+                "chunks": [
+                    {
+                        "id": "chunk-1",
+                        "artifact_id": "sprint-42-retro",
+                        "filename": "retro.md",
+                        "text": "Good collaboration and faster CI feedback...",
+                        "chunk_index": 0,
+                        "vector_store_id": "chunk-1",
+                        "kind": "text",
+                    }
+                ],
             }
         }
     }
@@ -128,17 +225,6 @@ class HealthResponse(BaseModel):
 
 
 class TitleRequest(BaseModel):
-    """
-    Request model for generating a title from a user prompt.
-
-    Args:
-        prompt: Input prompt used for title generation.
-        max_length: Maximum allowed length of the generated title.
-
-    Raises:
-        ValueError: If prompt is empty or contains only whitespace.
-    """
-
     prompt: Annotated[
         str,
         Field(
@@ -164,32 +250,13 @@ class TitleRequest(BaseModel):
     @field_validator("prompt")
     @classmethod
     def prompt_not_blank(cls, value: str) -> str:
-        """
-        Validate that the prompt is not blank.
-
-        Args:
-            value: Prompt string to validate.
-
-        Raises:
-            ValueError: If the prompt is empty or only whitespace.
-
-        Returns:
-            str: Validated prompt string.
-        """
         if not value.strip():
             raise ValueError("prompt cannot be blank")
         return value
 
 
 class TitleResponse(BaseModel):
-    """
-    Response model containing the generated title.
-
-    Args:
-        title: Generated title based on the provided prompt.
-    """
-
-    title: str = Field(description="From the prompt generated title.")
+    title: str = Field(description="Generated title based on the provided prompt.")
 
     model_config = {
         "json_schema_extra": {"example": {"title": "REST vs GraphQL: key differences"}}
@@ -198,6 +265,89 @@ class TitleResponse(BaseModel):
 
 class ValidationErrorResponse(BaseModel):
     detail: str
+
+
+class VectorDbChunkResponse(BaseModel):
+    id: str = Field(description="Chunk identifier.")
+    artifact_id: str = Field(description="Artifact/document this chunk belongs to.")
+    filename: str = Field(description="Original source filename.")
+    text: str = Field(description="Stored chunk text.")
+    position: int | None = Field(
+        default=None,
+        description="Optional chunk position within the source artifact.",
+    )
+    kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "id": "chunk-1",
+                "artifact_id": "artifact-123",
+                "filename": "notes.md",
+                "text": "Stored chunk text...",
+                "position": 0,
+                "kind": "text",
+            }
+        }
+    }
+
+
+class VectorDbScoredChunkResponse(VectorDbChunkResponse):
+    score: float = Field(description="Similarity score returned by vector search.")
+
+
+class VectorDbChunkListResponse(BaseModel):
+    items: list[VectorDbChunkResponse]
+    limit: int
+    offset: int
+    total: int
+
+
+class VectorDbStatusResponse(BaseModel):
+    backend: str = Field(description="Configured vector store backend.")
+    chunk_count: int = Field(description="Number of chunks currently stored.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "backend": "chroma",
+                "chunk_count": 128,
+            }
+        }
+    }
+
+
+class VectorDbSearchRequest(BaseModel):
+    query: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="Query text to embed and search in the vector database.",
+            examples=["Where is OLLAMA_EMBED_MODEL configured?"],
+        ),
+    ]
+    top_k: Annotated[
+        int,
+        Field(ge=1, le=50, description="Maximum number of chunks to return."),
+    ] = 5
+    min_score: Annotated[
+        float,
+        Field(ge=0.0, description="Minimum similarity score to include."),
+    ] = 0.0
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "query": "Where is OLLAMA_EMBED_MODEL configured?",
+                "top_k": 5,
+                "min_score": 0.0,
+            }
+        }
+    }
+
+
+class VectorDbSearchResponse(BaseModel):
+    items: list[VectorDbScoredChunkResponse]
 
 
 class TokenEvent(BaseModel):
@@ -211,13 +361,6 @@ class CitationEvent(BaseModel):
     type: Literal["citation"]
     chunk_id: str
     filename: str
-    section_path: Annotated[
-        str | None,
-        Field(
-            description='Heading breadcrumb, e.g. "Retro > Blockers". '
-            "Null if not available."
-        ),
-    ] = None
 
 
 class ToolUseEvent(BaseModel):
@@ -246,3 +389,217 @@ class DoneEvent(BaseModel):
 class ErrorEvent(BaseModel):
     type: Literal["error"]
     message: str
+
+
+class BlueprintStepSchema(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    requirement: str = "recommended"
+    audience: list[str] = Field(default_factory=list)
+    min_experience: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    invariant: bool = False
+
+
+class BlueprintProvenanceSchema(BaseModel):
+    corpus_fingerprint: str | None = None
+    generated_at: str | None = None
+    model: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class BlueprintSchema(BaseModel):
+    scope: str
+    version: str = "0"
+    source: str = "authored"
+    steps: list[BlueprintStepSchema] = []
+    # Carried so the backend can round-trip it: ``corpus_fingerprint`` is what
+    # lets a re-generation against an unchanged corpus short-circuit.
+    provenance: BlueprintProvenanceSchema | None = None
+
+    def to_model(self) -> "Blueprint":
+        """Convert the wire schema into the internal Blueprint model."""
+        from onboarding.models import Blueprint, BlueprintProvenance, BlueprintStep
+
+        return Blueprint(
+            scope=self.scope,
+            version=self.version,
+            source=self.source,  # type: ignore[arg-type]
+            steps=[
+                BlueprintStep(
+                    id=s.id,
+                    title=s.title,
+                    description=s.description,
+                    requirement=s.requirement,  # type: ignore[arg-type]
+                    audience=s.audience,
+                    min_experience=s.min_experience,
+                    tags=s.tags,
+                    invariant=s.invariant,
+                )
+                for s in self.steps
+            ],
+            provenance=(
+                BlueprintProvenance(**self.provenance.model_dump())
+                if self.provenance is not None
+                else None
+            ),
+        )
+
+
+class SkillAssessmentSchema(BaseModel):
+    name: Annotated[
+        str,
+        Field(min_length=1, description="Skill tag, e.g. kotlin.", examples=["kotlin"]),
+    ]
+    level: Annotated[
+        str,
+        Field(
+            default="beginner",
+            description=(
+                "Proficiency level: beginner, intermediate, advanced, expert. "
+                "Case-insensitive; unknown values are handled gracefully."
+            ),
+            examples=["advanced"],
+        ),
+    ] = "beginner"
+
+
+class OnboardingPathRequest(BaseModel):
+    working_area: Annotated[
+        str,
+        Field(
+            min_length=1,
+            description="The person's working area, e.g. backend, frontend, devops.",
+            examples=["backend"],
+        ),
+    ]
+    skills: list[SkillAssessmentSchema] = Field(
+        default_factory=list[SkillAssessmentSchema],
+        description=(
+            "Optional leveled skills ({name, level}); the backend supplies the "
+            "user's skill assessments so proficiency drives personalization."
+        ),
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Optional free-form tags used for step targeting.",
+    )
+    blueprints: list[BlueprintSchema] = Field(
+        description=(
+            "Active blueprints provided by the backend. The AI service is "
+            "stateless — the backend owns blueprint persistence and must supply "
+            "these on every request."
+        ),
+    )
+
+    def to_profile(self) -> "PersonProfile":
+        from onboarding.models import PersonProfile, SkillAssessment
+
+        return PersonProfile(
+            working_area=self.working_area,
+            skills=[SkillAssessment(name=s.name, level=s.level) for s in self.skills],
+            tags=self.tags,
+        )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "working_area": "backend",
+                "skills": [{"name": "kotlin", "level": "advanced"}],
+                "tags": [],
+                "blueprints": [
+                    {
+                        "scope": "global",
+                        "version": "3",
+                        "source": "generated",
+                        "steps": [
+                            {
+                                "id": "step-abc123",
+                                "title": "Set up development environment",
+                                "description": "Install prerequisites",
+                                "requirement": "required",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    }
+
+
+class GenerateBlueprintsRequest(BaseModel):
+    scopes: list[str] | None = Field(
+        default=None,
+        description=(
+            "Scopes to (re)generate, e.g. ['global', 'area:backend', 'area:frontend']. "
+            "Omit to refresh 'global' plus any active blueprint scopes."
+        ),
+    )
+    active: list[BlueprintSchema] = Field(
+        default=[],
+        description=(
+            "The backend's currently-active blueprints. The AI service is "
+            "stateless, so these drive idempotency and version numbering — pass "
+            "them on every request."
+        ),
+    )
+
+
+class StageEvent(BaseModel):
+    type: Literal["stage"]
+    name: Annotated[
+        str,
+        Field(
+            description="The pipeline stage that just started.",
+            examples=["retrieve"],
+        ),
+    ]
+
+
+class PathEvent(BaseModel):
+    type: Literal["path"]
+    path: dict[str, object] = Field(
+        description="The structured onboarding path (OnboardingPath model)."
+    )
+    path_yaml: str = Field(description="The onboarding path serialized to YAML.")
+    quality: dict[str, object] = Field(
+        description="The deterministic quality report for the path."
+    )
+
+
+# ── GitHub run batch ingest ───────────────────────────────────────────────────
+
+
+class ArtifactRunIngestRequest(BaseModel):
+    """One artifact from a completed GitHub ingestion run."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    artifact_id: str
+    source_system: str
+    source_id: str
+    source_url: str | None = None
+    artifact_type: str
+    title: str | None = None
+    body_text: str | None = None
+    mime: str | None = None
+    language: str | None = None
+
+
+class RunArtifactsSyncRequest(BaseModel):
+    """Batch payload sent by the backend after a GitHub ingestion run completes."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    artifacts_to_ingest: list[ArtifactRunIngestRequest]
+    artifacts_to_deindex: list[str]
+
+
+class ArtifactRunIngestResponse(BaseModel):
+    artifact_id: str
+    chunk_count: int
+
+
+class RunArtifactsSyncResponse(BaseModel):
+    artifacts: list[ArtifactRunIngestResponse]

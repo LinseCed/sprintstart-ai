@@ -3,19 +3,14 @@ from pathlib import Path
 
 from ingestion.code_parser import parse_code
 from ingestion.image_parser import parse_image
+from ingestion.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
 from ingestion.models import ParsedChunk
 from ingestion.pdf_parser import parse_pdf
 from ingestion.text_parser import parse_text
 
 logger = logging.getLogger(__name__)
 
-# TODO: discuss what to add
-CODE_EXTENSIONS = {
-    ".py",
-    ".js",
-    ".ts",
-    ".go",
-}
+CODE_EXTENSIONS = set(TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES.keys())
 
 PDF_EXTENSION = {".pdf"}
 
@@ -29,13 +24,13 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
     to the appropriate parser implementation.
 
     Supported file types:
-    - Source code files (.py, .js, .ts, .go) -> parsed into code chunks
-    - Text-based files (.txt, .json, .md) -> single text chunk
+    - Source code files (see ``CODE_EXTENSIONS``) -> parsed into code chunks
     - PDF files (.pdf) -> extracted text chunk
     - Image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) -> image chunk
+    - Any other extension (.txt, .json, .md, ...) -> single plain-text chunk
 
-    Unsupported file types return an empty list and log a warning
-    instead of raising an exception.
+    There is no "unsupported" type: an unknown extension falls back to the
+    plain-text parser rather than raising.
 
     Args:
         filename (str):  Name of the uploaded file including extension.
@@ -43,7 +38,6 @@ def parse(filename: str, content: bytes) -> list[ParsedChunk]:
 
     Returns:
         list[ParsedChunk]: A list of ParsedChunk objects extracted from the file.
-                           Returns an empty list if the file type is unsupported.
     """
 
     # dispatcher organizes wich parser to use

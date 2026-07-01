@@ -17,7 +17,18 @@ class VectorStore(Protocol):
         self,
         artifact_id: str,
         exclude_ids: list[str] | None = None,
-    ) -> None: ...
+    ) -> int: ...
+
+    def list_chunks(self, limit: int, offset: int = 0) -> list[Chunk]: ...
+
+    def list_chunks_by_artifact(
+        self,
+        artifact_id: str,
+        limit: int,
+        offset: int = 0,
+    ) -> list[Chunk]: ...
+
+    def count_by_artifact(self, artifact_id: str) -> int: ...
 
     def all_chunks(self) -> list[Chunk]: ...
 

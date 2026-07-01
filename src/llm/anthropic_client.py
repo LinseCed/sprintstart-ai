@@ -121,6 +121,10 @@ class AnthropicClient(LLMClient):
         self.max_tokens = max_tokens
         self.client = Anthropic(api_key=api_key, base_url=base_url)
 
+    @property
+    def model_name(self) -> str | None:
+        return self.chat_model
+
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
     ) -> ChatResult:

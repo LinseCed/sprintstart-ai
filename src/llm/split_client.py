@@ -8,6 +8,10 @@ class SplitLLMClient(LLMClient):
         self._chat = chat
         self._embed = embed
 
+    @property
+    def model_name(self) -> str | None:
+        return self._chat.model_name
+
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
     ) -> ChatResult:

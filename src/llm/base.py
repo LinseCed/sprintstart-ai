@@ -31,6 +31,11 @@ class ChatResult:
 
 
 class LLMClient(Protocol):
+    @property
+    def model_name(self) -> str | None:
+        """Identifier of the chat model, for provenance/audit; ``None`` if N/A."""
+        ...
+
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
     ) -> ChatResult: ...

@@ -1,5 +1,4 @@
 import base64
-import imghdr
 import json
 from collections.abc import Iterator
 from typing import Any, cast
@@ -101,15 +100,31 @@ def _to_openai_messages(messages: list[Message]) -> list[ChatCompletionMessagePa
 
 
 def _detect_image_mime_type(image_bytes: bytes) -> str:
-    image_type = imghdr.what(None, image_bytes)
+    image_type = _sniff_image_type(image_bytes)
 
     if image_type is None:
         raise LLMUnavailableError("Could not detect image MIME type")
 
-    if image_type == "jpg":
-        image_type = "jpeg"
-
     return f"image/{image_type}"
+
+
+def _sniff_image_type(image_bytes: bytes) -> str | None:
+    """Detect an image format from its magic bytes.
+
+    Replaces the deprecated stdlib ``imghdr`` (removed in Python 3.13). Covers
+    the formats accepted by the ingest API (png, jpeg, gif, webp, bmp).
+    """
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if image_bytes.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "webp"
+    if image_bytes.startswith(b"BM"):
+        return "bmp"
+    return None
 
 
 class OpenAIClient(LLMClient):
@@ -132,6 +147,10 @@ class OpenAIClient(LLMClient):
             api_key=api_key,
             http_client=http_client,
         )
+
+    @property
+    def model_name(self) -> str | None:
+        return self.chat_model
 
     def chat(
         self, messages: list[Message], tools: list[ToolSpec] | None = None
