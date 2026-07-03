@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator, Iterator
 from typing import Any
 
@@ -31,6 +32,12 @@ def client() -> Generator[tuple[TestClient, StubLLMClient, StubVectorStore], Any
 def real_client() -> Generator[TestClient, Any, None]:
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+def _parse_events(text: str) -> list[dict[str, object]]:
+    return [
+        json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")
+    ]
 
 
 def test_chat_streams_tokens_and_done(
@@ -183,3 +190,106 @@ def test_chat_with_real_llm(real_client: TestClient) -> None:
     types = [e["type"] for e in events]
     assert "token" in types
     assert types[-1] == "done"
+
+
+def test_chat_with_filter_no_matching_chunks_returns_fallback(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, store = client
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="Docs text",
+                embedding=[1.0] + [0.0] * 767,
+                source_type="docs",
+            )
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={
+            "question": "What changed in code?",
+            "min_score": 0.0,
+            "filters": {"source_type": "code"},
+        },
+    )
+
+    assert response.status_code == 200
+
+    events = _parse_events(response.text)
+    assert events[0]["type"] == "token"
+    assert "could not find any matching sources" in events[0]["content"]
+    assert events[-1]["type"] == "done"
+
+
+def test_chat_with_source_filter_uses_matching_chunks(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, store = client
+
+    embedding = [1.0] + [0.0] * 767
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="Docs text",
+                embedding=embedding,
+                source_type="docs",
+            ),
+            Chunk(
+                id="chunk-code",
+                artifact_id="artifact-code",
+                filename="app.py",
+                text="Code text",
+                embedding=embedding,
+                source_type="code",
+                kind="code",
+            ),
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={
+            "question": "What changed in code?",
+            "min_score": 0.0,
+            "filters": {"source_type": "code"},
+        },
+    )
+
+    assert response.status_code == 200
+
+    events = _parse_events(response.text)
+    citation_events = [event for event in events if event["type"] == "citation"]
+
+    assert len(citation_events) == 1
+    assert citation_events[0]["chunk_id"] == "chunk-code"
+
+
+def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, _ = client
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={"question": "What changed?"},
+    )
+
+    assert response.status_code == 200
+
+    events = _parse_events(response.text)
+    citation_events = [event for event in events if event["type"] == "citation"]
+
+    assert events[0]["type"] == "token"
+    assert "could not find relevant sources" in events[0]["content"]
+    assert citation_events == []
+    assert events[-1]["type"] == "done"

@@ -145,11 +145,13 @@ def _ingest_one(
                     artifact.artifact_id,
                     llm.embed(chunk.content),
                     source_role=source_role,
+                    source_url=artifact.source_url,
+                    artifact_type=artifact.artifact_type,
+                    language=artifact.language,
+                    source_created_at=artifact.source_created_at,
+                    source_updated_at=artifact.source_updated_at,
                 ),
                 position=index,
-                source_url=artifact.source_url,
-                artifact_type=artifact.artifact_type,
-                language=artifact.language,
             )
             for index, chunk in enumerate(parsed_chunks)
         ]

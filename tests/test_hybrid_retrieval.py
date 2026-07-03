@@ -1,9 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 from src.rag.hybrid import (
     BM25IndexCache,
     hybrid_retrieve,
     reciprocal_rank_fusion,
 )
-from src.rag.types import Chunk, ScoredChunk
+from src.rag.types import Chunk, RetrievalFilters, ScoredChunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -194,3 +196,59 @@ def test_exclude_roles_in_semantic_only_fallback() -> None:
     )
 
     assert {chunk.id for chunk in result} == {"primary"}
+
+
+def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
+    recent_date = datetime.now(UTC).isoformat()
+    old_date = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                source_type="docs",
+                created_at=recent_date,
+            ),
+            Chunk(
+                id="chunk-old-code",
+                artifact_id="artifact-old-code",
+                filename="old.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_type="code",
+                created_at=old_date,
+            ),
+            Chunk(
+                id="chunk-recent-code",
+                artifact_id="artifact-recent-code",
+                filename="app.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_type="code",
+                created_at=recent_date,
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="database setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=BM25IndexCache(),
+        filters=RetrievalFilters(
+            source_type="code",
+            time_range="last_6_months",
+        ),
+    )
+
+    assert [chunk.id for chunk in result] == ["chunk-recent-code"]

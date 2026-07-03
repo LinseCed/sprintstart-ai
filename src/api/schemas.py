@@ -183,9 +183,49 @@ class HistoryEntry(BaseModel):
     }
 
 
+class ChatFilters(BaseModel):
+    source_type: Literal["docs", "code", "tickets"] | None = Field(
+        default=None,
+        description="Restrict retrieval to docs, code, or tickets.",
+        examples=["code"],
+    )
+    time_range: Literal["latest", "last_6_months"] | None = Field(
+        default=None,
+        description=(
+            "Restrict retrieval to recently indexed chunks. "
+            "'latest' means the last 30 days; 'last_6_months' means the last 183 days."
+        ),
+        examples=["last_6_months"],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "source_type": "code",
+                "time_range": "last_6_months",
+            }
+        }
+    }
+
+
 class ChatRequest(BaseModel):
-    prompt: str = Field(examples=["What were the main blockers in sprint 42?"])
-    context: Annotated[
+    question: str = Field(examples=["What were the main blockers in sprint 42?"])
+    top_k: Annotated[
+        int, Field(ge=1, le=20, description="Maximum number of chunks to retrieve.")
+    ] = 5
+    min_score: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            description="Minimum cosine similarity score for a chunk to be included.",
+        ),
+    ] = 0.7
+    filters: ChatFilters | None = Field(
+        default=None,
+        description="Optional source-type and time-range filters for retrieval.",
+    )
+    history: Annotated[
         list[HistoryEntry],
         Field(
             description=(
@@ -200,18 +240,21 @@ class ChatRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "prompt": "Can you summarize that?",
-                "context": [
+                "question": "Can you summarize the recent code changes?",
+                "top_k": 5,
+                "min_score": 0.7,
+                "filters": {
+                    "source_type": "code",
+                    "time_range": "last_6_months",
+                },
+                "history": [
                     {
                         "role": "user",
-                        "content": "What were the main blockers in sprint 42?",
+                        "content": "What changed recently?",
                     },
                     {
                         "role": "assistant",
-                        "content": (
-                            "The main blockers were missing designs "
-                            "and a flaky CI pipeline."
-                        ),
+                        "content": "The recent changes touched retrieval.",
                     },
                 ],
             }
@@ -585,6 +628,17 @@ class ArtifactRunIngestRequest(BaseModel):
     body_text: str | None = None
     mime: str | None = None
     language: str | None = None
+
+    source_created_at: str | None = Field(
+        default=None,
+        alias="sourceCreatedAt",
+        description="Original source creation timestamp, if known.",
+    )
+    source_updated_at: str | None = Field(
+        default=None,
+        alias="sourceUpdatedAt",
+        description="Original source update timestamp, if known.",
+    )
 
 
 class RunArtifactsSyncRequest(BaseModel):

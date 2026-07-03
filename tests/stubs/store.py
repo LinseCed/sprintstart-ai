@@ -1,4 +1,4 @@
-from rag.types import Chunk, ScoredChunk
+from rag.types import Chunk, RetrievalFilters, ScoredChunk
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -10,6 +10,16 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
         return 0.0
 
     return dot / (norm_a * norm_b)
+
+
+def _matches_filters(chunk: Chunk, filters: RetrievalFilters | None) -> bool:
+    if filters is None:
+        return True
+
+    if filters.source_type is not None and chunk.source_role != filters.source_type:
+        return False
+
+    return True
 
 
 class StubVectorStore:
@@ -25,6 +35,7 @@ class StubVectorStore:
         embedding: list[float],
         top_k: int,
         min_score: float,
+        filters: RetrievalFilters | None = None,
     ) -> list[ScoredChunk]:
         scored = [
             ScoredChunk(
@@ -41,6 +52,7 @@ class StubVectorStore:
                 language=chunk.language,
             )
             for chunk in self.chunks
+            if _matches_filters(chunk, filters)
         ]
 
         return [
