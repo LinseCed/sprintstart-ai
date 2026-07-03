@@ -212,7 +212,13 @@ def _chunks_from_get_result(raw_result: Any) -> list[Chunk]:
     ids = cast(list[str], raw_result["ids"])
     documents = cast(list[str], raw_result.get("documents") or [])
     metadatas = cast(list[Mapping[str, object]], raw_result.get("metadatas") or [])
-    embeddings = cast(list[list[float]], raw_result.get("embeddings") or [])
+    raw_embeddings = raw_result.get("embeddings")
+    if raw_embeddings is None:
+        embeddings: list[list[float]] = []
+    elif hasattr(raw_embeddings, "tolist"):
+        embeddings = cast(list[list[float]], raw_embeddings.tolist())
+    else:
+        embeddings = cast(list[list[float]], raw_embeddings)
 
     chunks: list[Chunk] = []
 

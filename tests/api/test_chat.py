@@ -60,12 +60,27 @@ def test_chat_streams_tokens_and_done(
 def test_chat_token_event_contains_llm_response(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
-    http_client, llm, _ = client
+    http_client, llm, store = client
     llm.generate_response = "Missing designs and flaky CI."
+
+    embedding = [1.0] + [0.0] * 767
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="doc-1",
+                filename="retro.md",
+                text="Missing designs and flaky CI.",
+                embedding=embedding,
+            )
+        ]
+    )
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"prompt": "What were the blockers?"},
+        json={"prompt": "What were the blockers?", "min_score": 0.0},
     )
 
     token_events = [e for e in parse_sse_events(response.text) if e["type"] == "token"]
@@ -159,17 +174,34 @@ def test_chat_missing_question_returns_422(
 def test_chat_llm_unavailable_emits_error_event(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
-    http_client, _, _ = client
+    http_client, _, store = client
+
+    embedding = [1.0] + [0.0] * 767
 
     class StreamFailingLLM(StubLLMClient):
+        def __init__(self) -> None:
+            super().__init__(embedding=embedding)
+
         def stream(self, messages: list[Message]) -> Iterator[str]:
             raise LLMUnavailableError("http://localhost:11434")
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="doc-1",
+                filename="retro.md",
+                text="Missing designs blocked the auth feature.",
+                embedding=embedding,
+            )
+        ]
+    )
 
     app.dependency_overrides[get_llm] = lambda: StreamFailingLLM()
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"prompt": "What were the blockers?"},
+        json={"prompt": "What were the blockers?", "min_score": 0.0},
     )
 
     assert response.status_code == 200
@@ -223,7 +255,9 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
 
     events = _parse_events(response.text)
     assert events[0]["type"] == "token"
-    assert "could not find any matching sources" in events[0]["content"]
+    content = events[0]["content"]
+    assert isinstance(content, str)
+    assert "could not find any matching sources" in content
     assert events[-1]["type"] == "done"
 
 
@@ -290,6 +324,8 @@ def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
     citation_events = [event for event in events if event["type"] == "citation"]
 
     assert events[0]["type"] == "token"
-    assert "could not find relevant sources" in events[0]["content"]
+    content = events[0]["content"]
+    assert isinstance(content, str)
+    assert "could not find any matching sources" in content
     assert citation_events == []
     assert events[-1]["type"] == "done"

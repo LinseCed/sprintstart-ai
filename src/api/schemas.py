@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
@@ -260,6 +260,26 @@ class ChatRequest(BaseModel):
             }
         }
     }
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_chat_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        raw_data = cast(dict[object, object], data)
+        updated: dict[str, object] = {}
+
+        for key, value in raw_data.items():
+            updated[str(key)] = value
+
+        if "question" not in updated and "prompt" in updated:
+            updated["question"] = updated["prompt"]
+
+        if "history" not in updated and "context" in updated:
+            updated["history"] = updated["context"]
+
+        return updated
 
 
 class HealthResponse(BaseModel):
