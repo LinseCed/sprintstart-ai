@@ -258,7 +258,7 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
     assert events[0]["type"] == "token"
     content = events[0]["content"]
     assert isinstance(content, str)
-    assert "could not find relevant sources" in content
+    assert "could not find any matching sources" in content
     assert events[-1]["type"] == "done"
 
 

@@ -5,6 +5,7 @@ from collections.abc import Iterator, Mapping
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from agents.orchestrator import ChatOrchestrator
 from api.dependencies import get_llm, get_store
 from api.schemas import ChatRequest, ValidationErrorResponse
 from llm.base import LLMClient, Message
@@ -122,6 +123,7 @@ def chat(
     def event_stream() -> Iterator[str]:
         try:
             filters = _retrieval_filters_from_request(body)
+
             chunks = retrieve(
                 body.question,
                 llm,
@@ -140,6 +142,13 @@ def chat(
                 )
                 yield _sse_event({"type": "token", "content": message})
                 yield _sse_event({"type": "done"})
+                return
+
+            if filters is None:
+                yield from ChatOrchestrator(llm, store).stream(
+                    body.question,
+                    body.history,
+                )
                 return
 
             history: list[Message] = [
