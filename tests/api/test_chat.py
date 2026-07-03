@@ -60,11 +60,12 @@ def test_chat_streams_tokens_and_done(
 def test_chat_token_event_contains_llm_response(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
-    http_client, llm, store = client
-    llm.generate_response = "Missing designs and flaky CI."
+    http_client, _, store = client
 
     embedding = [1.0] + [0.0] * 767
-    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
+    filtered_llm = StubLLMClient(embedding=embedding)
+    filtered_llm.generate_response = "Missing designs and flaky CI."
+    app.dependency_overrides[get_llm] = lambda: filtered_llm
 
     store.add(
         [
@@ -253,11 +254,11 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
 
     assert response.status_code == 200
 
-    events = _parse_events(response.text)
+    events = parse_sse_events(response.text)
     assert events[0]["type"] == "token"
     content = events[0]["content"]
     assert isinstance(content, str)
-    assert "could not find any matching sources" in content
+    assert "could not find relevant sources" in content
     assert events[-1]["type"] == "done"
 
 
@@ -326,6 +327,6 @@ def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
     assert events[0]["type"] == "token"
     content = events[0]["content"]
     assert isinstance(content, str)
-    assert "could not find any matching sources" in content
+    assert "could not find relevant sources" in content
     assert citation_events == []
     assert events[-1]["type"] == "done"
