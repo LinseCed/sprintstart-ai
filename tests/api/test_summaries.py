@@ -82,7 +82,7 @@ def test_summary_returns_key_points_and_citation(
     ]
 
 
-def test_summary_without_source_url_returns_backend_artifact_link(
+def test_summary_without_source_url_returns_backend_chunk_link(
     client: tuple[TestClient, CapturingLLM, StubVectorStore],
 ) -> None:
     http_client, _, store = client
@@ -105,7 +105,7 @@ def test_summary_without_source_url_returns_backend_artifact_link(
     body = response.json()
 
     assert body["citations"][0]["source_url"] == (
-        "/api/v1/artifacts/artifact-1/summary"
+        "/api/v1/vector-db/artifacts/artifact-1/chunks"
     )
 
 
