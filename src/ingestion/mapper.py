@@ -1,8 +1,14 @@
-import uuid
+import hashlib
 
 from ingestion.models import ParsedChunk
 from ingestion.source_role import SourceRole
-from rag.types import Chunk, SourceType, is_source_type
+from rag.filters import normalize_source_system
+from rag.types import Chunk, SourceSystem
+
+
+def _deterministic_id(artifact_id: str, content: str, position: int) -> str:
+    digest = hashlib.sha256(f"{artifact_id}:{position}:{content}".encode()).hexdigest()
+    return f"chunk-{digest}"
 
 
 def _optional_str(value: object) -> str | None:
@@ -10,40 +16,6 @@ def _optional_str(value: object) -> str | None:
         return None
 
     return str(value)
-
-
-def _source_type_for(
-    parsed: ParsedChunk,
-    artifact_type: str | None,
-    language: str | None,
-    source_type: SourceType | None,
-) -> SourceType:
-    if source_type is not None:
-        return source_type
-
-    raw_source_type = parsed.metadata.get("source_type")
-    if raw_source_type is not None:
-        parsed_source_type = str(raw_source_type)
-        if is_source_type(parsed_source_type):
-            return parsed_source_type
-
-    artifact_type_value = (
-        artifact_type or _optional_str(parsed.metadata.get("artifact_type")) or ""
-    ).upper()
-
-    language_value = language or _optional_str(parsed.metadata.get("language"))
-    filename = str(parsed.metadata.get("filename", "")).lower()
-
-    if parsed.kind == "code" or language_value:
-        return "code"
-
-    if artifact_type_value in {"ISSUE", "TICKET", "PULL_REQUEST"}:
-        return "tickets"
-
-    if "ticket" in filename or "issue" in filename:
-        return "tickets"
-
-    return "docs"
 
 
 def _source_timestamp_for(
@@ -72,35 +44,32 @@ def to_chunk(
     language: str | None = None,
     source_created_at: str | None = None,
     source_updated_at: str | None = None,
-    source_type: SourceType | None = None,
+    source_system: SourceSystem | str | None = None,
 ) -> Chunk:
-    effective_source_url = source_url or _optional_str(
-        parsed.metadata.get("source_url")
+    position = int(parsed.metadata.get("chunk_index", "0"))
+    effective_source_system = normalize_source_system(
+        str(source_system) if source_system is not None else None
     )
-    effective_artifact_type = artifact_type or _optional_str(
-        parsed.metadata.get("artifact_type")
-    )
-    effective_language = language or _optional_str(parsed.metadata.get("language"))
+
+    if effective_source_system is None:
+        effective_source_system = normalize_source_system(
+            _optional_str(parsed.metadata.get("source_system"))
+        )
 
     return Chunk(
-        id=str(uuid.uuid4()),
+        id=_deterministic_id(artifact_id, parsed.content, position),
         artifact_id=artifact_id,
         filename=str(parsed.metadata["filename"]),
         text=parsed.content,
         embedding=embedding,
         kind=parsed.kind,
-        position=int(parsed.metadata.get("chunk_index", "0")),
-        heading_path=None,
+        position=position,
         source_role=source_role,
-        source_url=effective_source_url,
-        artifact_type=effective_artifact_type,
-        language=effective_language,
-        source_type=_source_type_for(
-            parsed,
-            artifact_type=effective_artifact_type,
-            language=effective_language,
-            source_type=source_type,
-        ),
+        source_url=source_url or _optional_str(parsed.metadata.get("source_url")),
+        artifact_type=artifact_type
+        or _optional_str(parsed.metadata.get("artifact_type")),
+        language=language or _optional_str(parsed.metadata.get("language")),
+        source_system=effective_source_system,
         created_at=_source_timestamp_for(
             parsed,
             source_created_at=source_created_at,

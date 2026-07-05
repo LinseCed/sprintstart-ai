@@ -7,17 +7,11 @@ from chromadb.api.types import PyEmbeddings
 
 from ingestion.source_role import SourceRole
 from rag.filters import (
-    source_type_for_chunk,
+    normalize_source_system,
     timestamp_from_iso,
     where_filter_for_chroma,
 )
-from rag.types import (
-    Chunk,
-    RetrievalFilters,
-    ScoredChunk,
-    is_chunk_kind,
-    is_source_type,
-)
+from rag.types import Chunk, RetrievalFilters, ScoredChunk, is_chunk_kind
 
 _NO_POSITION: int = -1
 
@@ -55,7 +49,6 @@ class ChromaVectorStore:
                 {
                     "artifact_id": chunk.artifact_id,
                     "filename": chunk.filename,
-                    "heading_path": chunk.heading_path or "",
                     "position": (
                         chunk.position if chunk.position is not None else _NO_POSITION
                     ),
@@ -64,7 +57,7 @@ class ChromaVectorStore:
                     "source_url": chunk.source_url or "",
                     "artifact_type": chunk.artifact_type or "",
                     "language": chunk.language or "",
-                    "source_type": source_type_for_chunk(chunk),
+                    "source_system": chunk.source_system or "",
                     "created_at": chunk.created_at or "",
                     "created_at_ts": timestamp_from_iso(chunk.created_at),
                 }
@@ -113,9 +106,6 @@ class ChromaVectorStore:
             if score < min_score:
                 continue
 
-            raw_heading_path = metadata.get("heading_path")
-            heading_path = str(raw_heading_path) if raw_heading_path else None
-
             raw_position = metadata.get("position")
             position = (
                 None
@@ -128,15 +118,15 @@ class ChromaVectorStore:
             if not is_chunk_kind(kind_str):
                 raise ValueError(f"Unknown chunk kind {kind_str!r}")
 
-            source_type_str = str(metadata.get("source_type", "docs"))
-            source_type = source_type_str if is_source_type(source_type_str) else None
+            source_system = normalize_source_system(
+                _optional_str(metadata.get("source_system"))
+            )
 
             results.append(
                 ScoredChunk(
                     id=str(chunk_id),
                     artifact_id=str(metadata["artifact_id"]),
                     filename=str(metadata["filename"]),
-                    heading_path=heading_path,
                     position=position,
                     kind=kind_str,
                     text=str(text),
@@ -145,7 +135,7 @@ class ChromaVectorStore:
                     source_url=_optional_str(metadata.get("source_url")),
                     artifact_type=_optional_str(metadata.get("artifact_type")),
                     language=_optional_str(metadata.get("language")),
-                    source_type=source_type,
+                    source_system=source_system,
                     created_at=_optional_str(metadata.get("created_at")),
                 )
             )
@@ -241,18 +231,15 @@ def _chunks_from_get_result(raw_result: Any) -> list[Chunk]:
         if not is_chunk_kind(kind_str):
             raise ValueError(f"Unknown chunk kind {kind_str!r}")
 
-        raw_heading_path = metadata.get("heading_path")
-        heading_path = str(raw_heading_path) if raw_heading_path else None
-
-        source_type_str = str(metadata.get("source_type", "docs"))
-        source_type = source_type_str if is_source_type(source_type_str) else None
+        source_system = normalize_source_system(
+            _optional_str(metadata.get("source_system"))
+        )
 
         chunks.append(
             Chunk(
                 id=str(chunk_id),
                 artifact_id=str(metadata["artifact_id"]),
                 filename=str(metadata["filename"]),
-                heading_path=heading_path,
                 position=position,
                 kind=kind_str,
                 text=str(text),
@@ -261,7 +248,7 @@ def _chunks_from_get_result(raw_result: Any) -> list[Chunk]:
                 source_url=_optional_str(metadata.get("source_url")),
                 artifact_type=_optional_str(metadata.get("artifact_type")),
                 language=_optional_str(metadata.get("language")),
-                source_type=source_type,
+                source_system=source_system,
                 created_at=_optional_str(metadata.get("created_at")),
             )
         )

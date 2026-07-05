@@ -233,12 +233,12 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
     store.add(
         [
             Chunk(
-                id="chunk-docs",
-                artifact_id="artifact-docs",
+                id="chunk-upload",
+                artifact_id="artifact-upload",
                 filename="doc.md",
-                text="Docs text",
+                text="Upload text",
                 embedding=[1.0] + [0.0] * 767,
-                source_type="docs",
+                source_system="UPLOAD",
             )
         ]
     )
@@ -248,7 +248,7 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
         json={
             "question": "What changed in code?",
             "min_score": 0.0,
-            "filters": {"source_type": "code"},
+            "filters": {"source_systems": ["GITHUB"]},
         },
     )
 
@@ -272,21 +272,20 @@ def test_chat_with_source_filter_uses_matching_chunks(
     store.add(
         [
             Chunk(
-                id="chunk-docs",
-                artifact_id="artifact-docs",
+                id="chunk-upload",
+                artifact_id="artifact-upload",
                 filename="doc.md",
-                text="Docs text",
+                text="Upload text",
                 embedding=embedding,
-                source_type="docs",
+                source_system="UPLOAD",
             ),
             Chunk(
-                id="chunk-code",
-                artifact_id="artifact-code",
+                id="chunk-github",
+                artifact_id="artifact-github",
                 filename="app.py",
-                text="Code text",
+                text="GitHub text",
                 embedding=embedding,
-                source_type="code",
-                kind="code",
+                source_system="GITHUB",
             ),
         ]
     )
@@ -296,7 +295,7 @@ def test_chat_with_source_filter_uses_matching_chunks(
         json={
             "question": "What changed in code?",
             "min_score": 0.0,
-            "filters": {"source_type": "code"},
+            "filters": {"source_systems": ["GITHUB"]},
         },
     )
 
@@ -306,7 +305,7 @@ def test_chat_with_source_filter_uses_matching_chunks(
     citation_events = [event for event in events if event["type"] == "citation"]
 
     assert len(citation_events) == 1
-    assert citation_events[0]["chunk_id"] == "chunk-code"
+    assert citation_events[0]["chunk_id"] == "chunk-github"
 
 
 def test_chat_without_chunks_returns_fallback_without_llm_hallucination(

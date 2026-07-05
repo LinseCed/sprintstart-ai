@@ -217,6 +217,7 @@ def ingest(
                     body.artifact_id,
                     llm.embed(chunk.content),
                     source_role=source_role,
+                    source_system="UPLOAD",
                 ),
                 position=index,
             )

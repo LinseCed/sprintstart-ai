@@ -1,21 +1,27 @@
 from llm.base import LLMClient
+from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import RetrievalFilters, ScoredChunk
 from store.base import VectorStore
+
+_BM25_CACHE = BM25IndexCache()
+_DEFAULT_TOP_K = 5
+_DEFAULT_MIN_SCORE = 0.3
 
 
 def retrieve(
     question: str,
     llm: LLMClient,
     store: VectorStore,
-    top_k: int,
-    min_score: float,
+    top_k: int = _DEFAULT_TOP_K,
+    min_score: float = _DEFAULT_MIN_SCORE,
     filters: RetrievalFilters | None = None,
 ) -> list[ScoredChunk]:
-    embedding = llm.embed(question)
-
-    return store.query(
-        embedding=embedding,
+    return hybrid_retrieve(
+        question=question,
+        llm=llm,
+        store=store,
         top_k=top_k,
         min_score=min_score,
+        bm25_cache=_BM25_CACHE,
         filters=filters,
     )

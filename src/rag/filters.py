@@ -1,51 +1,40 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from rag.types import Chunk, RetrievalFilters, ScoredChunk, SourceType
+from rag.types import (
+    Chunk,
+    RetrievalFilters,
+    ScoredChunk,
+    SourceSystem,
+    is_source_system,
+)
 
-_LATEST_DAYS = 30
-_LAST_6_MONTHS_DAYS = 183
+
+def normalize_source_system(value: str | None) -> SourceSystem | None:
+    if value is None:
+        return None
+
+    normalized = value.upper()
+
+    if is_source_system(normalized):
+        return normalized
+
+    return None
 
 
 def timestamp_from_iso(value: str | None) -> float:
+    parsed = _parse_timestamp(value)
+    return parsed or 0.0
+
+
+def _parse_timestamp(value: str | None) -> float | None:
     if not value:
-        return 0.0
+        return None
 
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     except ValueError:
-        return 0.0
-
-
-def cutoff_timestamp_for(time_range: str) -> float:
-    now = datetime.now(UTC)
-
-    if time_range == "latest":
-        return (now - timedelta(days=_LATEST_DAYS)).timestamp()
-
-    if time_range == "last_6_months":
-        return (now - timedelta(days=_LAST_6_MONTHS_DAYS)).timestamp()
-
-    return 0.0
-
-
-def source_type_for_chunk(chunk: Chunk | ScoredChunk) -> SourceType:
-    if chunk.source_type is not None:
-        return chunk.source_type
-
-    artifact_type = (chunk.artifact_type or "").upper()
-
-    if chunk.kind == "code" or chunk.language:
-        return "code"
-
-    if artifact_type in {"ISSUE", "TICKET", "PULL_REQUEST"}:
-        return "tickets"
-
-    filename = chunk.filename.lower()
-    if "ticket" in filename or "issue" in filename:
-        return "tickets"
-
-    return "docs"
+        return None
 
 
 def matches_retrieval_filters(
@@ -55,14 +44,27 @@ def matches_retrieval_filters(
     if filters is None:
         return True
 
-    if filters.source_type is not None:
-        if source_type_for_chunk(chunk) != filters.source_type:
+    if filters.source_systems:
+        if chunk.source_system not in filters.source_systems:
             return False
 
-    if filters.time_range is not None:
-        created_at_ts = timestamp_from_iso(chunk.created_at)
-        if created_at_ts < cutoff_timestamp_for(filters.time_range):
+    has_time_filter = filters.time_from is not None or filters.time_to is not None
+
+    if has_time_filter:
+        chunk_timestamp = _parse_timestamp(chunk.created_at)
+
+        if chunk_timestamp is None:
             return False
+
+        if filters.time_from is not None:
+            time_from = _parse_timestamp(filters.time_from)
+            if time_from is not None and chunk_timestamp < time_from:
+                return False
+
+        if filters.time_to is not None:
+            time_to = _parse_timestamp(filters.time_to)
+            if time_to is not None and chunk_timestamp > time_to:
+                return False
 
     return True
 
@@ -73,16 +75,22 @@ def where_filter_for_chroma(filters: RetrievalFilters | None) -> Any | None:
 
     conditions: list[dict[str, object]] = []
 
-    if filters.source_type is not None:
-        conditions.append({"source_type": {"$eq": filters.source_type}})
+    if filters.source_systems:
+        conditions.append({"source_system": {"$in": filters.source_systems}})
 
-    if filters.time_range is not None:
+    has_time_filter = filters.time_from is not None or filters.time_to is not None
+
+    if has_time_filter:
+        conditions.append({"created_at_ts": {"$gt": 0.0}})
+
+    if filters.time_from is not None:
         conditions.append(
-            {
-                "created_at_ts": {
-                    "$gte": cutoff_timestamp_for(filters.time_range),
-                }
-            }
+            {"created_at_ts": {"$gte": timestamp_from_iso(filters.time_from)}}
+        )
+
+    if filters.time_to is not None:
+        conditions.append(
+            {"created_at_ts": {"$lte": timestamp_from_iso(filters.time_to)}}
         )
 
     if not conditions:

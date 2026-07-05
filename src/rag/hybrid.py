@@ -29,7 +29,6 @@ def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
         id=chunk.id,
         artifact_id=chunk.artifact_id,
         filename=chunk.filename,
-        heading_path=chunk.heading_path,
         position=chunk.position,
         kind=chunk.kind,
         text=chunk.text,
@@ -38,7 +37,7 @@ def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
         source_url=chunk.source_url,
         artifact_type=chunk.artifact_type,
         language=chunk.language,
-        source_type=chunk.source_type,
+        source_system=chunk.source_system,
         created_at=chunk.created_at,
     )
 
@@ -51,19 +50,6 @@ def _drop_excluded_roles(
         return chunks
 
     return [chunk for chunk in chunks if chunk.source_role not in exclude_roles]
-
-
-def _chunk_fingerprint(chunk: Chunk) -> tuple[object, ...]:
-    return (
-        chunk.id,
-        chunk.text,
-        chunk.source_role,
-        chunk.source_url,
-        chunk.artifact_type,
-        chunk.language,
-        chunk.source_type,
-        chunk.created_at,
-    )
 
 
 def reciprocal_rank_fusion(
@@ -132,22 +118,16 @@ class BM25Index:
 class BM25IndexCache:
     def __init__(self) -> None:
         self._index: BM25Index | None = None
-        self._fingerprint: tuple[tuple[object, ...], ...] | None = None
+        self._chunk_count: int | None = None
         self._lock = threading.Lock()
 
     def get(self, store: VectorStore) -> BM25Index:
         with self._lock:
-            chunks = store.all_chunks()
-            fingerprint = tuple(
-                sorted(
-                    (_chunk_fingerprint(chunk) for chunk in chunks),
-                    key=lambda item: str(item[0]),
-                )
-            )
+            current_count = store.count()
 
-            if self._index is None or self._fingerprint != fingerprint:
-                self._index = BM25Index(chunks)
-                self._fingerprint = fingerprint
+            if self._index is None or self._chunk_count != current_count:
+                self._index = BM25Index(store.all_chunks())
+                self._chunk_count = current_count
 
             return self._index
 
@@ -164,10 +144,13 @@ def hybrid_retrieve(
 ) -> list[ScoredChunk]:
     chunk_count = store.count()
 
-    has_filters = (
-        bool(exclude_roles)
-        or filters is not None
-        and (filters.source_type is not None or filters.time_range is not None)
+    has_filters = bool(exclude_roles) or (
+        filters is not None
+        and (
+            bool(filters.source_systems)
+            or filters.time_from is not None
+            or filters.time_to is not None
+        )
     )
     fetch_k = top_k * _ROLE_FILTER_OVERFETCH if has_filters else top_k
 
