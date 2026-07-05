@@ -357,7 +357,9 @@ def test_chroma_query_applies_time_range_filter() -> None:
         embedding=[1.0, 0.0],
         top_k=5,
         min_score=0.0,
-        filters=RetrievalFilters(time_range="last_6_months"),
+        filters=RetrievalFilters(
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
+        ),
     )
 
     assert len(result) == 1
@@ -414,7 +416,7 @@ def test_chroma_query_combines_filters_with_and() -> None:
         min_score=0.0,
         filters=RetrievalFilters(
             source_systems=["GITHUB"],
-            time_range="last_6_months",
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
         ),
     )
 

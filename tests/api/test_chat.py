@@ -268,6 +268,7 @@ def test_chat_with_source_filter_uses_matching_chunks(
     http_client, _, store = client
 
     embedding = [1.0] + [0.0] * 767
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
 
     store.add(
         [

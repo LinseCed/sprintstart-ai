@@ -247,7 +247,7 @@ def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
         bm25_cache=BM25IndexCache(),
         filters=RetrievalFilters(
             source_systems=["GITHUB"],
-            time_range="last_6_months",
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
         ),
     )
 
