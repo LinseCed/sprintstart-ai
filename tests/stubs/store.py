@@ -44,7 +44,6 @@ class StubVectorStore:
                     id=chunk.id,
                     artifact_id=chunk.artifact_id,
                     filename=chunk.filename,
-                    heading_path=chunk.heading_path,
                     position=chunk.position,
                     kind=chunk.kind,
                     text=chunk.text,
@@ -53,7 +52,7 @@ class StubVectorStore:
                     source_url=chunk.source_url,
                     artifact_type=chunk.artifact_type,
                     language=chunk.language,
-                    source_type=chunk.source_type,
+                    source_system=chunk.source_system,
                     created_at=chunk.created_at,
                 )
             )

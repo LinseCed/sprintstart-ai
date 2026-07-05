@@ -78,7 +78,7 @@ def test_retrieve_passes_source_filter_to_store() -> None:
                 filename="doc.md",
                 text="Docs text",
                 embedding=[1.0, 0.0],
-                source_type="docs",
+                source_system="UPLOAD",
             ),
             Chunk(
                 id="chunk-code",
@@ -86,7 +86,7 @@ def test_retrieve_passes_source_filter_to_store() -> None:
                 filename="app.py",
                 text="Code text",
                 embedding=[1.0, 0.0],
-                source_type="code",
+                source_system="GITHUB",
                 kind="code",
             ),
         ]
@@ -98,9 +98,9 @@ def test_retrieve_passes_source_filter_to_store() -> None:
         store=store,
         top_k=5,
         min_score=0.0,
-        filters=RetrievalFilters(source_type="code"),
+        filters=RetrievalFilters(source_systems=["GITHUB"]),
     )
 
     assert len(result) == 1
     assert result[0].id == "chunk-code"
-    assert result[0].source_type == "code"
+    assert result[0].source_system == "GITHUB"

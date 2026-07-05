@@ -247,7 +247,6 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
         "/api/v1/chat",
         json={
             "question": "What changed in code?",
-            "min_score": 0.0,
             "filters": {"source_systems": ["GITHUB"]},
         },
     )
@@ -255,8 +254,9 @@ def test_chat_with_filter_no_matching_chunks_returns_fallback(
     assert response.status_code == 200
 
     events = parse_sse_events(response.text)
-    assert events[0]["type"] == "token"
-    content = events[0]["content"]
+    token_events = [event for event in events if event["type"] == "token"]
+    assert len(token_events) == 1
+    content = token_events[0]["content"]
     assert isinstance(content, str)
     assert "could not find any matching sources" in content
     assert events[-1]["type"] == "done"
@@ -294,7 +294,6 @@ def test_chat_with_source_filter_uses_matching_chunks(
         "/api/v1/chat",
         json={
             "question": "What changed in code?",
-            "min_score": 0.0,
             "filters": {"source_systems": ["GITHUB"]},
         },
     )
@@ -315,7 +314,10 @@ def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"question": "What changed?"},
+        json={
+            "question": "What changed?",
+            "filters": {"source_systems": ["GITHUB"]},
+        },
     )
 
     assert response.status_code == 200
@@ -323,9 +325,10 @@ def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
     events = _parse_events(response.text)
     citation_events = [event for event in events if event["type"] == "citation"]
 
-    assert events[0]["type"] == "token"
-    content = events[0]["content"]
+    token_events = [event for event in events if event["type"] == "token"]
+    assert len(token_events) == 1
+    content = token_events[0]["content"]
     assert isinstance(content, str)
-    assert "could not find relevant sources" in content
+    assert "could not find any matching sources" in content
     assert citation_events == []
     assert events[-1]["type"] == "done"

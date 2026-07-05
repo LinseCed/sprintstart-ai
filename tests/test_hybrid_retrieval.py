@@ -212,7 +212,7 @@ def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
                 filename="doc.md",
                 text="database setup",
                 embedding=[1.0, 0.0],
-                source_type="docs",
+                source_system="UPLOAD",
                 created_at=recent_date,
             ),
             Chunk(
@@ -222,7 +222,7 @@ def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
                 text="database setup",
                 embedding=[1.0, 0.0],
                 kind="code",
-                source_type="code",
+                source_system="GITHUB",
                 created_at=old_date,
             ),
             Chunk(
@@ -232,7 +232,7 @@ def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
                 text="database setup",
                 embedding=[1.0, 0.0],
                 kind="code",
-                source_type="code",
+                source_system="GITHUB",
                 created_at=recent_date,
             ),
         ]
@@ -246,7 +246,7 @@ def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
         min_score=0.0,
         bm25_cache=BM25IndexCache(),
         filters=RetrievalFilters(
-            source_type="code",
+            source_systems=["GITHUB"],
             time_range="last_6_months",
         ),
     )

@@ -294,7 +294,7 @@ def test_chroma_query_applies_source_type_filter() -> None:
                 filename="doc.md",
                 text="Docs text",
                 embedding=[1.0, 0.0],
-                source_type="docs",
+                source_system="UPLOAD",
             ),
             Chunk(
                 id="chunk-code",
@@ -302,7 +302,7 @@ def test_chroma_query_applies_source_type_filter() -> None:
                 filename="app.py",
                 text="Code text",
                 embedding=[1.0, 0.0],
-                source_type="code",
+                source_system="GITHUB",
                 kind="code",
             ),
         ]
@@ -312,12 +312,12 @@ def test_chroma_query_applies_source_type_filter() -> None:
         embedding=[1.0, 0.0],
         top_k=5,
         min_score=0.0,
-        filters=RetrievalFilters(source_type="code"),
+        filters=RetrievalFilters(source_systems=["GITHUB"]),
     )
 
     assert len(result) == 1
     assert result[0].id == "chunk-code"
-    assert result[0].source_type == "code"
+    assert result[0].source_system == "GITHUB"
 
 
 def test_chroma_query_applies_time_range_filter() -> None:
@@ -338,7 +338,7 @@ def test_chroma_query_applies_time_range_filter() -> None:
                 filename="old.md",
                 text="Old text",
                 embedding=[1.0, 0.0],
-                source_type="docs",
+                source_system="UPLOAD",
                 created_at=old_date,
             ),
             Chunk(
@@ -347,7 +347,7 @@ def test_chroma_query_applies_time_range_filter() -> None:
                 filename="recent.md",
                 text="Recent text",
                 embedding=[1.0, 0.0],
-                source_type="docs",
+                source_system="UPLOAD",
                 created_at=recent_date,
             ),
         ]
@@ -382,7 +382,7 @@ def test_chroma_query_combines_filters_with_and() -> None:
                 filename="doc.md",
                 text="Recent docs",
                 embedding=[1.0, 0.0],
-                source_type="docs",
+                source_system="UPLOAD",
                 created_at=recent_date,
             ),
             Chunk(
@@ -391,7 +391,7 @@ def test_chroma_query_combines_filters_with_and() -> None:
                 filename="old.py",
                 text="Old code",
                 embedding=[1.0, 0.0],
-                source_type="code",
+                source_system="GITHUB",
                 kind="code",
                 created_at=old_date,
             ),
@@ -401,7 +401,7 @@ def test_chroma_query_combines_filters_with_and() -> None:
                 filename="app.py",
                 text="Recent code",
                 embedding=[1.0, 0.0],
-                source_type="code",
+                source_system="GITHUB",
                 kind="code",
                 created_at=recent_date,
             ),
@@ -413,7 +413,7 @@ def test_chroma_query_combines_filters_with_and() -> None:
         top_k=5,
         min_score=0.0,
         filters=RetrievalFilters(
-            source_type="code",
+            source_systems=["GITHUB"],
             time_range="last_6_months",
         ),
     )
