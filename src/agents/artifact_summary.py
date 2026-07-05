@@ -172,5 +172,5 @@ def _citation_for_chunks(artifact_id: str, chunks: list[Chunk]) -> SummaryCitati
     return SummaryCitation(
         artifact_id=artifact_id,
         filename=first.filename,
-        source_url=source_url or f"/api/v1/artifacts/{artifact_id}/summary",
+        source_url=source_url or f"/api/v1/vector-db/artifacts/{artifact_id}/chunks",
     )
