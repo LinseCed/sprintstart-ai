@@ -20,6 +20,10 @@ def to_parsed_chunk(
     filename: str,
     chunk_index: int,
     total_chunks_amount: int,
+    has_context_block: bool = False,
+    context_block_range: tuple[int, int] | None = None,
+    has_overlap: bool = False,
+    overlap_range: tuple[int, int] | None = None,
 ):
     """Create a ParsedChunk with standard metadata.
 
@@ -39,6 +43,24 @@ def to_parsed_chunk(
         total_chunks_amount (int):
             Total number of chunks produced for the source file.
 
+        has_context_block (bool, optional):
+            Whether a situating context block was prepended to the chunk
+            content. Defaults to ``False``.
+
+        context_block_range (tuple[int, int] | None, optional):
+            ``(start, end)`` character range of the context block within
+            ``chunk_content``, if ``has_context_block`` is ``True``.
+            Defaults to ``None``.
+
+        has_overlap (bool, optional):
+            Whether the chunk contains character/paragraph overlap carried
+            over from a neighboring chunk. Defaults to ``False``.
+
+        overlap_range (tuple[int, int] | None, optional):
+            ``(start, end)`` character range of the overlap within
+            ``chunk_content``, if ``has_overlap`` is ``True``. Defaults to
+            ``None``.
+
     Returns:
         ParsedChunk:
             Chunk instance with content, type and metadata.
@@ -50,6 +72,18 @@ def to_parsed_chunk(
             **build_metadata(Path(filename)),
             "chunk_index": str(chunk_index),
             "total_chunks": str(total_chunks_amount),
+            "has_context_block": str(has_context_block).lower(),
+            "context_block_range": (
+                f"{context_block_range[0]}:{context_block_range[1]}"
+                if context_block_range is not None
+                else ""
+            ),
+            "has_overlap": str(has_overlap).lower(),
+            "overlap_range": (
+                f"{overlap_range[0]}:{overlap_range[1]}"
+                if overlap_range is not None
+                else ""
+            ),
         },
     )
 
