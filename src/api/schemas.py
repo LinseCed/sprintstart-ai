@@ -603,3 +603,32 @@ class ArtifactRunIngestResponse(BaseModel):
 
 class RunArtifactsSyncResponse(BaseModel):
     artifacts: list[ArtifactRunIngestResponse]
+
+
+class ArtifactSummaryRequest(BaseModel):
+    previous_artifact_id: str | None = Field(
+        default=None,
+        alias="previousArtifactId",
+        description="Optional previous artifact id for change summaries.",
+    )
+    max_chunks: int = Field(
+        default=500,
+        ge=1,
+        le=2000,
+        alias="maxChunks",
+        description="Maximum number of chunks to use for summary generation.",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ArtifactSummaryCitation(BaseModel):
+    artifact_id: str
+    filename: str
+    source_url: str | None = None
+
+
+class ArtifactSummaryResponse(BaseModel):
+    artifact_id: str
+    summary: str
+    citations: list[ArtifactSummaryCitation]
