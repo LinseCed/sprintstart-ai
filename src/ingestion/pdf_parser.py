@@ -4,17 +4,27 @@ import logging
 from pypdf import PdfReader
 
 from ingestion.chunker import chunk_text
+from ingestion.context_aware_chunker import chunk_text_context_aware
 from ingestion.models import ParsedChunk
+from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
 
-def parse_pdf(filename: str, content: bytes) -> list[ParsedChunk]:
+def parse_pdf(
+    filename: str,
+    content: bytes,
+    llm: LLMClient | None = None,
+    semantic_boundaries: bool = True,
+    contextualize: bool = True,
+) -> list[ParsedChunk]:
     """
     Parse a PDF file into structured text chunks.
 
     Each PDF page is processed independently. Extracted text is split
-    into fixed-size chunks using `chunk_text` (max 512 characters per chunk).
+    into fixed-size chunks using `chunk_text` (max 512 characters per chunk),
+    or, when ``llm`` is provided, using the LLM-based context-aware chunker
+    (see :func:`ingestion.context_aware_chunker.chunk_text_context_aware`).
 
     Each resulting chunk is enriched with PDF-specific metadata.
 
@@ -31,12 +41,36 @@ def parse_pdf(filename: str, content: bytes) -> list[ParsedChunk]:
         - global_pdf_chunk_index: Sequential global index of the chunk across the
           entire PDF document
 
+    Note on context-aware chunking scope: the LLM is invoked once **per
+    page** (not once for the whole document), since pages are already
+    processed independently here. This means semantic boundaries and
+    context blocks are chosen with only a single page's text in view,
+    not the full document — context blocks are therefore page-scoped
+    rather than document-scoped. Widening this to whole-document context
+    (e.g. by threading a document-level summary into each page's call) is
+    a possible future refinement, not implemented here.
+
     Args:
         filename (str):
             Name of the source PDF file.
 
         content (bytes):
             Raw binary content of the uploaded PDF file.
+
+        llm (LLMClient | None, optional):
+            Client used for context-aware chunking. When ``None`` (the
+            default), plain paragraph/character-based chunking is used for
+            every page. Defaults to ``None``.
+
+        semantic_boundaries (bool, optional):
+            Let the LLM choose chunk boundaries per page based on semantic
+            coherence. Only relevant when ``llm`` is provided. Defaults to
+            ``True``.
+
+        contextualize (bool, optional):
+            Let the LLM prepend a short situating context block to chunks
+            that would benefit from one. Only relevant when ``llm`` is
+            provided. Defaults to ``True``.
 
     Returns:
         list[ParsedChunk]:
@@ -68,7 +102,17 @@ def parse_pdf(filename: str, content: bytes) -> list[ParsedChunk]:
             logger.warning("Skipping empty page %s in %s", page_number, filename)
             continue
 
-        chunks: list[ParsedChunk] = chunk_text(filename, text)
+        chunks: list[ParsedChunk] = (
+            chunk_text(filename, text)
+            if llm is None
+            else chunk_text_context_aware(
+                filename,
+                text,
+                llm,
+                semantic_boundaries=semantic_boundaries,
+                contextualize=contextualize,
+            )
+        )
         for chunk in chunks:
             chunk.kind = "pdf"
             chunk.metadata["global_pdf_chunk_index"] = str(global_pdf_chunk_index)

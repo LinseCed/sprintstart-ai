@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from ingestion.metadata_store import IngestionMetadataStore
+from llm.base import Message
 from llm.errors import LLMUnavailableError
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -15,6 +17,18 @@ from tests.stubs.store import StubVectorStore
 class FailingEmbedLLMClient(StubLLMClient):
     def embed(self, text: str) -> list[float]:
         raise LLMUnavailableError("embedding backend unavailable")
+
+
+class RecordingLLMClient(StubLLMClient):
+    """Records every prompt passed to ``generate`` for assertion."""
+
+    def __init__(self, generate_response: str = "stub answer") -> None:
+        super().__init__(generate_response=generate_response)
+        self.generate_calls: list[list[Message]] = []
+
+    def generate(self, messages: list[Message]) -> str:
+        self.generate_calls.append(messages)
+        return super().generate(messages)
 
 
 @pytest.fixture
@@ -216,3 +230,89 @@ def test_ingest_defaults_to_primary_for_normal_files(
     chunks = vector_store.all_chunks()
     assert chunks
     assert all(chunk.source_role == "primary" for chunk in chunks)
+
+
+def test_ingest_calls_llm_for_context_aware_chunking_by_default(
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> None:
+    # Defaults (semantic_boundaries=True, contextualize=True) should trigger
+    # an LLM call for text content, even though the stub's non-JSON response
+    # makes the chunker fall back to chunk_text.
+    llm = RecordingLLMClient()
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: llm
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-default-flags",
+            "filename": "notes.txt",
+            "content": "First paragraph.\n\nSecond paragraph.",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert len(llm.generate_calls) == 1
+
+
+def test_ingest_with_both_chunking_flags_disabled_skips_llm_call(
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> None:
+    llm = RecordingLLMClient()
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: llm
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-no-llm-chunking",
+            "filename": "notes.txt",
+            "content": "First paragraph.\n\nSecond paragraph.",
+            "semantic_boundaries": False,
+            "contextualize": False,
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert llm.generate_calls == []
+
+
+def test_ingest_contextualize_prepends_context_block(
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> None:
+    plan = json.dumps(
+        {"boundaries": [], "context_blocks": {"0": "Context: onboarding notes."}}
+    )
+    llm = RecordingLLMClient(generate_response=plan)
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: llm
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-contextualized",
+            "filename": "notes.txt",
+            "content": "Just one short paragraph.",
+            "semantic_boundaries": False,
+            "contextualize": True,
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["chunks"][0]["text"].startswith("Context: onboarding notes.")

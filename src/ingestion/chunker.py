@@ -88,29 +88,44 @@ def to_parsed_chunk(
     )
 
 
-def chunk_text(
-    filename: str,
-    text: str,
-    chunk_size: int = chunk_size,
-    chunk_overlap: int = chunk_overlap,
-) -> list[ParsedChunk]:
-    """Split text into paragraph-aware chunks.
+def split_into_paragraphs(text: str) -> list[str]:
+    """Split text into non-empty, whitespace-stripped paragraphs.
 
-    The function preserves paragraph boundaries by splitting on
-    double newlines (``\\n\\n``). Paragraphs are accumulated until
-    adding another paragraph would exceed the configured chunk size.
-
-    When a chunk boundary is reached, the last paragraph is carried
-    into the next chunk as overlap context. Paragraphs that exceed
-    ``chunk_size`` on their own are split into overlapping character
-    chunks by the given chunk_overlap.
+    Paragraphs are separated by double newlines (``\\n\\n``).
 
     Args:
-        filename (str):
-            Name of the source file.
-
         text (str):
             Text content to split.
+
+    Returns:
+        list[str]:
+            Paragraphs in document order.
+    """
+    return [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+
+
+def group_paragraphs_into_chunks(
+    paragraphs: list[str],
+    chunk_size: int = chunk_size,
+    chunk_overlap: int = chunk_overlap,
+) -> list[str]:
+    """Accumulate paragraphs into character-limited, overlap-aware chunks.
+
+    Paragraphs are accumulated until adding another paragraph would exceed
+    ``chunk_size``. When a chunk boundary is reached, the last paragraph is
+    carried into the next chunk as overlap context. Paragraphs that exceed
+    ``chunk_size`` on their own are hard-split into overlapping character
+    chunks.
+
+    This grouping logic is shared by :func:`chunk_text` and the LLM-based
+    context-aware chunker (when it is asked to only contextualize
+    already-fixed chunk boundaries rather than choose semantic boundaries
+    itself).
+
+    Args:
+        paragraphs (list[str]):
+            Paragraphs in document order, e.g. from
+            :func:`split_into_paragraphs`.
 
         chunk_size (int, optional):
             Maximum chunk size in characters.
@@ -121,15 +136,10 @@ def chunk_text(
             Defaults to the value configured via ``CHUNK_OVERLAP``.
 
     Returns:
-        list[ParsedChunk]:
-            Paragraph-aware text chunks with metadata.
+        list[str]:
+            Raw chunk contents (paragraphs joined by ``\\n\\n``).
     """
-
     raw_chunks_content: list[str] = []
-
-    paragraphs: list[str] = [
-        paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()
-    ]
     current_chunk_content: list[str] = []
 
     for paragraph in paragraphs:
@@ -173,6 +183,50 @@ def chunk_text(
     # if there is some content left, append it to the raw_chunks
     if current_chunk_content:
         raw_chunks_content.append("\n\n".join(current_chunk_content))
+
+    return raw_chunks_content
+
+
+def chunk_text(
+    filename: str,
+    text: str,
+    chunk_size: int = chunk_size,
+    chunk_overlap: int = chunk_overlap,
+) -> list[ParsedChunk]:
+    """Split text into paragraph-aware chunks.
+
+    The function preserves paragraph boundaries by splitting on
+    double newlines (``\\n\\n``). Paragraphs are accumulated until
+    adding another paragraph would exceed the configured chunk size.
+
+    When a chunk boundary is reached, the last paragraph is carried
+    into the next chunk as overlap context. Paragraphs that exceed
+    ``chunk_size`` on their own are split into overlapping character
+    chunks by the given chunk_overlap.
+
+    Args:
+        filename (str):
+            Name of the source file.
+
+        text (str):
+            Text content to split.
+
+        chunk_size (int, optional):
+            Maximum chunk size in characters.
+            Defaults to the value configured via ``CHUNK_SIZE``.
+
+        chunk_overlap (int, optional):
+            Overlap used when hard-splitting oversized paragraphs.
+            Defaults to the value configured via ``CHUNK_OVERLAP``.
+
+    Returns:
+        list[ParsedChunk]:
+            Paragraph-aware text chunks with metadata.
+    """
+    paragraphs = split_into_paragraphs(text)
+    raw_chunks_content = group_paragraphs_into_chunks(
+        paragraphs, chunk_size, chunk_overlap
+    )
 
     total_chunks_amount = len(raw_chunks_content)
 

@@ -33,13 +33,62 @@ chunk has).
 
 import json
 import logging
+import os
 
 from pydantic import BaseModel, Field, ValidationError
 
+from ingestion.chunker import (
+    chunk_overlap as default_chunk_overlap,
+)
+from ingestion.chunker import (
+    chunk_size as default_chunk_size,
+)
+from ingestion.chunker import (
+    chunk_text,
+    group_paragraphs_into_chunks,
+    split_into_paragraphs,
+    to_parsed_chunk,
+)
+from ingestion.models import ParsedChunk
 from llm.base import LLMClient, Message
+from llm.errors import LLMUnavailableError
 from llm.parsing import extract_json_object
 
 logger = logging.getLogger(__name__)
+
+try:
+    # There is no tokenizer in this project (backend is configurable across
+    # Ollama/OpenAI/Anthropic), so this is a character-count proxy for a
+    # token-count limit rather than an exact one. ~4 chars/token is a common
+    # rough estimate for English prose; the default is deliberately
+    # conservative to leave headroom for the prompt scaffolding itself.
+    max_chars: int = int(os.getenv("CONTEXT_AWARE_CHUNKING_MAX_CHARS", "24000"))
+except ValueError as err:
+    raise ValueError("CONTEXT_AWARE_CHUNKING_MAX_CHARS must be an integer") from err
+
+
+def exceeds_llm_limit(text: str, max_chars: int = max_chars) -> bool:
+    """Check whether ``text`` is too large to hand to the LLM as-is.
+
+    This is a cheap character-count proxy for a token-count limit — used to
+    decide upfront whether to attempt context-aware chunking at all, before
+    spending an LLM call. Callers should fall back to
+    :func:`ingestion.chunker.chunk_text` when this returns ``True``.
+
+    Args:
+        text (str):
+            The full text that would be sent to the LLM.
+
+        max_chars (int, optional):
+            Maximum character count considered safe to send.
+            Defaults to the value configured via
+            ``CONTEXT_AWARE_CHUNKING_MAX_CHARS``.
+
+    Returns:
+        bool:
+            ``True`` if ``text`` exceeds ``max_chars``.
+    """
+    return len(text) > max_chars
 
 
 class ContextAwareChunkingError(Exception):
@@ -186,3 +235,211 @@ def _request_chunking_plan(
         )
 
     return payload
+
+
+def _hard_split_with_context(
+    context_block: str,
+    body: str,
+    chunk_size: int,
+    chunk_overlap: int,
+) -> list[tuple[str, tuple[int, int] | None, bool, tuple[int, int] | None]]:
+    """Split an oversized ``context_block + body`` chunk into sub-chunks.
+
+    The context block is re-prepended to every resulting sub-chunk (it is
+    small and self-contained, so duplicating it preserves the situating
+    context each sub-chunk would otherwise lose). The remaining budget
+    (``chunk_size`` minus the context block) is then hard-split the same
+    way :func:`ingestion.chunker.group_paragraphs_into_chunks` hard-splits
+    oversized paragraphs — overlapping character windows of ``chunk_size -
+    chunk_overlap`` stride.
+
+    Args:
+        context_block (str):
+            The situating context block text, already including its
+            trailing separator (empty string if there is none).
+
+        body (str):
+            The chunk's own content, without the context block.
+
+        chunk_size (int):
+            Maximum size of each resulting sub-chunk, in characters,
+            including the re-prepended context block.
+
+        chunk_overlap (int):
+            Overlap between consecutive sub-chunk bodies.
+
+    Returns:
+        list[tuple[str, tuple[int, int] | None, bool, tuple[int, int] | None]]:
+            One tuple per sub-chunk: ``(content, context_block_range,
+            has_overlap, overlap_range)``.
+    """
+    results: list[tuple[str, tuple[int, int] | None, bool, tuple[int, int] | None]] = []
+    context_len = len(context_block)
+    body_budget = max(chunk_size - context_len, 1)
+    body_overlap = min(chunk_overlap, body_budget - 1) if body_budget > 1 else 0
+
+    start = 0
+    first = True
+    while start < len(body) or first:
+        body_slice = body[start : start + body_budget]
+        content = context_block + body_slice
+
+        context_range = (0, context_len) if context_len else None
+        has_overlap = not first and body_overlap > 0
+        overlap_range = (
+            (context_len, context_len + body_overlap) if has_overlap else None
+        )
+
+        results.append((content, context_range, has_overlap, overlap_range))
+
+        if start + body_budget >= len(body):
+            break
+        start += body_budget - body_overlap
+        first = False
+
+    return results
+
+
+def chunk_text_context_aware(
+    filename: str,
+    text: str,
+    llm: LLMClient,
+    semantic_boundaries: bool = True,
+    contextualize: bool = True,
+    chunk_size: int = default_chunk_size,
+    chunk_overlap: int = default_chunk_overlap,
+) -> list[ParsedChunk]:
+    """Split text into chunks using an LLM for semantic boundaries and/or
+    selective contextualization.
+
+    This is an opt-in alternative to :func:`ingestion.chunker.chunk_text`.
+    Falls back to it when:
+
+    - both ``semantic_boundaries`` and ``contextualize`` are ``False``
+      (nothing for the LLM to do),
+    - ``text`` exceeds the configured LLM size limit (see
+      :func:`exceeds_llm_limit`),
+    - the LLM backend is unreachable, or
+    - the LLM output cannot be parsed/validated.
+
+    Args:
+        filename (str):
+            Name of the source file.
+
+        text (str):
+            Text content to split.
+
+        llm (LLMClient):
+            Client used to request the chunking plan.
+
+        semantic_boundaries (bool, optional):
+            Let the LLM choose chunk boundaries based on semantic coherence
+            instead of ``chunk_text``'s character-length accumulation.
+            Defaults to ``True``.
+
+        contextualize (bool, optional):
+            Let the LLM flag chunks that would benefit from a short
+            situating context block and prepend it to their content.
+            Defaults to ``True``.
+
+        chunk_size (int, optional):
+            Maximum chunk size in characters, including any prepended
+            context block. Defaults to the value configured via
+            ``CHUNK_SIZE``.
+
+        chunk_overlap (int, optional):
+            Overlap used when hard-splitting oversized chunks.
+            Defaults to the value configured via ``CHUNK_OVERLAP``.
+
+    Returns:
+        list[ParsedChunk]:
+            Context-aware text chunks with metadata, or the
+            ``chunk_text`` fallback result.
+    """
+    if not semantic_boundaries and not contextualize:
+        return chunk_text(filename, text, chunk_size, chunk_overlap)
+
+    if exceeds_llm_limit(text):
+        logger.warning(
+            "Text for %s exceeds context-aware chunking size limit "
+            "(%d chars) — falling back to chunk_text",
+            filename,
+            len(text),
+        )
+        return chunk_text(filename, text, chunk_size, chunk_overlap)
+
+    paragraphs = split_into_paragraphs(text)
+    if not paragraphs:
+        return chunk_text(filename, text, chunk_size, chunk_overlap)
+
+    segments = (
+        paragraphs
+        if semantic_boundaries
+        else group_paragraphs_into_chunks(paragraphs, chunk_size, chunk_overlap)
+    )
+
+    try:
+        payload = _request_chunking_plan(
+            segments, llm, semantic_boundaries, contextualize
+        )
+    except (ContextAwareChunkingError, LLMUnavailableError) as exc:
+        logger.warning(
+            "Context-aware chunking failed for %s (%s) — falling back to chunk_text",
+            filename,
+            exc,
+        )
+        return chunk_text(filename, text, chunk_size, chunk_overlap)
+
+    if semantic_boundaries:
+        boundaries = payload.boundaries or [0]
+        raw_chunks = [
+            "\n\n".join(paragraphs[start:end])
+            for start, end in zip(
+                boundaries, [*boundaries[1:], len(paragraphs)], strict=True
+            )
+        ]
+    else:
+        raw_chunks = segments
+
+    final_chunks: list[
+        tuple[str, tuple[int, int] | None, bool, tuple[int, int] | None]
+    ] = []
+    for order_index, chunk_body in enumerate(raw_chunks):
+        context_text = (
+            payload.context_blocks.get(str(order_index)) if contextualize else None
+        )
+        context_block = f"{context_text}\n\n" if context_text else ""
+        combined = context_block + chunk_body
+
+        if len(combined) <= chunk_size:
+            context_range = (0, len(context_block)) if context_block else None
+            final_chunks.append((combined, context_range, False, None))
+            continue
+
+        final_chunks.extend(
+            _hard_split_with_context(
+                context_block, chunk_body, chunk_size, chunk_overlap
+            )
+        )
+
+    total_chunks_amount = len(final_chunks)
+
+    return [
+        to_parsed_chunk(
+            content,
+            "text",
+            filename,
+            chunk_index,
+            total_chunks_amount,
+            has_context_block=context_range is not None,
+            context_block_range=context_range,
+            has_overlap=has_overlap,
+            overlap_range=overlap_range,
+        )
+        for chunk_index, (
+            content,
+            context_range,
+            has_overlap,
+            overlap_range,
+        ) in enumerate(final_chunks)
+    ]

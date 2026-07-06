@@ -46,6 +46,29 @@ class IngestRequest(BaseModel):
         ),
         examples=["primary"],
     )
+    semantic_boundaries: bool = Field(
+        default=True,
+        description=(
+            "Only affects text and PDF content. When true, an LLM chooses "
+            "chunk boundaries based on semantic coherence (topic shifts, "
+            "section boundaries) instead of the default character-length "
+            "accumulation. Falls back to the default chunker if the "
+            "content is too large for the LLM or the LLM output is "
+            "invalid. Independently toggleable from 'contextualize'."
+        ),
+    )
+    contextualize: bool = Field(
+        default=True,
+        description=(
+            "Only affects text and PDF content. When true, an LLM flags "
+            "which chunks would benefit from a short situating context "
+            "block (Anthropic-style Contextual Retrieval) and prepends it "
+            "to their content; self-contained chunks are left untouched. "
+            "Falls back to the default chunker if the content is too "
+            "large for the LLM or the LLM output is invalid. "
+            "Independently toggleable from 'semantic_boundaries'."
+        ),
+    )
 
     @field_validator("filename")
     @classmethod
