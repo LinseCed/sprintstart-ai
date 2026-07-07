@@ -148,10 +148,12 @@ def ingest(
         metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=413, detail=detail)
 
+    use_context_aware_chunking = body.semantic_boundaries or body.contextualize
+
     parsed_chunks = parse(
         body.filename,
         content_bytes,
-        llm=llm,
+        llm=llm if use_context_aware_chunking else None,
         semantic_boundaries=body.semantic_boundaries,
         contextualize=body.contextualize,
     )

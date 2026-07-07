@@ -15,8 +15,8 @@ def parse_pdf(
     filename: str,
     content: bytes,
     llm: LLMClient | None = None,
-    semantic_boundaries: bool = True,
-    contextualize: bool = True,
+    semantic_boundaries: bool = False,
+    contextualize: bool = False,
 ) -> list[ParsedChunk]:
     """
     Parse a PDF file into structured text chunks.
@@ -65,12 +65,12 @@ def parse_pdf(
         semantic_boundaries (bool, optional):
             Let the LLM choose chunk boundaries per page based on semantic
             coherence. Only relevant when ``llm`` is provided. Defaults to
-            ``True``.
+            ``False``.
 
         contextualize (bool, optional):
             Let the LLM prepend a short situating context block to chunks
             that would benefit from one. Only relevant when ``llm`` is
-            provided. Defaults to ``True``.
+            provided. Defaults to ``False``.
 
     Returns:
         list[ParsedChunk]:
@@ -102,9 +102,10 @@ def parse_pdf(
             logger.warning("Skipping empty page %s in %s", page_number, filename)
             continue
 
+        use_context_aware_chunking = semantic_boundaries or contextualize
         chunks: list[ParsedChunk] = (
             chunk_text(filename, text)
-            if llm is None
+            if not use_context_aware_chunking or llm is None
             else chunk_text_context_aware(
                 filename,
                 text,

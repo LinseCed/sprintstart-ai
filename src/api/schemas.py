@@ -47,7 +47,7 @@ class IngestRequest(BaseModel):
         examples=["primary"],
     )
     semantic_boundaries: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Only affects text and PDF content. When true, an LLM chooses "
             "chunk boundaries based on semantic coherence (topic shifts, "
@@ -58,7 +58,7 @@ class IngestRequest(BaseModel):
         ),
     )
     contextualize: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Only affects text and PDF content. When true, an LLM flags "
             "which chunks would benefit from a short situating context "

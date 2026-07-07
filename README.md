@@ -70,7 +70,7 @@ The service runs on port `8000`.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/v1/health` | Reports service health including LLM backend status. Returns `503` if Ollama is unreachable. |
-| `POST` | `/api/v1/ingest` | Parses, chunks, and embeds a document and stores it in the vector store. Re-ingesting the same `artifact_id` replaces existing chunks. Supports text files and images (send image content as base64; requires `OLLAMA_VISION_MODEL`). Text/PDF content is chunked using the LLM-based [context-aware chunker](#context-aware-chunking) by default. |
+| `POST` | `/api/v1/ingest` | Parses, chunks, and embeds a document and stores it in the vector store. Re-ingesting the same `artifact_id` replaces existing chunks. Supports text files and images (send image content as base64; requires `OLLAMA_VISION_MODEL`). Text/PDF content can optionally be chunked using the LLM-based [context-aware chunker](#context-aware-chunking) (opt-in, off by default). |
 | `POST` | `/api/v1/chat` | Retrieves relevant chunks and streams a generated answer as Server-Sent Events (SSE). |
 | `POST` | `/api/v1/title` | Generates a short descriptive title from a user prompt. |
 | `POST` | `/api/v1/onboarding/path` | Generates a personalized onboarding path (SSE). Blueprints are passed in by the backend on each request — the service is stateless. |
@@ -90,14 +90,14 @@ The `/api/v1/chat` endpoint streams newline-delimited JSON events:
 
 ## Context-aware chunking
 
-By default, `POST /api/v1/ingest` chunks text and PDF content using an LLM instead of the plain character-length `chunk_text` strategy (`ingestion/chunker.py`). This is opt-in per request via two independently toggleable flags on `IngestRequest`, both `true` by default:
+`POST /api/v1/ingest` can optionally chunk text and PDF content using an LLM instead of the plain character-length `chunk_text` strategy (`ingestion/chunker.py`). This is opt-in per request via two independently toggleable flags on `IngestRequest`, both `false` by default:
 
 | Field | Default | Description |
 |---|---|---|
-| `semantic_boundaries` | `true` | Let the LLM choose chunk boundaries based on topic shifts / section boundaries instead of accumulating paragraphs up to `CHUNK_SIZE`. |
-| `contextualize` | `true` | Let the LLM selectively prepend a short situating "context block" (Anthropic-style *Contextual Retrieval*) to chunks that would otherwise lack context; self-contained chunks are left untouched. |
+| `semantic_boundaries` | `false` | Let the LLM choose chunk boundaries based on topic shifts / section boundaries instead of accumulating paragraphs up to `CHUNK_SIZE`. |
+| `contextualize` | `false` | Let the LLM selectively prepend a short situating "context block" (Anthropic-style *Contextual Retrieval*) to chunks that would otherwise lack context; self-contained chunks are left untouched. |
 
-Both flags share a single LLM call (see `ingestion/context_aware_chunker.py`). Setting both to `false` skips the LLM call entirely and behaves exactly like the legacy chunker. The strategy always falls back to `chunk_text` — no request ever fails because of it — when:
+Both flags share a single LLM call (see `ingestion/context_aware_chunker.py`). Leaving both at `false` (the default) skips the LLM call entirely and behaves exactly like the legacy chunker — existing callers are unaffected unless they explicitly opt in. When either is enabled, the strategy still always falls back to `chunk_text` — no request ever fails because of it — when:
 
 - the content exceeds `CONTEXT_AWARE_CHUNKING_MAX_CHARS`,
 - the LLM backend is unreachable, or
@@ -107,7 +107,6 @@ Resulting chunks carry extra metadata so context/overlap portions of a chunk's c
 
 **Scope:** only text and PDF content are affected; code and image parsing are unchanged. For PDFs, the LLM is invoked **per page** (pages are already parsed independently), so semantic boundaries and context blocks are page-scoped, not whole-document-scoped. The batch endpoint `POST /api/v1/ingest/sync` (GitHub run sync) does not expose these flags and always uses the plain chunker — changing that would mean changing the batch wire contract with the backend, which is a separate decision.
 
-**Performance:** enabling either flag adds one LLM `generate` call per ingested text/PDF artifact (per page, for PDFs). This is why it is capped by `CONTEXT_AWARE_CHUNKING_MAX_CHARS` and always has a deterministic fallback — expect noticeably higher ingest latency compared to the plain chunker, especially with slower local backends.
 
 ## AI-proposed onboarding blueprints
 

@@ -22,8 +22,8 @@ def parse(
     filename: str,
     content: bytes,
     llm: LLMClient | None = None,
-    semantic_boundaries: bool = True,
-    contextualize: bool = True,
+    semantic_boundaries: bool = False,
+    contextualize: bool = False,
 ) -> list[ParsedChunk]:
     """Parse a file into structured chunks based on its file extension.
 

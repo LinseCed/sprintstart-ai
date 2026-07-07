@@ -8,8 +8,8 @@ def parse_text(
     filename: str,
     content: bytes,
     llm: LLMClient | None = None,
-    semantic_boundaries: bool = True,
-    contextualize: bool = True,
+    semantic_boundaries: bool = False,
+    contextualize: bool = False,
 ) -> list[ParsedChunk]:
     """Parse plain text-based files into paragraph-aware text chunks.
 
@@ -32,19 +32,20 @@ def parse_text(
         semantic_boundaries (bool, optional):
             Let the LLM choose chunk boundaries based on semantic
             coherence. Only relevant when ``llm`` is provided. Defaults to
-            ``True``.
+            ``False``.
 
         contextualize (bool, optional):
             Let the LLM prepend a short situating context block to chunks
             that would benefit from one. Only relevant when ``llm`` is
-            provided. Defaults to ``True``.
+            provided. Defaults to ``False``.
 
     Returns:
         list[ParsedChunk]: A list of ParsedChunk objects, each with kind='text'.
     """
     text = content.decode(encoding="utf-8", errors="replace")
 
-    if llm is None:
+    use_context_aware_chunking = semantic_boundaries or contextualize
+    if not use_context_aware_chunking or llm is None:
         return chunk_text(filename, text)
 
     return chunk_text_context_aware(
