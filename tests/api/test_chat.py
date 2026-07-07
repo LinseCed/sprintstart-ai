@@ -104,6 +104,7 @@ def test_chat_emits_citation_when_chunks_exist(
     assert len(citation_events) == 1
     assert citation_events[0]["filename"] == "retro.md"
     assert citation_events[0]["chunk_id"] == "chunk-1"
+    assert citation_events[0]["artifact_id"] == "doc-1"
 
     tool_uses = [
         {"name": e["name"], "kind": e["kind"]}

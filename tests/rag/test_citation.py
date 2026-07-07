@@ -18,3 +18,4 @@ def test_build_citations_maps_chunk_fields() -> None:
     assert len(citations) == 1
     assert citations[0].filename == "architecture.md"
     assert citations[0].chunk_id == "chunk-1"
+    assert citations[0].artifact_id == "artifact-1"

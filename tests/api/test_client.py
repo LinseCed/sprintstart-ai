@@ -48,7 +48,10 @@ def chat(question: str, history: list[dict[str, str]] | None = None) -> None:
                 if event_type == "token":
                     print(event["content"], end="", flush=True)
                 elif event_type == "citation":
-                    print(f"\n[citation] {event['filename']} chunk={event['chunk_id']}")
+                    print(
+                        f"\n[citation] {event['filename']} "
+                        f"chunk={event['chunk_id']} artifact={event['artifact_id']}"
+                    )
                 elif event_type == "done":
                     print("\n[done]")
                 elif event_type == "error":

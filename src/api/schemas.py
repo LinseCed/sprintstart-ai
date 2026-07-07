@@ -360,6 +360,7 @@ class TokenEvent(BaseModel):
 class CitationEvent(BaseModel):
     type: Literal["citation"]
     chunk_id: str
+    artifact_id: str
     filename: str
 
 

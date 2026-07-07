@@ -43,4 +43,5 @@ class ScoredChunk:
 class Citation:
     filename: str
     chunk_id: str
+    artifact_id: str
     source_url: str | None = None
