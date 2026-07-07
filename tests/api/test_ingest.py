@@ -232,13 +232,12 @@ def test_ingest_defaults_to_primary_for_normal_files(
     assert all(chunk.source_role == "primary" for chunk in chunks)
 
 
-def test_ingest_calls_llm_for_context_aware_chunking_by_default(
+def test_ingest_without_flags_skips_llm_call_by_default(
     vector_store: StubVectorStore,
     metadata_store: IngestionMetadataStore,
 ) -> None:
-    # Defaults (semantic_boundaries=True, contextualize=True) should trigger
-    # an LLM call for text content, even though the stub's non-JSON response
-    # makes the chunker fall back to chunk_text.
+    # Defaults (semantic_boundaries=False, contextualize=False) must not
+    # trigger an LLM call — the feature is opt-in.
     llm = RecordingLLMClient()
     app.dependency_overrides[get_store] = lambda: vector_store
     app.dependency_overrides[get_llm] = lambda: llm
@@ -251,6 +250,36 @@ def test_ingest_calls_llm_for_context_aware_chunking_by_default(
             "artifact_id": "artifact-default-flags",
             "filename": "notes.txt",
             "content": "First paragraph.\n\nSecond paragraph.",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert llm.generate_calls == []
+
+
+def test_ingest_calls_llm_when_flags_explicitly_enabled(
+    vector_store: StubVectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> None:
+    # Explicitly opting in should trigger an LLM call for text content,
+    # even though the stub's non-JSON response makes the chunker fall back
+    # to chunk_text.
+    llm = RecordingLLMClient()
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: llm
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/ingest",
+        json={
+            "artifact_id": "artifact-explicit-flags",
+            "filename": "notes.txt",
+            "content": "First paragraph.\n\nSecond paragraph.",
+            "semantic_boundaries": True,
+            "contextualize": True,
         },
     )
 
