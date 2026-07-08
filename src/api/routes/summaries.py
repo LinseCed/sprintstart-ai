@@ -12,11 +12,11 @@ from llm.errors import LLMUnavailableError
 from rag.types import Chunk
 from store.base import VectorStore
 
-router = APIRouter()
+router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
 
 @router.post(
-    "/artifacts/{artifact_id}/summary",
+    "/{artifact_id}/summary",
     response_model=ArtifactSummaryResponse,
     summary="Summarize an artifact",
 )
@@ -83,13 +83,8 @@ def _chunks_for_artifact(
     artifact_id: str,
     max_chunks: int,
 ) -> list[Chunk]:
-    chunk_count = store.count_by_artifact(artifact_id)
-
-    if chunk_count <= 0:
-        return []
-
     return store.list_chunks_by_artifact(
         artifact_id=artifact_id,
-        limit=min(chunk_count, max_chunks),
+        limit=max_chunks,
         offset=0,
     )

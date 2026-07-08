@@ -4,6 +4,7 @@ from llm.base import LLMClient, Message
 from rag.types import Chunk
 
 _MAX_BATCH_CHARS = 10_000
+_MAX_SUMMARY_BATCHES = 8
 
 
 @dataclass(frozen=True)
@@ -46,11 +47,11 @@ class ArtifactSummaryAgent:
             previous_notes=previous_notes,
         )
 
-        citations = [_citation_for_chunks(artifact_id, chunks)]
+        citations = _citations_for_chunks(artifact_id, chunks)
 
         if previous_chunks:
-            citations.append(
-                _citation_for_chunks(previous_chunks[0].artifact_id, previous_chunks)
+            citations.extend(
+                _citations_for_chunks(previous_chunks[0].artifact_id, previous_chunks)
             )
 
         return ArtifactSummary(
@@ -60,10 +61,18 @@ class ArtifactSummaryAgent:
         )
 
     def _notes_for_chunks(self, label: str, chunks: list[Chunk]) -> str:
-        batches = _chunk_batches(chunks, _MAX_BATCH_CHARS)
+        all_batches = _chunk_batches(chunks, _MAX_BATCH_CHARS)
+        batches = all_batches[:_MAX_SUMMARY_BATCHES]
+
+        truncated_notice = ""
+        if len(all_batches) > len(batches):
+            truncated_notice = (
+                "\n\n[Note: Additional source batches were omitted because the "
+                "artifact exceeds the summary batch limit.]"
+            )
 
         if len(batches) == 1:
-            return batches[0]
+            return batches[0] + truncated_notice
 
         partials: list[str] = []
 
@@ -80,7 +89,7 @@ class ArtifactSummaryAgent:
             )
             partials.append(self._llm.generate(messages).strip())
 
-        return "\n\n".join(partials)
+        return "\n\n".join(partials) + truncated_notice
 
     def _final_summary(
         self,
@@ -136,7 +145,10 @@ def _grounded_summary_messages(user_content: str) -> list[Message]:
 
 
 def _chunk_batches(chunks: list[Chunk], max_chars: int) -> list[str]:
-    ordered = sorted(chunks, key=lambda chunk: chunk.position or 0)
+    ordered = sorted(
+        chunks,
+        key=lambda chunk: chunk.position if chunk.position is not None else 0,
+    )
     batches: list[str] = []
     current = ""
 
@@ -165,12 +177,29 @@ def _format_chunk(chunk: Chunk) -> str:
     )
 
 
-def _citation_for_chunks(artifact_id: str, chunks: list[Chunk]) -> SummaryCitation:
-    first = chunks[0]
-    source_url = next((chunk.source_url for chunk in chunks if chunk.source_url), None)
+def _citations_for_chunks(
+    artifact_id: str,
+    chunks: list[Chunk],
+) -> list[SummaryCitation]:
+    fallback_url = f"/api/v1/vector-db/artifacts/{artifact_id}/chunks"
+    source_url_by_filename: dict[str, str] = {}
 
-    return SummaryCitation(
-        artifact_id=artifact_id,
-        filename=first.filename,
-        source_url=source_url or f"/api/v1/vector-db/artifacts/{artifact_id}/chunks",
-    )
+    for chunk in chunks:
+        current_url = source_url_by_filename.get(chunk.filename)
+        chunk_url = chunk.source_url or fallback_url
+
+        if current_url is None:
+            source_url_by_filename[chunk.filename] = chunk_url
+            continue
+
+        if current_url == fallback_url and chunk.source_url is not None:
+            source_url_by_filename[chunk.filename] = chunk.source_url
+
+    return [
+        SummaryCitation(
+            artifact_id=artifact_id,
+            filename=filename,
+            source_url=source_url,
+        )
+        for filename, source_url in sorted(source_url_by_filename.items())
+    ]

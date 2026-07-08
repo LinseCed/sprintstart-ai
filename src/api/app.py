@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from api.routes import summaries
-
 load_dotenv()
 
 from api.dependencies import get_llm  # noqa: E402
@@ -18,6 +16,7 @@ from api.routes import (  # noqa: E402
     ingest,
     ingest_run,
     onboarding,
+    summaries,
     title,
     vector_db,
 )

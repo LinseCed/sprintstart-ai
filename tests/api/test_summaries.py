@@ -154,6 +154,49 @@ def test_summary_with_previous_artifact_mentions_change_context(
     assert len(body["citations"]) == 2
 
 
+def test_summary_respects_max_chunks(
+    client: tuple[TestClient, CapturingLLM, StubVectorStore],
+) -> None:
+    http_client, llm, store = client
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="artifact-1",
+                filename="notes.md",
+                text="Included chunk text.",
+                embedding=[1.0] + [0.0] * 767,
+                position=0,
+            ),
+            Chunk(
+                id="chunk-2",
+                artifact_id="artifact-1",
+                filename="notes.md",
+                text="Excluded chunk text.",
+                embedding=[1.0] + [0.0] * 767,
+                position=1,
+            ),
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/artifacts/artifact-1/summary",
+        json={"maxChunks": 1},
+    )
+
+    assert response.status_code == 200
+
+    prompt_text = "\n".join(
+        message["content"]
+        for message_list in llm.messages
+        for message in message_list
+    )
+
+    assert "Included chunk text." in prompt_text
+    assert "Excluded chunk text." not in prompt_text
+
+
 def test_summary_previous_artifact_missing_returns_404(
     client: tuple[TestClient, CapturingLLM, StubVectorStore],
 ) -> None:
