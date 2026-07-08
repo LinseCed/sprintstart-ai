@@ -316,7 +316,7 @@ def _group_paragraphs_into_chunks_with_lines(
 
     return raw_chunks
 
-  
+
 def chunk_text(
     filename: str,
     text: str,
