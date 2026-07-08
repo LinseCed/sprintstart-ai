@@ -188,9 +188,7 @@ def test_summary_respects_max_chunks(
     assert response.status_code == 200
 
     prompt_text = "\n".join(
-        message["content"]
-        for message_list in llm.messages
-        for message in message_list
+        message["content"] for message_list in llm.messages for message in message_list
     )
 
     assert "Included chunk text." in prompt_text
