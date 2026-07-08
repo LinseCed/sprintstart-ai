@@ -36,6 +36,11 @@ def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
         text=chunk.text,
         score=score,
         source_role=chunk.source_role,
+        source_url=chunk.source_url,
+        artifact_type=chunk.artifact_type,
+        language=chunk.language,
+        start_line=chunk.start_line,
+        start_page=chunk.start_page,
     )
 
 

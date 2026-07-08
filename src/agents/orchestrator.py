@@ -51,6 +51,8 @@ class ChatOrchestrator:
                         "artifact_id": citation.artifact_id,
                         "filename": citation.filename,
                         "source_url": citation.source_url,
+                        "start_line": citation.start_line,
+                        "start_page": citation.start_page,
                     }
                 )
 

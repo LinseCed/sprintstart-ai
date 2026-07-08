@@ -90,6 +90,7 @@ def test_chat_emits_citation_when_chunks_exist(
                 filename="retro.md",
                 text="Missing designs blocked the auth feature.",
                 embedding=embedding,
+                start_line=5,
             )
         ]
     )
@@ -105,6 +106,8 @@ def test_chat_emits_citation_when_chunks_exist(
     assert citation_events[0]["filename"] == "retro.md"
     assert citation_events[0]["chunk_id"] == "chunk-1"
     assert citation_events[0]["artifact_id"] == "doc-1"
+    assert citation_events[0]["start_line"] == 5
+    assert citation_events[0]["start_page"] is None
 
     tool_uses = [
         {"name": e["name"], "kind": e["kind"]}

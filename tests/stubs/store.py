@@ -39,6 +39,8 @@ class StubVectorStore:
                 source_url=chunk.source_url,
                 artifact_type=chunk.artifact_type,
                 language=chunk.language,
+                start_line=chunk.start_line,
+                start_page=chunk.start_page,
             )
             for chunk in self.chunks
         ]

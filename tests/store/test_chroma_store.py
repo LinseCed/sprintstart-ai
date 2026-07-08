@@ -276,3 +276,62 @@ def test_chroma_persistent_constructor(tmp_path: Path) -> None:
     result = store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.1)
 
     assert len(result) == 1
+
+
+def test_chroma_round_trips_start_line_and_start_page() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(collection_name="test_start_line_page", client=client)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-code",
+                artifact_id="artifact-1",
+                filename="foo.py",
+                text="def foo(): pass",
+                embedding=[1.0, 0.0],
+                start_line=12,
+            ),
+            Chunk(
+                id="chunk-pdf",
+                artifact_id="artifact-1",
+                filename="doc.pdf",
+                text="PDF text",
+                embedding=[0.0, 1.0],
+                start_page=3,
+            ),
+        ]
+    )
+
+    scored_code = store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.1)
+    assert scored_code[0].start_line == 12
+    assert scored_code[0].start_page is None
+
+    scored_pdf = store.query(embedding=[0.0, 1.0], top_k=1, min_score=0.1)
+    assert scored_pdf[0].start_page == 3
+    assert scored_pdf[0].start_line is None
+
+    listed = store.all_chunks()
+    by_id = {chunk.id: chunk for chunk in listed}
+    assert by_id["chunk-code"].start_line == 12
+    assert by_id["chunk-pdf"].start_page == 3
+
+
+def test_chroma_legacy_chunks_without_line_or_page_default_to_none() -> None:
+    """A chunk stored before start_line/start_page existed reads back as None."""
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(
+        name="legacy_line_page", metadata={"hnsw:space": "cosine"}
+    )
+    collection.add(
+        ids=["legacy-1"],
+        documents=["legacy text"],
+        embeddings=[[1.0, 0.0]],
+        metadatas=[{"artifact_id": "a", "filename": "doc.md", "kind": "text"}],
+    )
+    store = ChromaVectorStore(collection_name="legacy_line_page", client=client)
+
+    scored = store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.1)
+
+    assert scored[0].start_line is None
+    assert scored[0].start_page is None

@@ -16,6 +16,11 @@ def _deterministic_id(artifact_id: str, content: str, position: int) -> str:
     return h.hexdigest()[:32]
 
 
+def _optional_int(metadata: dict[str, str], key: str) -> int | None:
+    raw = metadata.get(key)
+    return int(raw) if raw is not None else None
+
+
 def to_chunk(
     parsed: ParsedChunk,
     artifact_id: str,
@@ -32,4 +37,6 @@ def to_chunk(
         kind=parsed.kind,
         position=position,
         source_role=source_role,
+        start_line=_optional_int(parsed.metadata, "start_line"),
+        start_page=_optional_int(parsed.metadata, "page_number"),
     )

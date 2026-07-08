@@ -49,7 +49,7 @@ router = APIRouter()
                             "value": (
                                 'data: {"type": "citation", "chunk_id": "chunk-1",'
                                 ' "artifact_id": "artifact-1",'
-                                ' "filename": "retro.md"}\n\n'
+                                ' "filename": "retro.md", "start_line": 12}\n\n'
                             ),
                         },
                         "done": {

@@ -48,6 +48,8 @@ class FetchFileTool(Tool[FetchFileArgs]):
                 score=_FETCH_SCORE,
                 position=chunk.position,
                 kind=chunk.kind,
+                start_line=chunk.start_line,
+                start_page=chunk.start_page,
             )
             for chunk in self._store.all_chunks()
             if _matches(chunk.filename, query, query_has_ext)

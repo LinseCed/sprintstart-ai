@@ -4,7 +4,7 @@ import sys
 import pytest
 from pytest import MonkeyPatch
 
-from ingestion.chunker import chunk_text
+from ingestion.chunker import _paragraphs_with_start_lines, chunk_text  # type: ignore
 from ingestion.code_parser import chunk_code
 from ingestion.parser import parse
 
@@ -134,3 +134,57 @@ def test_last_paragraph_is_used_as_overlap():
 
     assert "Second paragraph." in chunks[0].content
     assert chunks[1].content.startswith("Second paragraph.")
+
+
+def test_chunk_text_tracks_start_line_per_paragraph():
+    text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+
+    chunks = chunk_text("file.txt", text, chunk_size=1000)
+
+    assert len(chunks) == 1
+    assert chunks[0].metadata["start_line"] == "1"
+
+
+def test_chunk_text_start_line_accounts_for_blank_lines_between_chunks():
+    text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+
+    chunks = chunk_text("file.txt", text, chunk_size=20)
+
+    assert len(chunks) >= 2
+    # "First paragraph." is on line 1.
+    assert chunks[0].metadata["start_line"] == "1"
+    # "Second paragraph." starts after one blank line, i.e. on line 3.
+    assert any(c.metadata["start_line"] == "3" for c in chunks)
+
+
+def test_chunk_text_start_line_skips_extra_blank_lines():
+    # Three blank lines (not just one) between paragraphs.
+    text = "First paragraph.\n\n\n\nSecond paragraph."
+
+    paragraphs = _paragraphs_with_start_lines(text)
+
+    assert paragraphs == [
+        ("First paragraph.", 1),
+        ("Second paragraph.", 5),
+    ]
+
+
+def test_chunk_code_tags_every_chunk_with_given_start_line():
+    code = "\n".join(
+        [
+            "def foo():",
+            "    pass",
+        ]
+        * 200
+    )
+
+    chunks = chunk_code("test.py", code, chunk_size=50, start_line=7)
+
+    assert len(chunks) > 1
+    assert all(chunk.metadata["start_line"] == "7" for chunk in chunks)
+
+
+def test_chunk_code_without_start_line_omits_metadata_key():
+    chunks = chunk_code("test.py", "def foo():\n    pass\n")
+
+    assert "start_line" not in chunks[0].metadata

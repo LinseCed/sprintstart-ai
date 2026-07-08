@@ -60,8 +60,12 @@ def parse_code(filename: str, content: bytes) -> list[ParsedChunk]:
 
     for symbol in symbols:
         full_content = f"{preamble}\n\n{symbol.content}" if preamble else symbol.content
+        # The symbol's own start line in the source file, not the line the
+        # (possibly preamble-prefixed) chunk content starts on: a citation
+        # should point at the definition itself, not at the repeated preamble.
+        symbol_start_line = content.count(b"\n", 0, symbol.start_byte) + 1
 
-        code_chunks = chunk_code(filename, full_content)
+        code_chunks = chunk_code(filename, full_content, start_line=symbol_start_line)
 
         for chunk in code_chunks:
             chunk.metadata = {
@@ -152,7 +156,8 @@ def fallback_regex_parser(filename: str, content: bytes) -> list[ParsedChunk]:
         chunk_content: str = (
             f"{preamble}\n\n{content_body}" if preamble else content_body
         )
-        for chunk in chunk_code(filename, chunk_content):
+        # `start_line` is 0-based (a list index); citations use 1-based lines.
+        for chunk in chunk_code(filename, chunk_content, start_line=start_line + 1):
             parsed_chunks.append(chunk)
 
     return _reindex_chunks(parsed_chunks)
