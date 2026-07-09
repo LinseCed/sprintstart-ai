@@ -3,7 +3,13 @@ from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
 from store.base import VectorStore
 
+# Process-wide BM25 index, shared across every caller (chat, agent tools, and
+# onboarding) so the corpus is only tokenized once instead of once per caller.
 _BM25_CACHE = BM25IndexCache()
+
+
+def get_bm25_cache() -> BM25IndexCache:
+    return _BM25_CACHE
 
 
 def retrieve(

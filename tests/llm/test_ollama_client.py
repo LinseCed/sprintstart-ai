@@ -59,7 +59,7 @@ class _FakeOllamaClient:
         self.last_chat_model: str | None = None
         self.last_chat_messages: list[Message] | None = None
         self.last_embed_model: str | None = None
-        self.last_embed_prompt: str | None = None
+        self.last_embed_input: list[str] | None = None
         self.last_vision_model: str | None = None
         self.last_vision_images: list[bytes] | None = None
 
@@ -114,16 +114,18 @@ class _FakeOllamaClient:
                 message=ollama.Message(role="assistant", content=token)
             )
 
-    def embeddings(
+    def embed(
         self,
         model: str = "",
-        prompt: str = "",
-    ) -> ollama.EmbeddingsResponse:
+        input: Sequence[str] = (),
+    ) -> ollama.EmbedResponse:
         self.last_embed_model = model
-        self.last_embed_prompt = prompt
+        self.last_embed_input = list(input)
         if self._embed_error is not None:
             raise self._embed_error
-        return ollama.EmbeddingsResponse(embedding=self._embed_vector)
+        return ollama.EmbedResponse(
+            embeddings=[self._embed_vector for _ in self.last_embed_input]
+        )
 
     def chat_with_images(
         self,
@@ -270,7 +272,34 @@ class TestEmbedHappyPath:
 
         assert result == fake_vector
         assert fake.last_embed_model == _EMBED_MODEL
-        assert fake.last_embed_prompt == "Say hello"
+        assert fake.last_embed_input == ["Say hello"]
+
+
+class TestEmbedBatchHappyPath:
+    def test_sends_all_texts_in_one_call(self) -> None:
+        fake_vector = [0.1, 0.2, 0.3]
+        fake = _FakeOllamaClient(embed_vector=fake_vector)
+        client = _make_client(inner_client=fake)
+
+        result = client.embed_batch(["hello", "world"])
+
+        assert result == [fake_vector, fake_vector]
+        assert fake.last_embed_model == _EMBED_MODEL
+        assert fake.last_embed_input == ["hello", "world"]
+
+    def test_returns_empty_list_for_no_input(self) -> None:
+        fake = _FakeOllamaClient()
+        client = _make_client(inner_client=fake)
+
+        assert client.embed_batch([]) == []
+        assert fake.last_embed_input is None
+
+    def test_raises_on_connection_error(self) -> None:
+        fake = _FakeOllamaClient(embed_error=ConnectionError("refused"))
+        client = _make_client(host="http://localhost:1", inner_client=fake)
+
+        with pytest.raises(LLMUnavailableError):
+            client.embed_batch(["hello"])
 
 
 @ollama_required

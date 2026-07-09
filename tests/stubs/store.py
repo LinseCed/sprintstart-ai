@@ -80,5 +80,16 @@ class StubVectorStore:
     def all_chunks(self) -> list[Chunk]:
         return list(self.chunks)
 
+    def all_chunks_without_embeddings(self) -> list[Chunk]:
+        return list(self.chunks)
+
+    def list_chunks_without_embeddings(
+        self, limit: int, offset: int = 0
+    ) -> list[Chunk]:
+        return list(self.chunks[offset : offset + limit])
+
+    def all_ids(self) -> frozenset[str]:
+        return frozenset(chunk.id for chunk in self.chunks)
+
     def count(self) -> int:
         return len(self.chunks)

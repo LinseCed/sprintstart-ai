@@ -51,6 +51,49 @@ def test_rrf_merge_with_known_rankings() -> None:
     assert {chunk.id for chunk in result} == {"a", "b", "c"}
 
 
+def test_bm25_cache_invalidates_when_content_replaces_same_count() -> None:
+    """Regression test for issue #129 #1: editing a chunk's text (same total
+    count, new content-hashed id) must invalidate the cache, not just a count
+    change. Stale BM25 hits would otherwise cite chunks Chroma no longer has.
+    """
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [make_chunk(chunk_id="chunk-1", text="original text", embedding=[1.0, 0.0])]
+    )
+    first_index = cache.get(store)
+    assert first_index.chunks[0].text == "original text"
+
+    store.delete("artifact-1")
+    store.add(
+        [
+            make_chunk(
+                chunk_id="chunk-1-edited", text="edited text", embedding=[1.0, 0.0]
+            )
+        ]
+    )
+
+    second_index = cache.get(store)
+
+    assert first_index is not second_index
+    assert second_index.chunks[0].text == "edited text"
+
+
+def test_bm25_cache_hit_does_not_rebuild_index() -> None:
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [make_chunk(chunk_id="chunk-1", text="first chunk", embedding=[1.0, 0.0])]
+    )
+
+    first_index = cache.get(store)
+    second_index = cache.get(store)
+
+    assert first_index is second_index
+
+
 def test_bm25_cache_invalidates_when_chunk_count_changes() -> None:
     store = StubVectorStore()
     cache = BM25IndexCache()
@@ -117,6 +160,47 @@ def test_large_corpus_uses_semantic_only_fallback() -> None:
 
     assert len(result) == 1
     assert result[0].id == "semantic-match"
+
+
+def test_bm25_only_match_is_returned_when_semantic_finds_nothing() -> None:
+    """Regression test for issue #129 #4: an exact-identifier query that embeds
+    poorly (nothing clears min_score) must still surface the BM25 hit instead
+    of being discarded.
+    """
+    llm = StubLLMClient(embedding=[0.0, 1.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    # BM25's idf is degenerate on a single-document corpus (score <= 0 even for
+    # an exact match), so a couple of unrelated chunks keep the corpus realistic.
+    store.add(
+        [
+            make_chunk(
+                chunk_id="keyword-only", text="FooBarHandler", embedding=[1.0, 0.0]
+            ),
+            make_chunk(
+                chunk_id="unrelated-1",
+                text="unrelated document one",
+                embedding=[1.0, 0.0],
+            ),
+            make_chunk(
+                chunk_id="unrelated-2",
+                text="unrelated document two",
+                embedding=[1.0, 0.0],
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="FooBarHandler",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.99,
+        bm25_cache=cache,
+    )
+
+    assert {chunk.id for chunk in result} == {"keyword-only"}
 
 
 def test_exclude_roles_drops_test_chunks() -> None:

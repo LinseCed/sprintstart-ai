@@ -39,7 +39,7 @@ class GrepTool(Tool[GrepArgs]):
                 position=chunk.position,
                 kind=chunk.kind,
             )
-            for chunk in self._store.all_chunks()
+            for chunk in self._store.all_chunks_without_embeddings()
             if any(needle in chunk.text.lower() for needle in needles)
         ]
         return ToolResult(

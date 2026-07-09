@@ -49,7 +49,7 @@ class FetchFileTool(Tool[FetchFileArgs]):
                 position=chunk.position,
                 kind=chunk.kind,
             )
-            for chunk in self._store.all_chunks()
+            for chunk in self._store.all_chunks_without_embeddings()
             if _matches(chunk.filename, query, query_has_ext)
         ]
         return ToolResult(

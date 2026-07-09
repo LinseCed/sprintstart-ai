@@ -38,6 +38,9 @@ class StubLLMClient:
             return self.embed_fn(text)
         return self.embedding
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
     def caption_image(self, image_bytes: bytes) -> str:
         return self.caption
 
@@ -88,6 +91,9 @@ class ScriptedLLMClient:
 
     def embed(self, text: str) -> list[float]:
         return self.embedding
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self.embedding for _ in texts]
 
     def caption_image(self, image_bytes: bytes) -> str:
         return "stub caption"

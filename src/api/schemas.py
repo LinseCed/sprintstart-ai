@@ -622,6 +622,7 @@ class RunArtifactsSyncRequest(BaseModel):
 class ArtifactRunIngestResponse(BaseModel):
     artifact_id: str
     chunk_count: int
+    status: Literal["completed", "failed"] = "completed"
 
 
 class RunArtifactsSyncResponse(BaseModel):
