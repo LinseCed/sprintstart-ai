@@ -28,7 +28,9 @@ def _ollama_is_reachable() -> bool:
     try:
         httpx.get(_OLLAMA_BASE, timeout=2)
         return True
-    except httpx.ConnectError:
+    except httpx.HTTPError:
+        # Any transport-level failure (refused connection, connect timeout, DNS)
+        # means Ollama isn't reachable; skip rather than error out collection.
         return False
 
 

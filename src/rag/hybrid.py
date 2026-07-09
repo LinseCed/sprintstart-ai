@@ -112,8 +112,11 @@ class BM25Index:
 
 class BM25IndexCache:
     def __init__(self) -> None:
-        self._index: BM25Index | None = None
-        self._chunk_ids: frozenset[str] | None = None
+        # The fingerprint and its index are stored together as one immutable
+        # tuple so the fast path reads a single reference. Reading the id-set and
+        # the index separately would let a concurrent rebuild swap them mid-check
+        # and return an index that doesn't match the fingerprint we validated.
+        self._snapshot: tuple[frozenset[str], BM25Index] | None = None
         self._lock = threading.Lock()
 
     def get(self, store: VectorStore) -> BM25Index:
@@ -122,19 +125,19 @@ class BM25IndexCache:
         # content-hashed, so an id-set match means the corpus text hasn't changed.
         current_ids = store.all_ids()
 
-        cached_index = self._index
-        if cached_index is not None and self._chunk_ids == current_ids:
-            return cached_index
+        snapshot = self._snapshot
+        if snapshot is not None and snapshot[0] == current_ids:
+            return snapshot[1]
 
         with self._lock:
             # Another thread may have rebuilt for this exact corpus state while
             # we were computing the fingerprint above; avoid rebuilding twice.
-            if self._index is not None and self._chunk_ids == current_ids:
-                return self._index
+            snapshot = self._snapshot
+            if snapshot is not None and snapshot[0] == current_ids:
+                return snapshot[1]
 
             index = BM25Index(store.all_chunks_without_embeddings())
-            self._index = index
-            self._chunk_ids = current_ids
+            self._snapshot = (current_ids, index)
             return index
 
 
