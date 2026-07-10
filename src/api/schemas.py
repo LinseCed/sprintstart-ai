@@ -626,8 +626,7 @@ class KnowledgeGapSchema(BaseModel):
         "artifact."
     )
     severity: Literal["high", "medium", "low"] = Field(
-        description="Gap severity, from missing-critical-category count and "
-        "staleness."
+        description="Gap severity, from missing-critical-category count and staleness."
     )
 
 

@@ -135,9 +135,7 @@ def test_detect_skips_artifacts_without_component() -> None:
     metadata_store = _store()
     metadata_store.save_completed_artifact(_artifact("a1", "notes.md", source_id=None))
 
-    gaps = detect_knowledge_gaps(
-        _present_llm([]), StubVectorStore(), metadata_store
-    )
+    gaps = detect_knowledge_gaps(_present_llm([]), StubVectorStore(), metadata_store)
 
     assert gaps == []
 

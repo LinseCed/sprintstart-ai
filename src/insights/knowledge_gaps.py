@@ -173,9 +173,7 @@ def _classify_present(
         present = cast(dict[str, object], payload).get("present")
         if not isinstance(present, list):
             raise ValueError("'present' is not a list")
-        return {str(item) for item in cast(list[object], present)} & set(
-            EXPECTED_TYPES
-        )
+        return {str(item) for item in cast(list[object], present)} & set(EXPECTED_TYPES)
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         logger.warning(
             "Knowledge-gap classification for %s fell back to heuristic: %s",
