@@ -52,8 +52,12 @@ _STALE_AFTER_DAYS = 180
 
 # Bound on how many documents (and how much text per document) we feed the
 # classifier, to keep the per-component prompt within a reasonable token budget.
-_MAX_DOCS_PER_COMPONENT = 25
-_SNIPPET_CHARS = 200
+_MAX_DOCS_PER_COMPONENT = 60
+_SNIPPET_CHARS = 600
+
+# Filename extensions that are documentation-like, used to prioritize the
+# sample fed to the classifier (see ``_doc_priority``).
+_DOC_EXTENSIONS = (".md", ".mdx", ".rst", ".txt")
 
 # Filename substrings mapped to categories, used as the fallback classifier.
 _HEURISTIC_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -65,6 +69,9 @@ _HEURISTIC_KEYWORDS: dict[str, tuple[str, ...]] = {
         "getting_started",
         "quickstart",
         "contributing",
+        "help",
+        "agents",
+        "env.example",
     ),
     "architecture": ("architecture", "design"),
     "adr": ("adr", "decision-record", "decision_record"),
@@ -99,13 +106,27 @@ def _component_of(record: ArtifactRecord) -> str | None:
     return None
 
 
+def _doc_priority(record: ArtifactRecord) -> int:
+    """Lower sorts first: readme, then other doc-like files, then everything
+    else. Applied before the ``_MAX_DOCS_PER_COMPONENT`` cap so a component
+    with many files doesn't have its README or other docs truncated out of
+    the classifier's sample."""
+    name = record.filename.lower()
+    if "readme" in name:
+        return 0
+    if name.endswith(_DOC_EXTENSIONS):
+        return 1
+    return 2
+
+
 def _doc_snippets(
     records: list[ArtifactRecord],
     store: VectorStore,
 ) -> list[tuple[str, str]]:
     """Return ``(filename, text snippet)`` pairs for a component's documents."""
+    prioritized = sorted(records, key=_doc_priority)
     snippets: list[tuple[str, str]] = []
-    for record in records[:_MAX_DOCS_PER_COMPONENT]:
+    for record in prioritized[:_MAX_DOCS_PER_COMPONENT]:
         text = ""
         chunks = store.list_chunks_by_artifact(record.id, limit=1)
         if chunks:
@@ -160,10 +181,15 @@ def _classify_present(
 ) -> set[str]:
     """Classify which expected categories the component covers.
 
-    Uses the LLM as the primary classifier and falls back to the filename
-    heuristic when the LLM output can't be parsed. ``LLMUnavailableError`` is
-    allowed to propagate so the endpoint can surface a 503.
+    The filename heuristic runs unconditionally and its result is *unioned*
+    with the LLM's, rather than only substituting for it when the LLM output
+    fails to parse. This means an obvious signal (README.md exists) can never
+    be overridden by a confidently-wrong LLM classification — the LLM can
+    only add categories the heuristic missed, never remove ones it found.
+    ``LLMUnavailableError`` is allowed to propagate so the endpoint can
+    surface a 503.
     """
+    heuristic = _heuristic_present(records)
     snippets = _doc_snippets(records, store)
     raw = llm.generate(_build_classify_prompt(component, snippets))
     try:
@@ -173,14 +199,17 @@ def _classify_present(
         present = cast(dict[str, object], payload).get("present")
         if not isinstance(present, list):
             raise ValueError("'present' is not a list")
-        return {str(item) for item in cast(list[object], present)} & set(EXPECTED_TYPES)
+        llm_present = {str(item) for item in cast(list[object], present)} & set(
+            EXPECTED_TYPES
+        )
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         logger.warning(
             "Knowledge-gap classification for %s fell back to heuristic: %s",
             component,
             exc,
         )
-        return _heuristic_present(records)
+        return heuristic
+    return llm_present | heuristic
 
 
 def _is_stale(last_updated: str) -> bool:
@@ -197,14 +226,19 @@ def _is_stale(last_updated: str) -> bool:
 def _severity(missing: list[str], last_updated: str) -> Severity:
     """Rank a gap.
 
-    Score accrues from the number of missing categories, with an extra penalty
-    when a critical category (readme/setup) is missing and when the component's
-    newest document is stale.
+    Missing critical categories (readme/setup) weigh far more than missing
+    optional ones: each missing critical type is worth 3 points, so missing
+    even one already reaches "medium" and missing both reaches "high" on its
+    own. Missing optional categories are capped at 3 points total so that a
+    component with solid critical coverage but several missing optional
+    categories doesn't get inflated to "high" purely from their count —
+    without the cap, e.g. 4 missing optional categories alone would already
+    cross the "high" threshold even though readme/setup both exist.
     """
     missing_set = set(missing)
-    score = len(missing_set)
-    if missing_set & CRITICAL_TYPES:
-        score += 2
+    critical_missing = len(missing_set & CRITICAL_TYPES)
+    noncritical_missing = min(len(missing_set - CRITICAL_TYPES), 3)
+    score = 3 * critical_missing + noncritical_missing
     if _is_stale(last_updated):
         score += 1
     if score >= 4:

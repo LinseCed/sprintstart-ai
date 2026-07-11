@@ -115,7 +115,9 @@ def test_detect_reports_missing_types_for_component() -> None:
     assert gap.component == "acme/auth"
     assert gap.present_types == ["readme", "setup"]
     assert gap.missing_types == ["architecture", "adr", "api", "runbook"]
-    assert gap.severity == "high"
+    # Both critical categories (readme/setup) are present, so 4 missing
+    # optional categories alone should land at "medium", not "high".
+    assert gap.severity == "medium"
 
 
 def test_detect_skips_fully_covered_component() -> None:
@@ -157,3 +159,29 @@ def test_detect_falls_back_to_heuristic_on_bad_llm_output() -> None:
     # heuristic picks readme + runbook from the filenames
     assert set(gaps[0].present_types) == {"readme", "runbook"}
     assert "setup" in gaps[0].missing_types
+
+
+def test_detect_union_keeps_heuristic_hit_despite_wrong_llm_classification() -> None:
+    """Regression: an obvious README.md must never be overridden by a
+    confidently-wrong LLM answer that omits it."""
+    metadata_store = _store()
+    metadata_store.save_completed_artifact(
+        _artifact("a1", "README.md", source_id="github:acme/auth:FILE:README.md")
+    )
+
+    gaps = detect_knowledge_gaps(
+        _present_llm(["architecture"]), StubVectorStore(), metadata_store
+    )
+
+    assert len(gaps) == 1
+    assert "readme" in gaps[0].present_types
+    assert "architecture" in gaps[0].present_types
+
+
+def test_heuristic_present_recognizes_expanded_setup_signals() -> None:
+    records = [
+        _artifact("a1", "HELP.md"),
+        _artifact("a2", "AGENTS.md"),
+        _artifact("a3", "run.local.env.example"),
+    ]
+    assert _heuristic_present(records) == {"setup"}
