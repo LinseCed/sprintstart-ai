@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import pytest
@@ -26,9 +26,27 @@ def _embed_fn(text: str) -> list[float]:
 
 
 class _EchoLLM(StubLLMClient):
-    """Redaction pass-through so tests can focus on the HTTP contract."""
+    """Scripted grouping answer, then a redaction pass-through.
+
+    ``group_faqs`` makes exactly two ``generate`` calls: one for clustering
+    and one from ``redact_pii`` for name redaction. Tests here focus on the
+    HTTP contract, not clustering quality, so the grouping answer is scripted
+    to match the fixture questions' ids.
+    """
+
+    def __init__(
+        self,
+        groups: list[list[str]] | None = None,
+        embed_fn: Callable[[str], list[float]] | None = None,
+    ) -> None:
+        super().__init__(embed_fn=embed_fn)
+        self._groups = groups if groups is not None else [["q1", "q2"], ["q3"]]
+        self._calls = 0
 
     def generate(self, messages: list[dict[str, object]]) -> str:  # type: ignore[override]
+        self._calls += 1
+        if self._calls == 1:
+            return json.dumps({"groups": self._groups, "discard_ids": []})
         payload = json.loads(messages[-1]["content"])  # type: ignore[index]
         return json.dumps({"texts": payload["texts"]})
 

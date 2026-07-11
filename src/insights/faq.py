@@ -6,20 +6,21 @@ history itself, so the backend sends the full set of questions to group on
 every request.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 
+from pydantic import BaseModel, ValidationError
+
 from ingestion.metadata_store import IngestionMetadataStore
 from insights.redaction import redact_pii
-from llm.base import LLMClient
-from onboarding.similarity import cosine_similarity
+from llm.base import LLMClient, Message
+from llm.parsing import extract_json_object
 from rag.retriever import retrieve
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)
 
-# Cosine similarity above which two questions are folded into one FAQ group.
-_SIMILARITY_THRESHOLD = 0.75
 # Cap on redacted sample questions returned per group.
 _MAX_SAMPLE_QUESTIONS = 5
 # Retrieval settings used to find the documents that answer a group.
@@ -53,39 +54,93 @@ class FaqGroup:
 @dataclass
 class _Cluster:
     members: list[FaqQuestionInput] = field(default_factory=list[FaqQuestionInput])
-    seed_embedding: list[float] = field(default_factory=list[float])
+
+
+class _GroupPayload(BaseModel):
+    groups: list[list[str]] = []
+    discard_ids: list[str] = []
+
+
+_GROUPING_SYSTEM = (
+    "You group recurring end-user questions asked to a docs chatbot into FAQ "
+    "clusters for a PM-facing dashboard. Each input question is prefixed with "
+    "its id in square brackets.\n\n"
+    "Rules:\n"
+    "1. First set aside anything that is not a genuine, documentation-relevant "
+    "question — greetings, smalltalk, or chit-chat (e.g. 'hey', 'hey there, "
+    "how you doing', 'thanks!'). List their ids in discard_ids instead of a "
+    "group.\n"
+    "2. Group the remaining questions by what they are actually asking, not by "
+    "surface sentence structure. Two questions belong together only if the "
+    "same piece of documentation would answer both. Questions that name "
+    "different components, services, or products (e.g. 'how to start the "
+    "frontend' vs 'how to start the backend') are DIFFERENT groups even "
+    "though they share the same template — the named component is the "
+    "distinguishing part, not noise.\n"
+    "3. Minor rewordings, abbreviations, or added politeness for the *same* "
+    "request belong in the same group.\n"
+    "4. Every input id must appear exactly once, in exactly one group or in "
+    "discard_ids.\n\n"
+    "Return STRICT JSON only (no prose, no markdown fences): "
+    '{"groups": [[id, ...], ...], "discard_ids": [id, ...]}'
+)
+
+
+def _build_grouping_prompt(questions: list[FaqQuestionInput]) -> list[Message]:
+    listing = "\n".join(f"[{q.id}] {q.text}" for q in questions)
+    return [
+        Message(role="system", content=_GROUPING_SYSTEM),
+        Message(role="user", content=listing),
+    ]
 
 
 def _cluster_questions(
     questions: list[FaqQuestionInput], llm: LLMClient
 ) -> list[_Cluster]:
-    """Greedily assign each question to the closest matching cluster.
+    """Group questions into FAQ clusters with a single batched LLM call.
 
-    Each question is compared against every existing cluster's seed (first
-    member's) embedding; it joins the best-matching cluster above the
-    similarity threshold, or starts a new one otherwise. This leader-cluster
-    approach mirrors the dedup pattern already used for onboarding step
-    generation (``onboarding.generation.filter_semantic_duplicates``).
+    A single call over the whole set replaces the previous greedy,
+    embedding-threshold clustering: it judges cluster membership by meaning
+    (e.g. treating a named component like "frontend" vs "backend" as
+    distinguishing) rather than a fixed cosine cutoff, isn't sensitive to
+    input order, and filters out non-questions (greetings/smalltalk) before
+    they can be surfaced as a group.
     """
+    by_id = {q.id: q for q in questions if q.text.strip()}
+    if not by_id:
+        return []
+
+    order = {qid: i for i, qid in enumerate(by_id)}
+    raw = llm.generate(_build_grouping_prompt(list(by_id.values())))
+    try:
+        payload = _GroupPayload.model_validate_json(extract_json_object(raw))
+    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning(
+            "FAQ grouping failed to parse LLM output, falling back to "
+            "ungrouped questions: %s",
+            exc,
+        )
+        return [_Cluster(members=[q]) for q in by_id.values()]
+
     clusters: list[_Cluster] = []
-    for question in questions:
-        text = question.text.strip()
-        if not text:
-            continue
-        embedding = llm.embed(text)
+    claimed: set[str] = set(payload.discard_ids)
+    for group_ids in payload.groups:
+        unique_ids = list(
+            dict.fromkeys(
+                gid for gid in group_ids if gid in by_id and gid not in claimed
+            )
+        )
+        claimed.update(unique_ids)
+        if unique_ids:
+            members = sorted(
+                (by_id[gid] for gid in unique_ids), key=lambda q: order[q.id]
+            )
+            clusters.append(_Cluster(members=members))
 
-        best_cluster: _Cluster | None = None
-        best_similarity = 0.0
-        for cluster in clusters:
-            similarity = cosine_similarity(embedding, cluster.seed_embedding)
-            if similarity > best_similarity:
-                best_similarity = similarity
-                best_cluster = cluster
-
-        if best_cluster is not None and best_similarity >= _SIMILARITY_THRESHOLD:
-            best_cluster.members.append(question)
-        else:
-            clusters.append(_Cluster(members=[question], seed_embedding=embedding))
+    # Defensive: never silently drop a question the model didn't classify.
+    for qid, question in by_id.items():
+        if qid not in claimed:
+            clusters.append(_Cluster(members=[question]))
 
     return clusters
 
