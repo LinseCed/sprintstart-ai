@@ -68,6 +68,8 @@ class ChromaVectorStore:
                     "source_url": chunk.source_url or "",
                     "artifact_type": chunk.artifact_type or "",
                     "language": chunk.language or "",
+                    "connector_id": chunk.connector_id or "",
+                    "connector_source_id": chunk.connector_source_id or "",
                 }
                 for chunk in chunks
             ],
@@ -132,6 +134,8 @@ class ChromaVectorStore:
                     source_url=_optional_str(metadata, "source_url"),
                     artifact_type=_optional_str(metadata, "artifact_type"),
                     language=_optional_str(metadata, "language"),
+                    connector_id=_optional_str(metadata, "connector_id"),
+                    connector_source_id=_optional_str(metadata, "connector_source_id"),
                 )
             )
 
@@ -208,6 +212,8 @@ class ChromaVectorStore:
                     source_url=_optional_str(metadata, "source_url"),
                     artifact_type=_optional_str(metadata, "artifact_type"),
                     language=_optional_str(metadata, "language"),
+                    connector_id=_optional_str(metadata, "connector_id"),
+                    connector_source_id=_optional_str(metadata, "connector_source_id"),
                 )
             )
 
@@ -267,6 +273,8 @@ class ChromaVectorStore:
                     source_url=_optional_str(metadata, "source_url"),
                     artifact_type=_optional_str(metadata, "artifact_type"),
                     language=_optional_str(metadata, "language"),
+                    connector_id=_optional_str(metadata, "connector_id"),
+                    connector_source_id=_optional_str(metadata, "connector_source_id"),
                 )
             )
 

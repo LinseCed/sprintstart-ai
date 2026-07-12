@@ -628,6 +628,29 @@ class RunArtifactsSyncResponse(BaseModel):
     artifacts: list[ArtifactRunIngestResponse]
 
 
+# ── Connector / source enable-disable ───────────────────────────────────────
+
+
+class ConfigureConnectorRequest(BaseModel):
+    enabled: bool = Field(description="Whether the connector should be enabled.")
+
+
+class ConfigureConnectorResponse(BaseModel):
+    connector_id: str
+    enabled: bool
+
+
+class PatchSourcesRequest(BaseModel):
+    sources: dict[str, bool] = Field(
+        description="Map of source id (e.g. 'owner/repo') to enabled status."
+    )
+
+
+class PatchSourcesResponse(BaseModel):
+    connector_id: str
+    sources: dict[str, bool]
+
+
 class ArtifactSummaryRequest(BaseModel):
     previous_artifact_id: str | None = Field(
         default=None,

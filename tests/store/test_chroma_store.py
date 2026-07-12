@@ -47,6 +47,37 @@ def test_chroma_query_returns_chunks_above_min_score() -> None:
     assert result[0].score >= 0.8
 
 
+def test_chroma_query_round_trips_connector_fields() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(
+        collection_name="test_chunks_connector_fields",
+        client=client,
+    )
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="artifact-1",
+                filename="doc.md",
+                text="Some text",
+                embedding=[1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/repo",
+            )
+        ]
+    )
+
+    result = store.query(embedding=[1.0, 0.0], top_k=5, min_score=0.0)
+
+    assert result[0].connector_id == "github"
+    assert result[0].connector_source_id == "owner/repo"
+
+    [listed] = store.list_chunks(limit=5)
+    assert listed.connector_id == "github"
+    assert listed.connector_source_id == "owner/repo"
+
+
 def test_chroma_query_returns_empty_list_when_threshold_too_high() -> None:
     client = chromadb.EphemeralClient()
     store = ChromaVectorStore(

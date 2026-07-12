@@ -22,6 +22,8 @@ class Chunk:
     source_url: str | None = None
     artifact_type: str | None = None
     language: str | None = None
+    connector_id: str | None = None
+    connector_source_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,8 @@ class ScoredChunk:
     source_url: str | None = None
     artifact_type: str | None = None
     language: str | None = None
+    connector_id: str | None = None
+    connector_source_id: str | None = None
 
 
 @dataclass(frozen=True)

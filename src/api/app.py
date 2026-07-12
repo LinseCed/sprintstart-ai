@@ -16,6 +16,7 @@ from api.routes import (  # noqa: E402
     ingest,
     ingest_run,
     onboarding,
+    sources,
     summaries,
     title,
     vector_db,
@@ -64,5 +65,6 @@ api_router.include_router(vector_db.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(summaries.router)
+api_router.include_router(sources.router)
 
 app.include_router(api_router)
