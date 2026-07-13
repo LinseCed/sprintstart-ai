@@ -41,9 +41,11 @@ def clear_dependency_caches() -> None:
     from api.dependencies import (
         get_ingestion_metadata_store,
         get_llm,
+        get_source_state_store,
         get_store,
     )
 
     get_llm.cache_clear()
     get_store.cache_clear()
     get_ingestion_metadata_store.cache_clear()
+    get_source_state_store.cache_clear()

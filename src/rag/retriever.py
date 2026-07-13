@@ -1,5 +1,6 @@
 from llm.base import LLMClient
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
+from rag.source_filter import SourceExclusions
 from rag.types import RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
@@ -14,6 +15,7 @@ def retrieve(
     store: VectorStore,
     top_k: int = _DEFAULT_TOP_K,
     min_score: float = _DEFAULT_MIN_SCORE,
+    exclusions: SourceExclusions = SourceExclusions(),
     filters: RetrievalFilters | None = None,
 ) -> list[ScoredChunk]:
     return hybrid_retrieve(
@@ -23,5 +25,6 @@ def retrieve(
         top_k=top_k,
         min_score=min_score,
         bm25_cache=_BM25_CACHE,
+        exclusions=exclusions,
         filters=filters,
     )

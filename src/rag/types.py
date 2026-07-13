@@ -35,6 +35,8 @@ class Chunk:
     source_url: str | None = None
     artifact_type: str | None = None
     language: str | None = None
+    connector_id: str | None = None
+    connector_source_id: str | None = None
     source_system: SourceSystem | None = None
     created_at: str | None = None
     # 1-based line the chunk starts on in the source file. Only meaningful for
@@ -58,6 +60,8 @@ class ScoredChunk:
     source_url: str | None = None
     artifact_type: str | None = None
     language: str | None = None
+    connector_id: str | None = None
+    connector_source_id: str | None = None
     source_system: SourceSystem | None = None
     created_at: str | None = None
     start_line: int | None = None

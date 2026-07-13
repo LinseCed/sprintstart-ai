@@ -54,6 +54,8 @@ class ChromaVectorStore:
                 "source_url": chunk.source_url or "",
                 "artifact_type": chunk.artifact_type or "",
                 "language": chunk.language or "",
+                "connector_id": chunk.connector_id or "",
+                "connector_source_id": chunk.connector_source_id or "",
                 "source_system": chunk.source_system or "",
                 "created_at": chunk.created_at or "",
                 "created_at_ts": timestamp_from_iso(chunk.created_at),
@@ -141,6 +143,10 @@ class ChromaVectorStore:
                     source_url=_optional_str(metadata.get("source_url")),
                     artifact_type=_optional_str(metadata.get("artifact_type")),
                     language=_optional_str(metadata.get("language")),
+                    connector_id=_optional_str(metadata.get("connector_id")),
+                    connector_source_id=_optional_str(
+                        metadata.get("connector_source_id")
+                    ),
                     source_system=source_system,
                     created_at=_optional_str(metadata.get("created_at")),
                     start_line=_optional_int(metadata.get("start_line")),
@@ -256,6 +262,8 @@ def _chunks_from_get_result(raw_result: Any) -> list[Chunk]:
                 source_url=_optional_str(metadata.get("source_url")),
                 artifact_type=_optional_str(metadata.get("artifact_type")),
                 language=_optional_str(metadata.get("language")),
+                connector_id=_optional_str(metadata.get("connector_id")),
+                connector_source_id=_optional_str(metadata.get("connector_source_id")),
                 source_system=source_system,
                 created_at=_optional_str(metadata.get("created_at")),
                 start_line=_optional_int(metadata.get("start_line")),

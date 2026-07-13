@@ -54,6 +54,18 @@ def _filename_for(artifact: ArtifactRunIngestRequest) -> str:
     return f"{type_prefix}-{slug}.md"
 
 
+def _connector_source_id_for(artifact: ArtifactRunIngestRequest) -> str | None:
+    """Derive the connector-level source id (e.g. 'owner/repo') from sourceId.
+
+    sourceId format: "github:owner/repo:TYPE:unique" — the connector-level
+    source identity is always the second colon-separated segment, regardless
+    of artifact type. This is distinct from the artifact-level sourceId
+    itself, and from the enclosing connector id (artifact.source_system).
+    """
+    parts = artifact.source_id.split(":", 3)
+    return parts[1] if len(parts) >= 2 else None
+
+
 def _assemble_content(artifact: ArtifactRunIngestRequest) -> str:
     parts: list[str] = []
     if artifact.title:
@@ -159,6 +171,8 @@ def _ingest_one(
                     source_system=source_system,
                 ),
                 position=index,
+                connector_id=source_system.lower(),
+                connector_source_id=_connector_source_id_for(artifact),
             )
             for index, chunk in enumerate(parsed_chunks)
         ]

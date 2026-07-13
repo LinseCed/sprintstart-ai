@@ -8,6 +8,7 @@ from agents.tools.retrieve import RetrieveTool
 from llm.base import LLMClient
 from rag.query_expansion import expand_query
 from rag.retriever import retrieve
+from rag.source_filter import SourceExclusions
 from store.base import VectorStore
 
 _MAX_STEPS = 3
@@ -35,13 +36,19 @@ Be concise and precise. Use markdown formatting where appropriate.
 
 
 class SynthesisAgent(Agent):
-    def __init__(self, llm: LLMClient, store: VectorStore) -> None:
+    def __init__(
+        self,
+        llm: LLMClient,
+        store: VectorStore,
+        exclusions: SourceExclusions = SourceExclusions(),
+    ) -> None:
         self._store = store
+        self._exclusions = exclusions
         tools = ToolRegistry(
             [
-                RetrieveTool(llm, store),
-                GrepTool(store),
-                FetchFileTool(store),
+                RetrieveTool(llm, store, exclusions=exclusions),
+                GrepTool(store, exclusions=exclusions),
+                FetchFileTool(store, exclusions=exclusions),
             ]
         )
         super().__init__(
@@ -64,7 +71,12 @@ class SynthesisAgent(Agent):
         before = len(state.chunks)
         for query in expand_query(task, self._llm, _SEED_EXTRA_QUERIES):
             for chunk in retrieve(
-                query, self._llm, self._store, _SEED_TOP_K, _SEED_MIN_SCORE
+                query,
+                self._llm,
+                self._store,
+                _SEED_TOP_K,
+                _SEED_MIN_SCORE,
+                self._exclusions,
             ):
                 if chunk.id not in seen:
                     seen.add(chunk.id)

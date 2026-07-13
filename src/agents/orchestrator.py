@@ -9,6 +9,7 @@ from api.sse import sse_event
 from llm.base import LLMClient, Message
 from llm.errors import LLMUnavailableError
 from rag.citation import build_citations
+from rag.source_filter import SourceExclusions
 from rag.types import Citation, ScoredChunk
 from store.base import VectorStore
 
@@ -73,8 +74,13 @@ def _emit_tool_use_and_citations(
 
 
 class ChatOrchestrator:
-    def __init__(self, llm: LLMClient, store: VectorStore) -> None:
-        self._agent = OrchestratorAgent(llm, store)
+    def __init__(
+        self,
+        llm: LLMClient,
+        store: VectorStore,
+        exclusions: SourceExclusions = SourceExclusions(),
+    ) -> None:
+        self._agent = OrchestratorAgent(llm, store, exclusions)
 
     def stream(self, query: str, history: list[HistoryEntry]) -> Iterator[str]:
         messages: list[Message] = [

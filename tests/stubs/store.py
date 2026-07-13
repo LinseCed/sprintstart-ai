@@ -52,6 +52,8 @@ class StubVectorStore:
                     source_url=chunk.source_url,
                     artifact_type=chunk.artifact_type,
                     language=chunk.language,
+                    connector_id=chunk.connector_id,
+                    connector_source_id=chunk.connector_source_id,
                     source_system=chunk.source_system,
                     created_at=chunk.created_at,
                     start_line=chunk.start_line,

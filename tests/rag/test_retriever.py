@@ -1,4 +1,5 @@
 from rag.retriever import retrieve
+from rag.source_filter import SourceExclusions
 from rag.types import Chunk, RetrievalFilters
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -61,6 +62,36 @@ def test_retrieve_returns_empty_list_when_no_chunk_passes_threshold() -> None:
         store=store,
         top_k=5,
         min_score=0.8,
+    )
+
+    assert result == []
+
+
+def test_retrieve_applies_source_exclusions() -> None:
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+
+    store = StubVectorStore()
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="artifact-1",
+                filename="doc.md",
+                text="Relevant text",
+                embedding=[1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/repo",
+            )
+        ]
+    )
+
+    result = retrieve(
+        question="What is this about?",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        exclusions=SourceExclusions(sources=frozenset({("github", "owner/repo")})),
     )
 
     assert result == []
