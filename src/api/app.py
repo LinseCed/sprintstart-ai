@@ -12,6 +12,7 @@ from api.dependencies import get_llm  # noqa: E402
 from api.routes import (  # noqa: E402
     blueprints,
     chat,
+    grading,
     health,
     ingest,
     ingest_run,
@@ -66,5 +67,6 @@ api_router.include_router(onboarding.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(summaries.router)
 api_router.include_router(insights.router)
+api_router.include_router(grading.router)
 
 app.include_router(api_router)

@@ -20,6 +20,7 @@ from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from onboarding.blueprints import select_blueprints
+from onboarding.checks import generate_phase_check
 from onboarding.models import (
     Blueprint,
     BlueprintStep,
@@ -177,6 +178,19 @@ class OnboardingPipeline:
         total_out = sum(len(p.steps) for p in phases)
         gate_summary = "; ".join(gate_notes) if gate_notes else "all gates passed"
         yield StageProgress("validate", f"{total_out} step(s) in path; {gate_summary}")
+
+        # (5.5) generate a knowledge check per phase, grounded in that phase's
+        # step evidence. Best-effort per phase (see generate_phase_check); does
+        # not add a stage of its own so the SSE stage contract is unchanged.
+        for phase in phases:
+            seen_chunk_ids: set[str] = set()
+            phase_chunks: list[ScoredChunk] = []
+            for step in phase.steps:
+                for chunk in chunks_per_step.get(step.id, []):
+                    if chunk.id not in seen_chunk_ids:
+                        seen_chunk_ids.add(chunk.id)
+                        phase_chunks.append(chunk)
+            phase.check = generate_phase_check(phase, phase_chunks, self._llm)
 
         # (6) emit
         yield StageProgress("emit")
