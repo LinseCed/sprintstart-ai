@@ -41,9 +41,9 @@ class ChromaVectorStore:
 
         embeddings: list[list[float]] = [chunk.embedding for chunk in chunks]
 
-        metadatas: list[dict[str, str | int]] = []
+        metadatas: list[dict[str, str | int | float]] = []
         for chunk in chunks:
-            metadata: dict[str, str | int] = {
+            metadata: dict[str, str | int | float] = {
                 "artifact_id": chunk.artifact_id,
                 "filename": chunk.filename,
                 "position": (
