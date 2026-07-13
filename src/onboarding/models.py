@@ -18,6 +18,9 @@ from pydantic import BaseModel, Field
 Requirement = Literal["required", "recommended"]
 Origin = Literal["blueprint", "llm"]
 Source = Literal["authored", "generated"]
+# Matches the backend's ``CheckQuestionType`` enum constants exactly, so the
+# generated check needs no case translation on the consuming side.
+CheckQuestionType = Literal["MULTIPLE_CHOICE", "SHORT_TEXT"]
 
 # Coarse, ordinal experience levels used to gate steps by ``min_experience`` and
 # to tune the synthesis verbosity. Single source of truth for both, so the two
@@ -248,10 +251,44 @@ class PathStep(BaseModel):
     tasks: list[Task] = []
 
 
+class CheckOption(BaseModel):
+    """One answer option of a MULTIPLE_CHOICE check question."""
+
+    position: int
+    label: str
+    correct: bool = False
+
+
+class CheckQuestion(BaseModel):
+    """One knowledge-check question, grounded in its phase's content.
+
+    ``correct_answer`` is only meaningful for ``SHORT_TEXT`` questions;
+    ``options`` is only meaningful for ``MULTIPLE_CHOICE`` ones.
+    """
+
+    position: int
+    type: CheckQuestionType
+    question: str
+    explanation: str | None = None
+    correct_answer: str | None = None
+    options: list[CheckOption] = Field(default_factory=list[CheckOption])
+
+
+class PhaseCheck(BaseModel):
+    """A small knowledge-check quiz for a phase; empty when generation fails.
+
+    Absence of questions (rather than a missing/null ``check``) is the
+    degraded state, so consumers never need to null-check the field itself.
+    """
+
+    questions: list[CheckQuestion] = Field(default_factory=list[CheckQuestion])
+
+
 class PathPhase(BaseModel):
     title: str
     scope: str | None = Field(default=None, exclude=True)
     steps: list[PathStep] = []
+    check: PhaseCheck = Field(default_factory=PhaseCheck)
 
 
 class QualityReport(BaseModel):

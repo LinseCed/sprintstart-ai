@@ -314,6 +314,32 @@ class ValidationErrorResponse(BaseModel):
     detail: str
 
 
+class GradeAnswerItem(BaseModel):
+    id: str = Field(
+        description="Correlation id for this answer (the backend's questionId)."
+    )
+    question: str = Field(description="The short-text question being graded.")
+    reference_answer: str = Field(description="The authored reference answer.")
+    user_answer: str = Field(description="The user's submitted answer.")
+
+
+class GradeAnswersRequest(BaseModel):
+    answers: list[GradeAnswerItem] = Field(default_factory=list[GradeAnswerItem])
+
+
+class GradeAnswerResult(BaseModel):
+    id: str = Field(description="Correlation id matching the request item.")
+    correct: bool = Field(description="Whether the answer is semantically correct.")
+    confidence: float | None = Field(
+        default=None, ge=0, le=1, description="Optional confidence score, 0..1."
+    )
+    feedback: str = Field(description="Short feedback shown to the user.")
+
+
+class GradeAnswersResponse(BaseModel):
+    results: list[GradeAnswerResult] = Field(default_factory=list[GradeAnswerResult])
+
+
 class VectorDbChunkResponse(BaseModel):
     id: str = Field(description="Chunk identifier.")
     artifact_id: str = Field(description="Artifact/document this chunk belongs to.")
