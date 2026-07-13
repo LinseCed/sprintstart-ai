@@ -750,6 +750,35 @@ class ArtifactSummaryResponse(BaseModel):
     citations: list[ArtifactSummaryCitation]
 
 
+# ── Knowledge-gaps (PM insights) ────────────────────────────────────────────
+
+
+class KnowledgeGapSchema(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    component: str = Field(
+        description="Component identifier derived from the ingestion index "
+        "(e.g. owner/repo)."
+    )
+    missing_types: list[str] = Field(
+        description="Expected documentation categories absent for this component."
+    )
+    present_types: list[str] = Field(
+        description="Documentation categories the component already has."
+    )
+    last_updated: str = Field(
+        description="ISO-8601 timestamp of the component's most recently updated "
+        "artifact."
+    )
+    severity: Literal["high", "medium", "low"] = Field(
+        description="Gap severity, from missing-critical-category count and staleness."
+    )
+
+
+class KnowledgeGapsResponse(BaseModel):
+    gaps: list[KnowledgeGapSchema]
+
+
 # ── FAQ grouping (PM insights) ──────────────────────────────────────────────
 
 
