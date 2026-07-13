@@ -684,6 +684,8 @@ class KnowledgeGapSchema(BaseModel):
 
 class KnowledgeGapsResponse(BaseModel):
     gaps: list[KnowledgeGapSchema]
+
+
 # ── FAQ grouping (PM insights) ──────────────────────────────────────────────
 
 
