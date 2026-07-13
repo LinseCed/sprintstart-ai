@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
@@ -206,40 +206,64 @@ class HistoryEntry(BaseModel):
     }
 
 
-class ChatRequest(BaseModel):
-    prompt: str = Field(examples=["What were the main blockers in sprint 42?"])
-    context: Annotated[
-        list[HistoryEntry],
-        Field(
-            description=(
-                "Ordered conversation history for multi-turn context. "
-                "Entries are chronological (oldest first) and should alternate "
-                "between 'user' and 'assistant' roles. "
-                "May be omitted or empty for single-turn requests."
-            ),
-        ),
-    ] = []
+SourceSystemValue = Literal["GITHUB", "JIRA", "UPLOAD"]
 
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "prompt": "Can you summarize that?",
-                "context": [
-                    {
-                        "role": "user",
-                        "content": "What were the main blockers in sprint 42?",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": (
-                            "The main blockers were missing designs "
-                            "and a flaky CI pipeline."
-                        ),
-                    },
-                ],
-            }
-        }
-    }
+
+def _empty_history() -> list[HistoryEntry]:
+    return []
+
+
+class ChatFilters(BaseModel):
+    source_systems: list[SourceSystemValue] | None = Field(
+        default=None,
+        description="Optional source systems to include. Empty or missing means all.",
+    )
+    time_from: str | None = Field(
+        default=None,
+        description="Optional inclusive lower bound as ISO-8601 timestamp.",
+    )
+    time_to: str | None = Field(
+        default=None,
+        description="Optional inclusive upper bound as ISO-8601 timestamp.",
+    )
+
+    @field_validator("source_systems", mode="before")
+    @classmethod
+    def normalize_source_systems(cls, value: object) -> object:
+        if value is None:
+            return None
+
+        if not isinstance(value, list):
+            return value
+
+        items = cast(list[object], value)
+        return [str(item).upper() for item in items]
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(examples=["What changed in the auth implementation?"])
+    history: list[HistoryEntry] = Field(default_factory=_empty_history)
+    filters: ChatFilters | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_chat_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        raw_data = cast(dict[object, object], data)
+        updated: dict[str, object] = {}
+
+        for key, value in raw_data.items():
+            updated[str(key)] = value
+
+        if "question" not in updated and "prompt" in updated:
+            updated["question"] = updated["prompt"]
+
+        if "history" not in updated and "context" in updated:
+            updated["history"] = updated["context"]
+
+        return updated
 
 
 class HealthResponse(BaseModel):
@@ -290,6 +314,32 @@ class ValidationErrorResponse(BaseModel):
     detail: str
 
 
+class GradeAnswerItem(BaseModel):
+    id: str = Field(
+        description="Correlation id for this answer (the backend's questionId)."
+    )
+    question: str = Field(description="The short-text question being graded.")
+    reference_answer: str = Field(description="The authored reference answer.")
+    user_answer: str = Field(description="The user's submitted answer.")
+
+
+class GradeAnswersRequest(BaseModel):
+    answers: list[GradeAnswerItem] = Field(default_factory=list[GradeAnswerItem])
+
+
+class GradeAnswerResult(BaseModel):
+    id: str = Field(description="Correlation id matching the request item.")
+    correct: bool = Field(description="Whether the answer is semantically correct.")
+    confidence: float | None = Field(
+        default=None, ge=0, le=1, description="Optional confidence score, 0..1."
+    )
+    feedback: str = Field(description="Short feedback shown to the user.")
+
+
+class GradeAnswersResponse(BaseModel):
+    results: list[GradeAnswerResult] = Field(default_factory=list[GradeAnswerResult])
+
+
 class VectorDbChunkResponse(BaseModel):
     id: str = Field(description="Chunk identifier.")
     artifact_id: str = Field(description="Artifact/document this chunk belongs to.")
@@ -300,6 +350,20 @@ class VectorDbChunkResponse(BaseModel):
         description="Optional chunk position within the source artifact.",
     )
     kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "1-based line the chunk starts on in the source file. "
+            "Set for text/code sources; None for PDFs (see start_page)."
+        ),
+    )
+    start_page: int | None = Field(
+        default=None,
+        description=(
+            "1-based PDF page the chunk was extracted from. "
+            "Set for PDF sources; None for text/code (see start_line)."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -310,6 +374,8 @@ class VectorDbChunkResponse(BaseModel):
                 "text": "Stored chunk text...",
                 "position": 0,
                 "kind": "text",
+                "start_line": 12,
+                "start_page": None,
             }
         }
     }
@@ -382,8 +448,21 @@ class TokenEvent(BaseModel):
 
 class CitationEvent(BaseModel):
     type: Literal["citation"]
-    chunk_id: str
-    filename: str
+    artifact_id: str
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "1-based line the cited chunk starts on in the source file. "
+            "Set for text/code sources; None for PDFs (see start_page)."
+        ),
+    )
+    start_page: int | None = Field(
+        default=None,
+        description=(
+            "1-based PDF page the cited chunk was extracted from. "
+            "Set for PDF sources; None for text/code (see start_line)."
+        ),
+    )
 
 
 class ToolUseEvent(BaseModel):
@@ -600,7 +679,10 @@ class ArtifactRunIngestRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     artifact_id: str
-    source_system: str
+    source_system: str | None = Field(
+        default=None,
+        alias="sourceSystem",
+    )
     source_id: str
     source_url: str | None = None
     artifact_type: str
@@ -608,6 +690,17 @@ class ArtifactRunIngestRequest(BaseModel):
     body_text: str | None = None
     mime: str | None = None
     language: str | None = None
+
+    source_created_at: str | None = Field(
+        default=None,
+        alias="sourceCreatedAt",
+        description="Original source creation timestamp, if known.",
+    )
+    source_updated_at: str | None = Field(
+        default=None,
+        alias="sourceUpdatedAt",
+        description="Original source update timestamp, if known.",
+    )
 
 
 class RunArtifactsSyncRequest(BaseModel):
@@ -678,6 +771,35 @@ class ArtifactSummaryResponse(BaseModel):
     artifact_id: str
     summary: str
     citations: list[ArtifactSummaryCitation]
+
+
+# ── Knowledge-gaps (PM insights) ────────────────────────────────────────────
+
+
+class KnowledgeGapSchema(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    component: str = Field(
+        description="Component identifier derived from the ingestion index "
+        "(e.g. owner/repo)."
+    )
+    missing_types: list[str] = Field(
+        description="Expected documentation categories absent for this component."
+    )
+    present_types: list[str] = Field(
+        description="Documentation categories the component already has."
+    )
+    last_updated: str = Field(
+        description="ISO-8601 timestamp of the component's most recently updated "
+        "artifact."
+    )
+    severity: Literal["high", "medium", "low"] = Field(
+        description="Gap severity, from missing-critical-category count and staleness."
+    )
+
+
+class KnowledgeGapsResponse(BaseModel):
+    gaps: list[KnowledgeGapSchema]
 
 
 # ── FAQ grouping (PM insights) ──────────────────────────────────────────────

@@ -28,6 +28,8 @@ def _chunk_to_response(chunk: Chunk) -> VectorDbChunkResponse:
         text=chunk.text,
         position=chunk.position,
         kind=chunk.kind,
+        start_line=chunk.start_line,
+        start_page=chunk.start_page,
     )
 
 
@@ -42,6 +44,8 @@ def _scored_chunk_to_response(
         position=scored_chunk.position,
         kind=scored_chunk.kind,
         score=scored_chunk.score,
+        start_line=scored_chunk.start_line,
+        start_page=scored_chunk.start_page,
     )
 
 

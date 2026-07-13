@@ -1,4 +1,5 @@
-from rag.types import Chunk, ScoredChunk
+from rag.filters import matches_retrieval_filters
+from rag.types import Chunk, RetrievalFilters, ScoredChunk
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -25,35 +26,42 @@ class StubVectorStore:
         embedding: list[float],
         top_k: int,
         min_score: float,
+        filters: RetrievalFilters | None = None,
     ) -> list[ScoredChunk]:
-        scored = [
-            ScoredChunk(
-                id=chunk.id,
-                artifact_id=chunk.artifact_id,
-                filename=chunk.filename,
-                position=chunk.position,
-                kind=chunk.kind,
-                text=chunk.text,
-                score=cosine_similarity(embedding, chunk.embedding),
-                source_role=chunk.source_role,
-                source_url=chunk.source_url,
-                artifact_type=chunk.artifact_type,
-                language=chunk.language,
-                connector_id=chunk.connector_id,
-                connector_source_id=chunk.connector_source_id,
-            )
-            for chunk in self.chunks
-        ]
+        scored: list[ScoredChunk] = []
 
-        return [
-            chunk
-            for chunk in sorted(
-                scored,
-                key=lambda item: item.score,
-                reverse=True,
-            )[:top_k]
-            if chunk.score >= min_score
-        ]
+        for chunk in self.chunks:
+            if not matches_retrieval_filters(chunk, filters):
+                continue
+
+            score = cosine_similarity(embedding, chunk.embedding)
+
+            if score < min_score:
+                continue
+
+            scored.append(
+                ScoredChunk(
+                    id=chunk.id,
+                    artifact_id=chunk.artifact_id,
+                    filename=chunk.filename,
+                    position=chunk.position,
+                    kind=chunk.kind,
+                    text=chunk.text,
+                    score=score,
+                    source_role=chunk.source_role,
+                    source_url=chunk.source_url,
+                    artifact_type=chunk.artifact_type,
+                    language=chunk.language,
+                    connector_id=chunk.connector_id,
+                    connector_source_id=chunk.connector_source_id,
+                    source_system=chunk.source_system,
+                    created_at=chunk.created_at,
+                    start_line=chunk.start_line,
+                    start_page=chunk.start_page,
+                )
+            )
+
+        return sorted(scored, key=lambda item: item.score, reverse=True)[:top_k]
 
     def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> int:
         before = len(self.chunks)
@@ -73,11 +81,11 @@ class StubVectorStore:
         limit: int,
         offset: int = 0,
     ) -> list[Chunk]:
-        matching = [c for c in self.chunks if c.artifact_id == artifact_id]
+        matching = [chunk for chunk in self.chunks if chunk.artifact_id == artifact_id]
         return matching[offset : offset + limit]
 
     def count_by_artifact(self, artifact_id: str) -> int:
-        return sum(1 for c in self.chunks if c.artifact_id == artifact_id)
+        return sum(1 for chunk in self.chunks if chunk.artifact_id == artifact_id)
 
     def all_chunks(self) -> list[Chunk]:
         return list(self.chunks)

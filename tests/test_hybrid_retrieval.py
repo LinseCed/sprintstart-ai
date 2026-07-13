@@ -1,10 +1,12 @@
+from datetime import UTC, datetime, timedelta
+
 from src.rag.hybrid import (
     BM25IndexCache,
     hybrid_retrieve,
     reciprocal_rank_fusion,
 )
 from src.rag.source_filter import SourceExclusions
-from src.rag.types import Chunk, ScoredChunk
+from src.rag.types import Chunk, RetrievalFilters, ScoredChunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -296,3 +298,59 @@ def test_exclusions_keep_legacy_chunks_without_connector() -> None:
     )
 
     assert {chunk.id for chunk in result} == {"legacy"}
+
+
+def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
+    recent_date = datetime.now(UTC).isoformat()
+    old_date = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+                created_at=recent_date,
+            ),
+            Chunk(
+                id="chunk-old-code",
+                artifact_id="artifact-old-code",
+                filename="old.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_system="GITHUB",
+                created_at=old_date,
+            ),
+            Chunk(
+                id="chunk-recent-code",
+                artifact_id="artifact-recent-code",
+                filename="app.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_system="GITHUB",
+                created_at=recent_date,
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="database setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=BM25IndexCache(),
+        filters=RetrievalFilters(
+            source_systems=["GITHUB"],
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
+        ),
+    )
+
+    assert [chunk.id for chunk in result] == ["chunk-recent-code"]

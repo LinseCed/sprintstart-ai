@@ -7,8 +7,9 @@ from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 from ingestion.source_role import SourceRole
 from llm.base import LLMClient
+from rag.filters import matches_retrieval_filters
 from rag.source_filter import SourceExclusions, is_excluded
-from rag.types import Chunk, ScoredChunk
+from rag.types import Chunk, RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
 if TYPE_CHECKING:
@@ -18,9 +19,9 @@ RRF_K = 60
 RRF_MIN_RATIO = 0.15
 SEMANTIC_ONLY_CHUNK_LIMIT = 10_000
 
-# When a role or source filter is active we over-fetch from each retriever so
-# that, after excluded chunks are dropped, enough candidates remain to fill
-# ``top_k``.
+# When a role, source, or attribute filter is active we over-fetch from each
+# retriever so that, after excluded/filtered chunks are dropped, enough
+# candidates remain to fill ``top_k``.
 _ROLE_FILTER_OVERFETCH = 5
 
 
@@ -40,15 +41,24 @@ def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
         source_role=chunk.source_role,
         connector_id=chunk.connector_id,
         connector_source_id=chunk.connector_source_id,
+        source_url=chunk.source_url,
+        artifact_type=chunk.artifact_type,
+        language=chunk.language,
+        source_system=chunk.source_system,
+        created_at=chunk.created_at,
+        start_line=chunk.start_line,
+        start_page=chunk.start_page,
     )
 
 
 def _drop_excluded_roles(
-    chunks: list[ScoredChunk], exclude_roles: frozenset[SourceRole]
+    chunks: list[ScoredChunk],
+    exclude_roles: frozenset[SourceRole],
 ) -> list[ScoredChunk]:
     if not exclude_roles:
         return chunks
-    return [c for c in chunks if c.source_role not in exclude_roles]
+
+    return [chunk for chunk in chunks if chunk.source_role not in exclude_roles]
 
 
 def _drop_excluded_sources(
@@ -148,21 +158,32 @@ def hybrid_retrieve(
     bm25_cache: BM25IndexCache,
     exclude_roles: frozenset[SourceRole] = frozenset(),
     exclusions: SourceExclusions = SourceExclusions(),
+    filters: RetrievalFilters | None = None,
 ) -> list[ScoredChunk]:
     """Hybrid (semantic + BM25) retrieval with reciprocal-rank fusion.
 
     ``exclude_roles`` drops chunks of the given :data:`SourceRole`\\ s (e.g.
-    ``"test"``) and ``exclusions`` drops chunks belonging to disabled
-    connectors/sources, both from the candidates *before* fusion. Because each
-    retriever returns its own top-k, we over-fetch when a filter is active so
-    excluded chunks don't starve the result. Legacy chunks without a role
-    default to ``primary``, and chunks without a connector, are therefore
-    never excluded.
+    ``"test"``), ``exclusions`` drops chunks belonging to disabled
+    connectors/sources, and ``filters`` drops chunks by source system / time
+    range — all from the candidates *before* fusion. Because each retriever
+    returns its own top-k, we over-fetch when any filter is active so
+    excluded chunks don't starve the result. Legacy chunks without a role or
+    connector default to unfiltered (``primary`` role, never excluded).
     """
     chunk_count = store.count()
-    # Over-fetch so role/source filtering still leaves enough candidates for top_k.
-    overfetch_active = bool(exclude_roles) or bool(exclusions)
-    fetch_k = top_k * _ROLE_FILTER_OVERFETCH if overfetch_active else top_k
+    has_filters = (
+        bool(exclude_roles)
+        or bool(exclusions)
+        or (
+            filters is not None
+            and (
+                bool(filters.source_systems)
+                or filters.time_from is not None
+                or filters.time_to is not None
+            )
+        )
+    )
+    fetch_k = top_k * _ROLE_FILTER_OVERFETCH if has_filters else top_k
 
     if chunk_count > SEMANTIC_ONLY_CHUNK_LIMIT:
         embedding = llm.embed(question)
@@ -170,6 +191,7 @@ def hybrid_retrieve(
             embedding=embedding,
             top_k=fetch_k,
             min_score=min_score,
+            filters=filters,
         )
         results = _drop_excluded_roles(results, exclude_roles)
         results = _drop_excluded_sources(results, exclusions)
@@ -183,6 +205,7 @@ def hybrid_retrieve(
                 embedding=llm.embed(question),
                 top_k=fetch_k,
                 min_score=min_score,
+                filters=filters,
             )
         )
 
@@ -200,8 +223,11 @@ def hybrid_retrieve(
     bm25_results = _drop_excluded_roles(bm25_results, exclude_roles)
     semantic_results = _drop_excluded_sources(semantic_results, exclusions)
     bm25_results = _drop_excluded_sources(bm25_results, exclusions)
+    bm25_results = [
+        chunk for chunk in bm25_results if matches_retrieval_filters(chunk, filters)
+    ]
 
-    if not semantic_results:
+    if not semantic_results and not bm25_results:
         return []
 
     fused = reciprocal_rank_fusion(
