@@ -678,3 +678,99 @@ class ArtifactSummaryResponse(BaseModel):
     artifact_id: str
     summary: str
     citations: list[ArtifactSummaryCitation]
+
+
+# ── FAQ grouping (PM insights) ──────────────────────────────────────────────
+
+
+class FaqQuestionSchema(BaseModel):
+    id: str = Field(description="Backend-assigned question identifier.")
+    text: str = Field(description="The question's text.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"id": "q_1", "text": "How do I get VPN access?"}
+        }
+    }
+
+
+class FaqGroupRequest(BaseModel):
+    questions: list[FaqQuestionSchema] = Field(
+        description=(
+            "Questions collected by the backend. The AI service is stateless "
+            "and does not retain question history itself, so the full set to "
+            "group is sent on every request."
+        )
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "questions": [
+                    {"id": "q_1", "text": "How do I get VPN access?"},
+                    {"id": "q_2", "text": "Can someone enable VPN for me?"},
+                ]
+            }
+        }
+    }
+
+
+class FaqDocumentSchema(BaseModel):
+    id: str = Field(description="Knowledge-base artifact id for this document.")
+    title: str = Field(description="Document title (filename).")
+    source: str | None = Field(
+        default=None,
+        description="Origin system of the document, e.g. confluence, github.",
+    )
+
+
+class FaqGroupSchema(BaseModel):
+    question: Annotated[
+        str,
+        Field(description="Representative question for the group, PII-redacted."),
+    ]
+    count: Annotated[
+        int,
+        Field(
+            description=(
+                "Total number of questions in the group. May be greater than "
+                "len(questions), which is a redacted sample."
+            )
+        ),
+    ]
+    questions: Annotated[
+        list[str],
+        Field(description="PII-redacted sample of questions in the group."),
+    ]
+    documents: Annotated[
+        list[FaqDocumentSchema],
+        Field(description="Documents that answered the group's questions."),
+    ]
+
+
+class FaqGroupResponse(BaseModel):
+    groups: list[FaqGroupSchema]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "groups": [
+                    {
+                        "question": "How do I get VPN access?",
+                        "count": 14,
+                        "questions": [
+                            "How do I get VPN access?",
+                            "Can someone enable VPN for me?",
+                        ],
+                        "documents": [
+                            {
+                                "id": "doc_001",
+                                "title": "VPN Setup Guide",
+                                "source": "confluence",
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    }
