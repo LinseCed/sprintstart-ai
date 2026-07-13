@@ -32,6 +32,10 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _source_system_for(artifact: ArtifactRunIngestRequest) -> str:
+    return artifact.source_system or "GITHUB"
+
+
 def _filename_for(artifact: ArtifactRunIngestRequest) -> str:
     """Derive a filename from the artifact metadata.
 
@@ -48,6 +52,18 @@ def _filename_for(artifact: ArtifactRunIngestRequest) -> str:
     slug = artifact.source_id.rsplit(":", 1)[-1]
     type_prefix = artifact.artifact_type.lower().replace("_", "-")
     return f"{type_prefix}-{slug}.md"
+
+
+def _connector_source_id_for(artifact: ArtifactRunIngestRequest) -> str | None:
+    """Derive the connector-level source id (e.g. 'owner/repo') from sourceId.
+
+    sourceId format: "github:owner/repo:TYPE:unique" — the connector-level
+    source identity is always the second colon-separated segment, regardless
+    of artifact type. This is distinct from the artifact-level sourceId
+    itself, and from the enclosing connector id (artifact.source_system).
+    """
+    parts = artifact.source_id.split(":", 3)
+    return parts[1] if len(parts) >= 2 else None
 
 
 def _assemble_content(artifact: ArtifactRunIngestRequest) -> str:
@@ -75,11 +91,13 @@ def _ingest_one(
     existing = metadata_store.get_artifact(artifact.artifact_id)
     created_at = existing.created_at if existing is not None else request_time
 
+    source_system = _source_system_for(artifact)
+
     record = ArtifactRecord(
         id=artifact.artifact_id,
         filename=filename,
         content_type=artifact.mime or "text/plain",
-        source_type=artifact.source_system.lower(),
+        source_type=source_system.lower(),
         size_bytes=len(content_bytes),
         chunk_count=0,
         status="processing",
@@ -148,11 +166,16 @@ def _ingest_one(
                     artifact.artifact_id,
                     embedding,
                     source_role=source_role,
+                    source_url=artifact.source_url,
+                    artifact_type=artifact.artifact_type,
+                    language=artifact.language,
+                    source_created_at=artifact.source_created_at,
+                    source_updated_at=artifact.source_updated_at,
+                    source_system=source_system,
                 ),
                 position=index,
-                source_url=artifact.source_url,
-                artifact_type=artifact.artifact_type,
-                language=artifact.language,
+                connector_id=source_system.lower(),
+                connector_source_id=_connector_source_id_for(artifact),
             )
             for index, (chunk, embedding) in enumerate(
                 zip(parsed_chunks, embeddings, strict=True)

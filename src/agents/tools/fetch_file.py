@@ -3,6 +3,7 @@ import re
 from pydantic import BaseModel
 
 from agents.tools.base import Tool, ToolResult
+from rag.source_filter import SourceExclusions, is_excluded
 from rag.types import ScoredChunk
 from store.base import VectorStore
 
@@ -33,8 +34,11 @@ class FetchFileTool(Tool[FetchFileArgs]):
     )
     args_model = FetchFileArgs
 
-    def __init__(self, store: VectorStore) -> None:
+    def __init__(
+        self, store: VectorStore, *, exclusions: SourceExclusions = SourceExclusions()
+    ) -> None:
         self._store = store
+        self._exclusions = exclusions
 
     def run(self, args: FetchFileArgs) -> ToolResult:
         query = args.filename.strip().lower()
@@ -48,9 +52,12 @@ class FetchFileTool(Tool[FetchFileArgs]):
                 score=_FETCH_SCORE,
                 position=chunk.position,
                 kind=chunk.kind,
+                start_line=chunk.start_line,
+                start_page=chunk.start_page,
             )
             for chunk in self._store.all_chunks_without_embeddings()
-            if _matches(chunk.filename, query, query_has_ext)
+            if not is_excluded(chunk, self._exclusions)
+            and _matches(chunk.filename, query, query_has_ext)
         ]
         return ToolResult(
             summary=f"fetch_file({args.filename!r}): {len(results)} chunk(s).",

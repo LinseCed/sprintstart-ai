@@ -1,9 +1,12 @@
+from datetime import UTC, datetime, timedelta
+
 from src.rag.hybrid import (
     BM25IndexCache,
     hybrid_retrieve,
     reciprocal_rank_fusion,
 )
-from src.rag.types import Chunk, ScoredChunk
+from src.rag.source_filter import SourceExclusions
+from src.rag.types import Chunk, RetrievalFilters, ScoredChunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -13,6 +16,8 @@ def make_chunk(
     text: str,
     embedding: list[float],
     source_role: str = "primary",
+    connector_id: str | None = None,
+    connector_source_id: str | None = None,
 ) -> Chunk:
     return Chunk(
         id=chunk_id,
@@ -21,6 +26,8 @@ def make_chunk(
         text=text,
         embedding=embedding,
         source_role=source_role,  # type: ignore[arg-type]
+        connector_id=connector_id,
+        connector_source_id=connector_source_id,
     )
 
 
@@ -278,3 +285,156 @@ def test_exclude_roles_in_semantic_only_fallback() -> None:
     )
 
     assert {chunk.id for chunk in result} == {"primary"}
+
+
+def test_exclusions_drop_disabled_source_chunks() -> None:
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [
+            make_chunk(
+                "enabled-repo",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/enabled-repo",
+            ),
+            make_chunk(
+                "disabled-repo",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/disabled-repo",
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="onboarding setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=cache,
+        exclusions=SourceExclusions(
+            sources=frozenset({("github", "owner/disabled-repo")})
+        ),
+    )
+
+    assert {chunk.id for chunk in result} == {"enabled-repo"}
+
+
+def test_exclusions_drop_disabled_connector_chunks() -> None:
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [
+            make_chunk(
+                "jira-chunk",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="jira",
+                connector_source_id="PROJ",
+            ),
+            make_chunk(
+                "github-chunk",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/repo",
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="onboarding setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=cache,
+        exclusions=SourceExclusions(connectors=frozenset({"github"})),
+    )
+
+    assert {chunk.id for chunk in result} == {"jira-chunk"}
+
+
+def test_exclusions_keep_legacy_chunks_without_connector() -> None:
+    """Chunks without a connector_id are never excluded."""
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add([make_chunk("legacy", "onboarding setup guide", [1.0, 0.0])])
+
+    result = hybrid_retrieve(
+        question="onboarding setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=cache,
+        exclusions=SourceExclusions(connectors=frozenset({"github"})),
+    )
+
+    assert {chunk.id for chunk in result} == {"legacy"}
+
+
+def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
+    recent_date = datetime.now(UTC).isoformat()
+    old_date = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+                created_at=recent_date,
+            ),
+            Chunk(
+                id="chunk-old-code",
+                artifact_id="artifact-old-code",
+                filename="old.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_system="GITHUB",
+                created_at=old_date,
+            ),
+            Chunk(
+                id="chunk-recent-code",
+                artifact_id="artifact-recent-code",
+                filename="app.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_system="GITHUB",
+                created_at=recent_date,
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="database setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=BM25IndexCache(),
+        filters=RetrievalFilters(
+            source_systems=["GITHUB"],
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
+        ),
+    )
+
+    assert [chunk.id for chunk in result] == ["chunk-recent-code"]

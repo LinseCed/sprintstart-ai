@@ -6,6 +6,7 @@ from fastapi import Depends
 
 from agents.orchestrator import ChatOrchestrator
 from ingestion.metadata_store import IngestionMetadataStore
+from ingestion.source_state_store import SourceStateStore
 from llm.anthropic_client import AnthropicClient
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
@@ -83,11 +84,18 @@ def get_ingestion_metadata_store() -> IngestionMetadataStore:
     return IngestionMetadataStore(path=path)
 
 
+@lru_cache
+def get_source_state_store() -> SourceStateStore:
+    path = os.getenv("APP_DB_PATH", "").strip() or "data/sprintstart.db"
+    return SourceStateStore(path=path)
+
+
 def get_orchestrator(
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
+    source_state: SourceStateStore = Depends(get_source_state_store),
 ) -> ChatOrchestrator:
-    return ChatOrchestrator(llm, store)
+    return ChatOrchestrator(llm, store, source_state.get_exclusions())
 
 
 def get_onboarding_orchestrator(

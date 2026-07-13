@@ -81,9 +81,22 @@ class Agent:
         self._max_steps = max_steps
 
     def gather_stream(
-        self, task: str, history: list[Message] | None = None
+        self,
+        task: str,
+        history: list[Message] | None = None,
+        state: AgentRunState | None = None,
     ) -> Generator[Invocation, None, AgentRunState]:
-        state = AgentRunState()
+        """Run the tool-calling loop, yielding an ``Invocation`` per tool call.
+
+        ``state`` is normally created internally, but callers that need to
+        observe ``state.chunks`` grow *during* iteration (e.g. to stream a
+        citation as soon as the tool call that produced it resolves, rather
+        than waiting for this generator to return) can pass their own
+        ``AgentRunState`` in and poll it between calls to ``next()`` — it is
+        mutated in place, never reassigned, so the caller's reference always
+        reflects the latest state.
+        """
+        state = state if state is not None else AgentRunState()
         specs = self._tools.specs()
         messages: list[Message] = [
             Message(role="system", content=self._system_prompt()),

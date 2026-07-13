@@ -92,6 +92,9 @@ def test_ingest_run_indexes_artifacts(
     assert data["artifacts"][1]["chunk_count"] > 0
     assert data["artifacts"][1]["status"] == "completed"
     assert len(vector_store.chunks) == 2
+    for chunk in vector_store.chunks:
+        assert chunk.connector_id == "github"
+        assert chunk.connector_source_id == "owner/repo"
 
 
 def test_ingest_run_deindexes_before_indexing(

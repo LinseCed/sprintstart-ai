@@ -227,6 +227,7 @@ def ingest(
                     body.artifact_id,
                     embedding,
                     source_role=source_role,
+                    source_system="UPLOAD",
                 ),
                 position=index,
             )

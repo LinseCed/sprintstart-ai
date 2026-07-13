@@ -264,6 +264,35 @@ def test_gather_stream_yields_invocations_live() -> None:
     assert streamed == [Invocation(kind="tool", name="give")]
 
 
+def test_gather_stream_mutates_caller_supplied_state_in_place() -> None:
+    """A caller-supplied ``AgentRunState`` must be the exact object mutated
+    during iteration (not just returned at the end) so it can be polled for
+    newly gathered chunks between ``next()`` calls, e.g. to stream citations
+    as soon as they are available instead of only once gathering finishes."""
+    agent = _agent(ScriptedLLMClient([[_GIVE], []]))
+    state = AgentRunState()
+
+    gen = agent.gather_stream("question", state=state)
+
+    next(gen)  # yields the "give" invocation; its tool call hasn't run yet
+    assert state.chunks == []
+
+    # Merging a tool call's chunks into state happens right after its
+    # invocation is yielded, before the generator's next yield/return — so
+    # by the time the generator is exhausted, "give"'s chunk is visible.
+    returned_state = _drain_remaining(gen)
+    assert [c.id for c in state.chunks] == ["c1"]
+    assert returned_state is state  # same instance, not a copy
+
+
+def _drain_remaining(gen: Generator[Invocation, None, AgentRunState]) -> AgentRunState:
+    while True:
+        try:
+            next(gen)
+        except StopIteration as stop:
+            return stop.value
+
+
 def test_gather_stream_forwards_nested_invocations_in_order() -> None:
     sub = _agent(ScriptedLLMClient([[_GIVE], []]))
     sub.name = "rag"
