@@ -247,6 +247,10 @@ class ChromaVectorStore:
             if not is_chunk_kind(kind_str):
                 raise ValueError(f"Unknown chunk kind {kind_str!r}")
 
+            source_system = normalize_source_system(
+                _optional_str(metadata.get("source_system"))
+            )
+
             chunks.append(
                 Chunk(
                     id=str(chunk_id),
@@ -256,10 +260,18 @@ class ChromaVectorStore:
                     kind=kind_str,
                     text=str(text),
                     embedding=[],  # no embeddings in text-only fetch
-                    source_role=_source_role_of(metadata),
-                    source_url=_optional_str(metadata, "source_url"),
-                    artifact_type=_optional_str(metadata, "artifact_type"),
-                    language=_optional_str(metadata, "language"),
+                    source_role=_source_role_from_metadata(metadata),
+                    source_url=_optional_str(metadata.get("source_url")),
+                    artifact_type=_optional_str(metadata.get("artifact_type")),
+                    language=_optional_str(metadata.get("language")),
+                    connector_id=_optional_str(metadata.get("connector_id")),
+                    connector_source_id=_optional_str(
+                        metadata.get("connector_source_id")
+                    ),
+                    source_system=source_system,
+                    created_at=_optional_str(metadata.get("created_at")),
+                    start_line=_optional_int(metadata.get("start_line")),
+                    start_page=_optional_int(metadata.get("start_page")),
                 )
             )
 
