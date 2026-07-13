@@ -59,8 +59,47 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     assert types.index("tool_use") < types.index("token")
 
     citations = [e for e in events if e["type"] == "citation"]
-    assert citations[0]["filename"] == "retro.md"
+    assert citations[0]["artifact_id"] == "d1"
     assert events[-1] == {"type": "done"}
+
+
+def test_orchestrator_streams_citation_before_answer_tokens() -> None:
+    """Citations must be emitted as soon as their chunks are gathered, not
+    batched after the answer — a consumer should see the source before (or
+    interleaved with) the tokens it grounds, not only once streaming ends."""
+    store = _store_with_chunk()
+    llm = ScriptedLLMClient(
+        [[_SYNTH_CALL], [_RETRIEVE_CALL], [], []],
+        answer="Missing designs.",
+        embedding=_EMBEDDING,
+    )
+
+    events = _events(ChatOrchestrator(llm, store), "What were the blockers?")
+    types = [e["type"] for e in events]
+
+    assert "citation" in types
+    assert types.index("citation") < types.index("token")
+
+    citations = [e for e in events if e["type"] == "citation"]
+    assert len(citations) == 1  # not re-emitted again at the end of the stream
+
+
+def test_orchestrator_does_not_duplicate_citations_across_multiple_retrieves() -> None:
+    """The same chunk id surfacing from more than one tool call (e.g. the
+    seed retrieval and the agent's own retrieve both matching) must only
+    produce a single citation event, however many times it is re-gathered."""
+    store = _store_with_chunk()
+    llm = ScriptedLLMClient(
+        [[_SYNTH_CALL], [_RETRIEVE_CALL], [_RETRIEVE_CALL], []],
+        answer="Missing designs.",
+        embedding=_EMBEDDING,
+    )
+
+    events = _events(ChatOrchestrator(llm, store), "What were the blockers?")
+    citations = [e for e in events if e["type"] == "citation"]
+
+    assert len(citations) == 1
+    assert citations[0]["artifact_id"] == "d1"
 
 
 def test_orchestrator_streams_single_delegation_without_re_synthesising() -> None:

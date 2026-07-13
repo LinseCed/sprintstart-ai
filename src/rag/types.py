@@ -37,6 +37,12 @@ class Chunk:
     language: str | None = None
     source_system: SourceSystem | None = None
     created_at: str | None = None
+    # 1-based line the chunk starts on in the source file. Only meaningful for
+    # "text"/"code" chunks; PDFs track the source page instead (``start_page``).
+    start_line: int | None = None
+    # 1-based PDF page the chunk was extracted from. Only meaningful for "pdf"
+    # chunks; text/code chunks track the source line instead (``start_line``).
+    start_page: int | None = None
 
 
 @dataclass(frozen=True)
@@ -54,10 +60,12 @@ class ScoredChunk:
     language: str | None = None
     source_system: SourceSystem | None = None
     created_at: str | None = None
+    start_line: int | None = None
+    start_page: int | None = None
 
 
 @dataclass(frozen=True)
 class Citation:
-    chunk_id: str
-    filename: str
-    source_url: str | None = None
+    artifact_id: str
+    start_line: int | None = None
+    start_page: int | None = None

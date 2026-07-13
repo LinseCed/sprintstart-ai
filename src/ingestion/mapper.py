@@ -34,6 +34,11 @@ def _source_timestamp_for(
     )
 
 
+def _optional_int(metadata: dict[str, str], key: str) -> int | None:
+    raw = metadata.get(key)
+    return int(raw) if raw is not None else None
+
+
 def to_chunk(
     parsed: ParsedChunk,
     artifact_id: str,
@@ -75,4 +80,6 @@ def to_chunk(
             source_created_at=source_created_at,
             source_updated_at=source_updated_at,
         ),
+        start_line=_optional_int(parsed.metadata, "start_line"),
+        start_page=_optional_int(parsed.metadata, "page_number"),
     )

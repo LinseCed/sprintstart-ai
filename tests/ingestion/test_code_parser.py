@@ -332,3 +332,43 @@ export function multiply(a, b) {
 
     assert any("multiply" in chunk.content for chunk in result)
     assert any(chunk.metadata["symbol_kind"] == "export_statement" for chunk in result)
+
+
+def test_tree_sitter_chunk_start_line_points_at_symbol_not_preamble():
+    code = b"""import os
+
+def foo():
+    return 1
+
+def bar():
+    return 2
+"""
+
+    result = parse("test.py", code)
+
+    by_symbol = {chunk.metadata.get("symbol_name"): chunk for chunk in result}
+
+    # "def foo():" is on line 3, "def bar():" on line 6 - the preamble
+    # ("import os") is prefixed onto both chunks but must not shift either
+    # start_line back to line 1.
+    assert by_symbol["foo"].metadata["start_line"] == "3"
+    assert by_symbol["bar"].metadata["start_line"] == "6"
+
+
+def test_regex_fallback_chunk_start_line_points_at_definition():
+    code = b"""import os
+
+def foo():
+    pass
+
+def bar():
+    pass
+"""
+
+    result = fallback_regex_parser("test.py", code)
+
+    foo_chunk = next(c for c in result if "def foo" in c.content)
+    bar_chunk = next(c for c in result if "def bar" in c.content)
+
+    assert foo_chunk.metadata["start_line"] == "3"
+    assert bar_chunk.metadata["start_line"] == "6"

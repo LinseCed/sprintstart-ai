@@ -3,7 +3,7 @@ from typing import Any, cast
 
 import chromadb
 import chromadb.api
-from chromadb.api.types import PyEmbeddings
+from chromadb.api.types import Metadata, PyEmbeddings
 
 from ingestion.source_role import SourceRole
 from rag.filters import (
@@ -41,28 +41,34 @@ class ChromaVectorStore:
 
         embeddings: list[list[float]] = [chunk.embedding for chunk in chunks]
 
+        metadatas: list[dict[str, str | int | float]] = []
+        for chunk in chunks:
+            metadata: dict[str, str | int | float] = {
+                "artifact_id": chunk.artifact_id,
+                "filename": chunk.filename,
+                "position": (
+                    chunk.position if chunk.position is not None else _NO_POSITION
+                ),
+                "kind": chunk.kind,
+                "source_role": chunk.source_role,
+                "source_url": chunk.source_url or "",
+                "artifact_type": chunk.artifact_type or "",
+                "language": chunk.language or "",
+                "source_system": chunk.source_system or "",
+                "created_at": chunk.created_at or "",
+                "created_at_ts": timestamp_from_iso(chunk.created_at),
+            }
+            if chunk.start_line is not None:
+                metadata["start_line"] = chunk.start_line
+            if chunk.start_page is not None:
+                metadata["start_page"] = chunk.start_page
+            metadatas.append(metadata)
+
         self._collection.upsert(
             ids=[chunk.id for chunk in chunks],
             documents=[chunk.text for chunk in chunks],
             embeddings=cast(PyEmbeddings, embeddings),
-            metadatas=[
-                {
-                    "artifact_id": chunk.artifact_id,
-                    "filename": chunk.filename,
-                    "position": (
-                        chunk.position if chunk.position is not None else _NO_POSITION
-                    ),
-                    "kind": chunk.kind,
-                    "source_role": chunk.source_role,
-                    "source_url": chunk.source_url or "",
-                    "artifact_type": chunk.artifact_type or "",
-                    "language": chunk.language or "",
-                    "source_system": chunk.source_system or "",
-                    "created_at": chunk.created_at or "",
-                    "created_at_ts": timestamp_from_iso(chunk.created_at),
-                }
-                for chunk in chunks
-            ],
+            metadatas=cast(list[Metadata], metadatas),
         )
 
     def query(
@@ -137,6 +143,8 @@ class ChromaVectorStore:
                     language=_optional_str(metadata.get("language")),
                     source_system=source_system,
                     created_at=_optional_str(metadata.get("created_at")),
+                    start_line=_optional_int(metadata.get("start_line")),
+                    start_page=_optional_int(metadata.get("start_page")),
                 )
             )
 
@@ -250,6 +258,8 @@ def _chunks_from_get_result(raw_result: Any) -> list[Chunk]:
                 language=_optional_str(metadata.get("language")),
                 source_system=source_system,
                 created_at=_optional_str(metadata.get("created_at")),
+                start_line=_optional_int(metadata.get("start_line")),
+                start_page=_optional_int(metadata.get("start_page")),
             )
         )
 
@@ -269,3 +279,13 @@ def _optional_str(value: object) -> str | None:
         return None
 
     return str(value)
+
+
+def _optional_int(value: object) -> int | None:
+    """Return the metadata value as an int, or None.
+
+    Chroma metadata cannot store ``None`` directly, so absent optional ints
+    (e.g. ``start_line``/``start_page``) are simply never written and read
+    back as missing rather than via a sentinel like ``_NO_POSITION``.
+    """
+    return int(value) if isinstance(value, (int, float)) else None

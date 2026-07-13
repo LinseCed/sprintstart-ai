@@ -39,6 +39,8 @@ def to_scored_chunk(chunk: Chunk | ScoredChunk, score: float) -> ScoredChunk:
         language=chunk.language,
         source_system=chunk.source_system,
         created_at=chunk.created_at,
+        start_line=chunk.start_line,
+        start_page=chunk.start_page,
     )
 
 

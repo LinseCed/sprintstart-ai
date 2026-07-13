@@ -113,6 +113,7 @@ def test_chat_emits_citation_when_chunks_exist(
                 filename="retro.md",
                 text="Missing designs blocked the auth feature.",
                 embedding=embedding,
+                start_line=5,
             )
         ]
     )
@@ -125,8 +126,9 @@ def test_chat_emits_citation_when_chunks_exist(
     events = parse_sse_events(response.text)
     citation_events = [e for e in events if e["type"] == "citation"]
     assert len(citation_events) == 1
-    assert citation_events[0]["filename"] == "retro.md"
-    assert citation_events[0]["chunk_id"] == "chunk-1"
+    assert citation_events[0]["artifact_id"] == "doc-1"
+    assert citation_events[0]["start_line"] == 5
+    assert citation_events[0]["start_page"] is None
 
     tool_uses = [
         {"name": e["name"], "kind": e["kind"]}
@@ -305,7 +307,7 @@ def test_chat_with_source_filter_uses_matching_chunks(
     citation_events = [event for event in events if event["type"] == "citation"]
 
     assert len(citation_events) == 1
-    assert citation_events[0]["chunk_id"] == "chunk-github"
+    assert citation_events[0]["artifact_id"] == "artifact-github"
 
 
 def test_chat_without_chunks_returns_fallback_without_llm_hallucination(

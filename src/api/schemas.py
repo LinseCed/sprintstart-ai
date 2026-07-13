@@ -324,6 +324,20 @@ class VectorDbChunkResponse(BaseModel):
         description="Optional chunk position within the source artifact.",
     )
     kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "1-based line the chunk starts on in the source file. "
+            "Set for text/code sources; None for PDFs (see start_page)."
+        ),
+    )
+    start_page: int | None = Field(
+        default=None,
+        description=(
+            "1-based PDF page the chunk was extracted from. "
+            "Set for PDF sources; None for text/code (see start_line)."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -334,6 +348,8 @@ class VectorDbChunkResponse(BaseModel):
                 "text": "Stored chunk text...",
                 "position": 0,
                 "kind": "text",
+                "start_line": 12,
+                "start_page": None,
             }
         }
     }
@@ -406,8 +422,21 @@ class TokenEvent(BaseModel):
 
 class CitationEvent(BaseModel):
     type: Literal["citation"]
-    chunk_id: str
-    filename: str
+    artifact_id: str
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "1-based line the cited chunk starts on in the source file. "
+            "Set for text/code sources; None for PDFs (see start_page)."
+        ),
+    )
+    start_page: int | None = Field(
+        default=None,
+        description=(
+            "1-based PDF page the cited chunk was extracted from. "
+            "Set for PDF sources; None for text/code (see start_line)."
+        ),
+    )
 
 
 class ToolUseEvent(BaseModel):

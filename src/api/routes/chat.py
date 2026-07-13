@@ -105,9 +105,9 @@ def chat(
                 yield sse_event(
                     {
                         "type": "citation",
-                        "chunk_id": citation.chunk_id,
-                        "filename": citation.filename,
-                        "source_url": citation.source_url,
+                        "artifact_id": citation.artifact_id,
+                        "start_line": citation.start_line,
+                        "start_page": citation.start_page,
                     }
                 )
 

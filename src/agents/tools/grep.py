@@ -38,6 +38,8 @@ class GrepTool(Tool[GrepArgs]):
                 score=_GREP_SCORE,
                 position=chunk.position,
                 kind=chunk.kind,
+                start_line=chunk.start_line,
+                start_page=chunk.start_page,
             )
             for chunk in self._store.all_chunks()
             if any(needle in chunk.text.lower() for needle in needles)
