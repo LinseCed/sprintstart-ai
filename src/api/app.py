@@ -16,6 +16,7 @@ from api.routes import (  # noqa: E402
     ingest,
     ingest_run,
     knowledge_gaps,
+    insights,
     onboarding,
     summaries,
     title,
@@ -66,5 +67,6 @@ api_router.include_router(onboarding.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(summaries.router)
 api_router.include_router(knowledge_gaps.router)
+api_router.include_router(insights.router)
 
 app.include_router(api_router)
