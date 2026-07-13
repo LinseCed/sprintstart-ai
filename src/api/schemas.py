@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
@@ -206,40 +206,64 @@ class HistoryEntry(BaseModel):
     }
 
 
-class ChatRequest(BaseModel):
-    prompt: str = Field(examples=["What were the main blockers in sprint 42?"])
-    context: Annotated[
-        list[HistoryEntry],
-        Field(
-            description=(
-                "Ordered conversation history for multi-turn context. "
-                "Entries are chronological (oldest first) and should alternate "
-                "between 'user' and 'assistant' roles. "
-                "May be omitted or empty for single-turn requests."
-            ),
-        ),
-    ] = []
+SourceSystemValue = Literal["GITHUB", "JIRA", "UPLOAD"]
 
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "prompt": "Can you summarize that?",
-                "context": [
-                    {
-                        "role": "user",
-                        "content": "What were the main blockers in sprint 42?",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": (
-                            "The main blockers were missing designs "
-                            "and a flaky CI pipeline."
-                        ),
-                    },
-                ],
-            }
-        }
-    }
+
+def _empty_history() -> list[HistoryEntry]:
+    return []
+
+
+class ChatFilters(BaseModel):
+    source_systems: list[SourceSystemValue] | None = Field(
+        default=None,
+        description="Optional source systems to include. Empty or missing means all.",
+    )
+    time_from: str | None = Field(
+        default=None,
+        description="Optional inclusive lower bound as ISO-8601 timestamp.",
+    )
+    time_to: str | None = Field(
+        default=None,
+        description="Optional inclusive upper bound as ISO-8601 timestamp.",
+    )
+
+    @field_validator("source_systems", mode="before")
+    @classmethod
+    def normalize_source_systems(cls, value: object) -> object:
+        if value is None:
+            return None
+
+        if not isinstance(value, list):
+            return value
+
+        items = cast(list[object], value)
+        return [str(item).upper() for item in items]
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(examples=["What changed in the auth implementation?"])
+    history: list[HistoryEntry] = Field(default_factory=_empty_history)
+    filters: ChatFilters | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_chat_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        raw_data = cast(dict[object, object], data)
+        updated: dict[str, object] = {}
+
+        for key, value in raw_data.items():
+            updated[str(key)] = value
+
+        if "question" not in updated and "prompt" in updated:
+            updated["question"] = updated["prompt"]
+
+        if "history" not in updated and "context" in updated:
+            updated["history"] = updated["context"]
+
+        return updated
 
 
 class HealthResponse(BaseModel):
@@ -600,7 +624,10 @@ class ArtifactRunIngestRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     artifact_id: str
-    source_system: str
+    source_system: str | None = Field(
+        default=None,
+        alias="sourceSystem",
+    )
     source_id: str
     source_url: str | None = None
     artifact_type: str
@@ -608,6 +635,17 @@ class ArtifactRunIngestRequest(BaseModel):
     body_text: str | None = None
     mime: str | None = None
     language: str | None = None
+
+    source_created_at: str | None = Field(
+        default=None,
+        alias="sourceCreatedAt",
+        description="Original source creation timestamp, if known.",
+    )
+    source_updated_at: str | None = Field(
+        default=None,
+        alias="sourceUpdatedAt",
+        description="Original source update timestamp, if known.",
+    )
 
 
 class RunArtifactsSyncRequest(BaseModel):

@@ -1,8 +1,9 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import chromadb
 
-from rag.types import Chunk
+from rag.types import Chunk, RetrievalFilters
 from store.chroma_store import ChromaVectorStore
 
 
@@ -276,3 +277,148 @@ def test_chroma_persistent_constructor(tmp_path: Path) -> None:
     result = store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.1)
 
     assert len(result) == 1
+
+
+def test_chroma_query_applies_source_type_filter() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(
+        collection_name="test_query_source_type_filter",
+        client=client,
+    )
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="Docs text",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+            ),
+            Chunk(
+                id="chunk-code",
+                artifact_id="artifact-code",
+                filename="app.py",
+                text="Code text",
+                embedding=[1.0, 0.0],
+                source_system="GITHUB",
+                kind="code",
+            ),
+        ]
+    )
+
+    result = store.query(
+        embedding=[1.0, 0.0],
+        top_k=5,
+        min_score=0.0,
+        filters=RetrievalFilters(source_systems=["GITHUB"]),
+    )
+
+    assert len(result) == 1
+    assert result[0].id == "chunk-code"
+    assert result[0].source_system == "GITHUB"
+
+
+def test_chroma_query_applies_time_range_filter() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(
+        collection_name="test_query_time_range_filter",
+        client=client,
+    )
+
+    old_date = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+    recent_date = datetime.now(UTC).isoformat()
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-old",
+                artifact_id="artifact-old",
+                filename="old.md",
+                text="Old text",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+                created_at=old_date,
+            ),
+            Chunk(
+                id="chunk-recent",
+                artifact_id="artifact-recent",
+                filename="recent.md",
+                text="Recent text",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+                created_at=recent_date,
+            ),
+        ]
+    )
+
+    result = store.query(
+        embedding=[1.0, 0.0],
+        top_k=5,
+        min_score=0.0,
+        filters=RetrievalFilters(
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
+        ),
+    )
+
+    assert len(result) == 1
+    assert result[0].id == "chunk-recent"
+
+
+def test_chroma_query_combines_filters_with_and() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(
+        collection_name="test_query_combined_filters",
+        client=client,
+    )
+
+    old_date = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+    recent_date = datetime.now(UTC).isoformat()
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-recent-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="Recent docs",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+                created_at=recent_date,
+            ),
+            Chunk(
+                id="chunk-old-code",
+                artifact_id="artifact-old-code",
+                filename="old.py",
+                text="Old code",
+                embedding=[1.0, 0.0],
+                source_system="GITHUB",
+                kind="code",
+                created_at=old_date,
+            ),
+            Chunk(
+                id="chunk-recent-code",
+                artifact_id="artifact-recent-code",
+                filename="app.py",
+                text="Recent code",
+                embedding=[1.0, 0.0],
+                source_system="GITHUB",
+                kind="code",
+                created_at=recent_date,
+            ),
+        ]
+    )
+
+    result = store.query(
+        embedding=[1.0, 0.0],
+        top_k=5,
+        min_score=0.0,
+        filters=RetrievalFilters(
+            source_systems=["GITHUB"],
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
+        ),
+    )
+
+    assert len(result) == 1
+    assert result[0].id == "chunk-recent-code"
