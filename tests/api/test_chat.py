@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator, Iterator
 from typing import Any
 
@@ -33,6 +34,12 @@ def real_client() -> Generator[TestClient, Any, None]:
     app.dependency_overrides.clear()
 
 
+def _parse_events(text: str) -> list[dict[str, object]]:
+    return [
+        json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")
+    ]
+
+
 def test_chat_streams_tokens_and_done(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
@@ -53,12 +60,28 @@ def test_chat_streams_tokens_and_done(
 def test_chat_token_event_contains_llm_response(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
-    http_client, llm, _ = client
-    llm.generate_response = "Missing designs and flaky CI."
+    http_client, _, store = client
+
+    embedding = [1.0] + [0.0] * 767
+    filtered_llm = StubLLMClient(embedding=embedding)
+    filtered_llm.generate_response = "Missing designs and flaky CI."
+    app.dependency_overrides[get_llm] = lambda: filtered_llm
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="doc-1",
+                filename="retro.md",
+                text="Missing designs and flaky CI.",
+                embedding=embedding,
+            )
+        ]
+    )
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"prompt": "What were the blockers?"},
+        json={"prompt": "What were the blockers?", "min_score": 0.0},
     )
 
     token_events = [e for e in parse_sse_events(response.text) if e["type"] == "token"]
@@ -154,17 +177,34 @@ def test_chat_missing_question_returns_422(
 def test_chat_llm_unavailable_emits_error_event(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
-    http_client, _, _ = client
+    http_client, _, store = client
+
+    embedding = [1.0] + [0.0] * 767
 
     class StreamFailingLLM(StubLLMClient):
+        def __init__(self) -> None:
+            super().__init__(embedding=embedding)
+
         def stream(self, messages: list[Message]) -> Iterator[str]:
             raise LLMUnavailableError("http://localhost:11434")
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="doc-1",
+                filename="retro.md",
+                text="Missing designs blocked the auth feature.",
+                embedding=embedding,
+            )
+        ]
+    )
 
     app.dependency_overrides[get_llm] = lambda: StreamFailingLLM()
 
     response = http_client.post(
         "/api/v1/chat",
-        json={"prompt": "What were the blockers?"},
+        json={"prompt": "What were the blockers?", "min_score": 0.0},
     )
 
     assert response.status_code == 200
@@ -185,3 +225,113 @@ def test_chat_with_real_llm(real_client: TestClient) -> None:
     types = [e["type"] for e in events]
     assert "token" in types
     assert types[-1] == "done"
+
+
+def test_chat_with_filter_no_matching_chunks_returns_fallback(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, store = client
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-upload",
+                artifact_id="artifact-upload",
+                filename="doc.md",
+                text="Upload text",
+                embedding=[1.0] + [0.0] * 767,
+                source_system="UPLOAD",
+            )
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={
+            "question": "What changed in code?",
+            "filters": {"source_systems": ["GITHUB"]},
+        },
+    )
+
+    assert response.status_code == 200
+
+    events = parse_sse_events(response.text)
+    token_events = [event for event in events if event["type"] == "token"]
+    assert len(token_events) == 1
+    content = token_events[0]["content"]
+    assert isinstance(content, str)
+    assert "could not find any matching sources" in content
+    assert events[-1]["type"] == "done"
+
+
+def test_chat_with_source_filter_uses_matching_chunks(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, store = client
+
+    embedding = [1.0] + [0.0] * 767
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-upload",
+                artifact_id="artifact-upload",
+                filename="doc.md",
+                text="Upload text",
+                embedding=embedding,
+                source_system="UPLOAD",
+            ),
+            Chunk(
+                id="chunk-github",
+                artifact_id="artifact-github",
+                filename="app.py",
+                text="GitHub text",
+                embedding=embedding,
+                source_system="GITHUB",
+            ),
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={
+            "question": "What changed in code?",
+            "filters": {"source_systems": ["GITHUB"]},
+        },
+    )
+
+    assert response.status_code == 200
+
+    events = _parse_events(response.text)
+    citation_events = [event for event in events if event["type"] == "citation"]
+
+    assert len(citation_events) == 1
+    assert citation_events[0]["artifact_id"] == "artifact-github"
+
+
+def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, _ = client
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={
+            "question": "What changed?",
+            "filters": {"source_systems": ["GITHUB"]},
+        },
+    )
+
+    assert response.status_code == 200
+
+    events = _parse_events(response.text)
+    citation_events = [event for event in events if event["type"] == "citation"]
+
+    token_events = [event for event in events if event["type"] == "token"]
+    assert len(token_events) == 1
+    content = token_events[0]["content"]
+    assert isinstance(content, str)
+    assert "could not find any matching sources" in content
+    assert citation_events == []
+    assert events[-1]["type"] == "done"
