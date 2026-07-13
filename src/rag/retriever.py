@@ -4,9 +4,15 @@ from rag.source_filter import SourceExclusions
 from rag.types import RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
+# Process-wide BM25 index, shared across every caller (chat, agent tools, and
+# onboarding) so the corpus is only tokenized once instead of once per caller.
 _BM25_CACHE = BM25IndexCache()
 _DEFAULT_TOP_K = 5
 _DEFAULT_MIN_SCORE = 0.3
+
+
+def get_bm25_cache() -> BM25IndexCache:
+    return _BM25_CACHE
 
 
 def retrieve(

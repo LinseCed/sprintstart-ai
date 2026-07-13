@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Literal, cast
 
-IngestionStatus = Literal["processing", "completed", "failed"]
+IngestionStatus = Literal["processing", "completed", "failed", "deindexed"]
 
 
 @dataclass(frozen=True)

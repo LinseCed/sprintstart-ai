@@ -107,6 +107,9 @@ class StubLLMClient:
     def embed(self, text: str) -> list[float]:
         return [1.0, 0.0, 0.0]
 
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
     def caption_image(self, image_bytes: bytes) -> str:
         return "caption"
 

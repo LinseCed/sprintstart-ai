@@ -55,7 +55,7 @@ class FetchFileTool(Tool[FetchFileArgs]):
                 start_line=chunk.start_line,
                 start_page=chunk.start_page,
             )
-            for chunk in self._store.all_chunks()
+            for chunk in self._store.all_chunks_without_embeddings()
             if not is_excluded(chunk, self._exclusions)
             and _matches(chunk.filename, query, query_has_ext)
         ]

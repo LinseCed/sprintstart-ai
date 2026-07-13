@@ -45,7 +45,7 @@ class GrepTool(Tool[GrepArgs]):
                 start_line=chunk.start_line,
                 start_page=chunk.start_page,
             )
-            for chunk in self._store.all_chunks()
+            for chunk in self._store.all_chunks_without_embeddings()
             if not is_excluded(chunk, self._exclusions)
             and any(needle in chunk.text.lower() for needle in needles)
         ]

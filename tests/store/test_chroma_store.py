@@ -287,6 +287,91 @@ def test_chroma_legacy_chunks_default_to_primary() -> None:
     assert scored[0].source_role == "primary"
 
 
+def test_chroma_all_chunks_without_embeddings_omits_embeddings() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(collection_name="test_no_embeddings", client=client)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="artifact-1",
+                filename="doc.md",
+                text="Some text",
+                embedding=[1.0, 0.0],
+            )
+        ]
+    )
+
+    chunks = store.all_chunks_without_embeddings()
+
+    assert len(chunks) == 1
+    assert chunks[0].text == "Some text"
+    assert chunks[0].embedding == []
+
+
+def test_chroma_all_ids_returns_every_chunk_id() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(collection_name="test_all_ids", client=client)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="artifact-1",
+                filename="a.md",
+                text="Text A",
+                embedding=[1.0, 0.0],
+            ),
+            Chunk(
+                id="chunk-2",
+                artifact_id="artifact-2",
+                filename="b.md",
+                text="Text B",
+                embedding=[0.0, 1.0],
+            ),
+        ]
+    )
+
+    assert store.all_ids() == frozenset({"chunk-1", "chunk-2"})
+
+
+def test_chroma_all_ids_changes_when_content_replaces_same_count() -> None:
+    """Content-hashed ids mean a same-count edit still changes the id set."""
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(collection_name="test_all_ids_churn", client=client)
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="artifact-1",
+                filename="a.md",
+                text="Original text",
+                embedding=[1.0, 0.0],
+            )
+        ]
+    )
+    before = store.all_ids()
+
+    store.delete("artifact-1")
+    store.add(
+        [
+            Chunk(
+                id="chunk-1-edited",
+                artifact_id="artifact-1",
+                filename="a.md",
+                text="Edited text",
+                embedding=[1.0, 0.0],
+            )
+        ]
+    )
+    after = store.all_ids()
+
+    assert len(before) == len(after) == 1
+    assert before != after
+
+
 def test_chroma_persistent_constructor(tmp_path: Path) -> None:
     store = ChromaVectorStore(
         collection_name="test_persistent",

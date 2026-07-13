@@ -134,19 +134,33 @@ class BM25Index:
 
 class BM25IndexCache:
     def __init__(self) -> None:
-        self._index: BM25Index | None = None
-        self._chunk_count: int | None = None
+        # The fingerprint and its index are stored together as one immutable
+        # tuple so the fast path reads a single reference. Reading the id-set and
+        # the index separately would let a concurrent rebuild swap them mid-check
+        # and return an index that doesn't match the fingerprint we validated.
+        self._snapshot: tuple[frozenset[str], BM25Index] | None = None
         self._lock = threading.Lock()
 
     def get(self, store: VectorStore) -> BM25Index:
+        # Cheap fingerprint (ids only, no text/embeddings) so a cache hit never
+        # touches the lock or the network-heavy full-corpus fetch. Chunk ids are
+        # content-hashed, so an id-set match means the corpus text hasn't changed.
+        current_ids = store.all_ids()
+
+        snapshot = self._snapshot
+        if snapshot is not None and snapshot[0] == current_ids:
+            return snapshot[1]
+
         with self._lock:
-            current_count = store.count()
+            # Another thread may have rebuilt for this exact corpus state while
+            # we were computing the fingerprint above; avoid rebuilding twice.
+            snapshot = self._snapshot
+            if snapshot is not None and snapshot[0] == current_ids:
+                return snapshot[1]
 
-            if self._index is None or self._chunk_count != current_count:
-                self._index = BM25Index(store.all_chunks())
-                self._chunk_count = current_count
-
-            return self._index
+            index = BM25Index(store.all_chunks_without_embeddings())
+            self._snapshot = (current_ids, index)
+            return index
 
 
 def hybrid_retrieve(
@@ -227,8 +241,8 @@ def hybrid_retrieve(
         chunk for chunk in bm25_results if matches_retrieval_filters(chunk, filters)
     ]
 
-    if not semantic_results and not bm25_results:
-        return []
+    if not semantic_results:
+        return bm25_results[:top_k]
 
     fused = reciprocal_rank_fusion(
         ranked_lists=[semantic_results, bm25_results],

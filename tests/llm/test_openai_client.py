@@ -111,7 +111,7 @@ def test_embed_uses_embeddings_endpoint() -> None:
 
         body = json.loads(request.content)
         assert body["model"] == "embed-model"
-        assert body["input"] == "hello world"
+        assert body["input"] == ["hello world"]
 
         return httpx.Response(
             200,
@@ -131,6 +131,58 @@ def test_embed_uses_embeddings_endpoint() -> None:
     client = make_client(handler)
 
     assert client.embed("hello world") == [0.1, 0.2, 0.3]
+
+
+def test_embed_batch_sends_all_inputs_in_one_request() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["input"] == ["first", "second"]
+
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": 0, "embedding": [0.1, 0.2]},
+                    {"object": "embedding", "index": 1, "embedding": [0.3, 0.4]},
+                ],
+                "model": "embed-model",
+            },
+        )
+
+    client = make_client(handler)
+
+    assert client.embed_batch(["first", "second"]) == [[0.1, 0.2], [0.3, 0.4]]
+
+
+def test_embed_batch_reorders_by_response_index() -> None:
+    """OpenAI-compatible backends may return embeddings out of request order."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {"object": "embedding", "index": 1, "embedding": [0.3, 0.4]},
+                    {"object": "embedding", "index": 0, "embedding": [0.1, 0.2]},
+                ],
+                "model": "embed-model",
+            },
+        )
+
+    client = make_client(handler)
+
+    assert client.embed_batch(["first", "second"]) == [[0.1, 0.2], [0.3, 0.4]]
+
+
+def test_embed_batch_returns_empty_list_for_no_input() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("should not send a request for an empty batch")
+
+    client = make_client(handler)
+
+    assert client.embed_batch([]) == []
 
 
 PNG_BYTES = (

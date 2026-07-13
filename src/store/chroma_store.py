@@ -208,6 +208,79 @@ class ChromaVectorStore:
         )
         return _chunks_from_get_result(raw_result)
 
+    def all_chunks_without_embeddings(self) -> list[Chunk]:
+        total = self.count()
+        if total == 0:
+            return []
+        return self.list_chunks_without_embeddings(limit=total, offset=0)
+
+    def list_chunks_without_embeddings(
+        self, limit: int, offset: int = 0
+    ) -> list[Chunk]:
+        raw_result = self._collection.get(
+            include=["documents", "metadatas"],
+            limit=limit,
+            offset=offset,
+        )
+
+        ids = raw_result["ids"]
+        documents = raw_result["documents"] or []
+        metadatas = raw_result["metadatas"] or []
+
+        chunks: list[Chunk] = []
+
+        for chunk_id, text, metadata in zip(
+            ids,
+            documents,
+            metadatas,
+            strict=True,
+        ):
+            raw_position = metadata.get("position")
+            position = (
+                None
+                if not isinstance(raw_position, (int, float))
+                or raw_position == _NO_POSITION
+                else int(raw_position)
+            )
+
+            kind_str = str(metadata.get("kind", "text"))
+            if not is_chunk_kind(kind_str):
+                raise ValueError(f"Unknown chunk kind {kind_str!r}")
+
+            source_system = normalize_source_system(
+                _optional_str(metadata.get("source_system"))
+            )
+
+            chunks.append(
+                Chunk(
+                    id=str(chunk_id),
+                    artifact_id=str(metadata["artifact_id"]),
+                    filename=str(metadata["filename"]),
+                    position=position,
+                    kind=kind_str,
+                    text=str(text),
+                    embedding=[],  # no embeddings in text-only fetch
+                    source_role=_source_role_from_metadata(metadata),
+                    source_url=_optional_str(metadata.get("source_url")),
+                    artifact_type=_optional_str(metadata.get("artifact_type")),
+                    language=_optional_str(metadata.get("language")),
+                    connector_id=_optional_str(metadata.get("connector_id")),
+                    connector_source_id=_optional_str(
+                        metadata.get("connector_source_id")
+                    ),
+                    source_system=source_system,
+                    created_at=_optional_str(metadata.get("created_at")),
+                    start_line=_optional_int(metadata.get("start_line")),
+                    start_page=_optional_int(metadata.get("start_page")),
+                )
+            )
+
+        return chunks
+
+    def all_ids(self) -> frozenset[str]:
+        raw_result = self._collection.get(include=[])
+        return frozenset(str(chunk_id) for chunk_id in raw_result["ids"])
+
     def count(self) -> int:
         return self._collection.count()
 
