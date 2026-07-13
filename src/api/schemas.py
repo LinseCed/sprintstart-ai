@@ -398,9 +398,7 @@ class TokenEvent(BaseModel):
 
 class CitationEvent(BaseModel):
     type: Literal["citation"]
-    chunk_id: str
     artifact_id: str
-    filename: str
     start_line: int | None = Field(
         default=None,
         description=(

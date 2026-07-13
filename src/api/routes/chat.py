@@ -47,9 +47,8 @@ router = APIRouter()
                         "citation": {
                             "summary": "Citation event",
                             "value": (
-                                'data: {"type": "citation", "chunk_id": "chunk-1",'
-                                ' "artifact_id": "artifact-1",'
-                                ' "filename": "retro.md", "start_line": 12}\n\n'
+                                'data: {"type": "citation",'
+                                ' "artifact_id": "artifact-1", "start_line": 12}\n\n'
                             ),
                         },
                         "done": {

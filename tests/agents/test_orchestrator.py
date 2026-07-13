@@ -59,7 +59,7 @@ def test_orchestrator_reports_nested_tool_use_in_order() -> None:
     assert types.index("tool_use") < types.index("token")
 
     citations = [e for e in events if e["type"] == "citation"]
-    assert citations[0]["filename"] == "retro.md"
+    assert citations[0]["artifact_id"] == "d1"
     assert events[-1] == {"type": "done"}
 
 
@@ -99,7 +99,7 @@ def test_orchestrator_does_not_duplicate_citations_across_multiple_retrieves() -
     citations = [e for e in events if e["type"] == "citation"]
 
     assert len(citations) == 1
-    assert citations[0]["chunk_id"] == "c1"
+    assert citations[0]["artifact_id"] == "d1"
 
 
 def test_orchestrator_streams_single_delegation_without_re_synthesising() -> None:

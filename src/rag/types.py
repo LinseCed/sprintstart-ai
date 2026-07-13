@@ -49,9 +49,6 @@ class ScoredChunk:
 
 @dataclass(frozen=True)
 class Citation:
-    filename: str
-    chunk_id: str
     artifact_id: str
-    source_url: str | None = None
     start_line: int | None = None
     start_page: int | None = None
