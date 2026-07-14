@@ -275,6 +275,7 @@ def ingest_run(
             int(os.getenv("INGEST_CONCURRENCY", str(_DEFAULT_INGEST_CONCURRENCY))),
             len(body.artifacts_to_ingest),
         )
+
         def _ingest(artifact: ArtifactRunIngestRequest) -> ArtifactRunIngestResponse:
             return _ingest_one_safe(artifact, llm, store, metadata_store)
 
