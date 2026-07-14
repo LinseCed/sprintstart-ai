@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from dataclasses import dataclass
 
 from llm.base import LLMClient, Message
@@ -21,19 +22,39 @@ class ArtifactSummary:
     citations: list[SummaryCitation]
 
 
+@dataclass(frozen=True)
+class SummaryStage:
+    """A progress marker yielded by :meth:`ArtifactSummaryAgent.summarize_stream`
+    while it does non-streamed work (batch note-taking) ahead of the streamed
+    final summary.
+    """
+
+    name: str
+    detail: str = ""
+
+
 class ArtifactSummaryAgent:
     def __init__(self, llm: LLMClient) -> None:
         self._llm = llm
 
-    def summarize(
+    def summarize_stream(
         self,
         artifact_id: str,
         chunks: list[Chunk],
         previous_chunks: list[Chunk] | None = None,
-    ) -> ArtifactSummary:
+    ) -> Generator[SummaryStage | str, None, ArtifactSummary]:
+        """Yields progress while gathering notes, then streams the final summary
+        token by token, and returns the completed :class:`ArtifactSummary` once
+        exhausted.
+
+        Note-gathering (:meth:`_notes_for_chunks`) is not itself streamed -- it is
+        internal working notes, not the user-facing text -- only the final
+        summary generated from those notes is.
+        """
         if not chunks:
             raise ValueError("Cannot summarize artifact without chunks.")
 
+        yield SummaryStage("notes", "Extracting notes from the source")
         current_notes = self._notes_for_chunks("current artifact", chunks)
         previous_notes = (
             self._notes_for_chunks("previous artifact", previous_chunks)
@@ -41,11 +62,16 @@ class ArtifactSummaryAgent:
             else None
         )
 
-        summary = self._final_summary(
+        yield SummaryStage("summary", "Generating summary")
+        messages = self._final_summary_messages(
             artifact_id=artifact_id,
             current_notes=current_notes,
             previous_notes=previous_notes,
         )
+        summary_parts: list[str] = []
+        for token in self._llm.stream(messages):
+            summary_parts.append(token)
+            yield token
 
         citations = _citations_for_chunks(artifact_id, chunks)
 
@@ -56,7 +82,7 @@ class ArtifactSummaryAgent:
 
         return ArtifactSummary(
             artifact_id=artifact_id,
-            summary=summary,
+            summary="".join(summary_parts).strip(),
             citations=citations,
         )
 
@@ -91,12 +117,12 @@ class ArtifactSummaryAgent:
 
         return "\n\n".join(partials) + truncated_notice
 
-    def _final_summary(
+    def _final_summary_messages(
         self,
         artifact_id: str,
         current_notes: str,
         previous_notes: str | None,
-    ) -> str:
+    ) -> list[Message]:
         previous_section = (
             f"\n\nPrevious version excerpts / notes:\n{previous_notes}\n"
             if previous_notes
@@ -107,7 +133,7 @@ class ArtifactSummaryAgent:
             )
         )
 
-        messages = _grounded_summary_messages(
+        return _grounded_summary_messages(
             user_content=(
                 f"Create a short summary for artifact {artifact_id}.\n\n"
                 "Return concise markdown with exactly these sections:\n"
@@ -124,8 +150,6 @@ class ArtifactSummaryAgent:
                 f"{previous_section}"
             )
         )
-
-        return self._llm.generate(messages).strip()
 
 
 def _grounded_summary_messages(user_content: str) -> list[Message]:

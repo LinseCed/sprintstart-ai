@@ -762,18 +762,6 @@ class ArtifactSummaryRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class ArtifactSummaryCitation(BaseModel):
-    artifact_id: str
-    filename: str
-    source_url: str | None = None
-
-
-class ArtifactSummaryResponse(BaseModel):
-    artifact_id: str
-    summary: str
-    citations: list[ArtifactSummaryCitation]
-
-
 # ── Knowledge-gaps (PM insights) ────────────────────────────────────────────
 
 
