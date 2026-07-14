@@ -226,6 +226,12 @@ def ingest_run(
         Depends(get_ingestion_metadata_store),
     ],
 ) -> RunArtifactsSyncResponse:
+    logger.info(
+        "Sync request received: %d to ingest, %d to deindex",
+        len(body.artifacts_to_ingest),
+        len(body.artifacts_to_deindex),
+    )
+
     for artifact_id in body.artifacts_to_deindex:
         try:
             deleted_count = store.delete(artifact_id, exclude_ids=[])
