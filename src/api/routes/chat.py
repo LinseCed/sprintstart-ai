@@ -5,9 +5,15 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from agents.orchestrator import ChatOrchestrator
-from api.dependencies import get_llm, get_store
+from api.dependencies import (
+    get_llm,
+    get_orchestrator,
+    get_source_state_store,
+    get_store,
+)
 from api.schemas import ChatRequest, ValidationErrorResponse
 from api.sse import sse_event
+from ingestion.source_state_store import SourceStateStore
 from llm.base import LLMClient, Message
 from llm.errors import LLMUnavailableError
 from rag.citation import build_citations
@@ -59,17 +65,21 @@ def chat(
     body: ChatRequest,
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
+    source_state: SourceStateStore = Depends(get_source_state_store),
+    orchestrator: ChatOrchestrator = Depends(get_orchestrator),
 ) -> StreamingResponse:
     def event_stream() -> Iterator[str]:
         try:
             filters = _retrieval_filters_from_request(body)
 
             if filters is None:
-                yield from ChatOrchestrator(llm, store).stream(
+                yield from orchestrator.stream(
                     body.question,
                     body.history,
                 )
                 return
+
+            exclusions = source_state.get_exclusions()
 
             yield sse_event({"type": "tool_use", "name": "retrieve", "kind": "tool"})
 
@@ -79,6 +89,7 @@ def chat(
                 store,
                 top_k=_FILTERED_TOP_K,
                 min_score=_FILTERED_MIN_SCORE,
+                exclusions=exclusions,
                 filters=filters,
             )
 

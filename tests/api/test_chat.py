@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.app import app
-from api.dependencies import get_llm, get_store
+from api.dependencies import get_llm, get_source_state_store, get_store
+from ingestion.source_state_store import SourceStateStore
 from llm.base import Message
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
@@ -335,3 +336,112 @@ def test_chat_without_chunks_returns_fallback_without_llm_hallucination(
     assert "could not find any matching sources" in content
     assert citation_events == []
     assert events[-1]["type"] == "done"
+
+
+def test_chat_applies_source_exclusions_in_unfiltered_path(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    """Regression test: /chat must honor disabled connectors/sources even
+    when no explicit retrieval filters are given (issue found while
+    auditing the connector/source enable-disable feature — the route built
+    its ChatOrchestrator without exclusions, so disabling a connector had no
+    effect on live chat).
+    """
+    http_client, _, store = client
+    embedding = [1.0] + [0.0] * 767
+
+    script: list[Turn] = [
+        [("synthesis", {"task": "blockers"})],
+        [("retrieve", {"query": "blockers"})],
+        [],
+        [],
+    ]
+    app.dependency_overrides[get_llm] = lambda: ScriptedLLMClient(
+        script, embedding=embedding
+    )
+
+    source_state = SourceStateStore(path=":memory:")
+    source_state.set_connector_enabled("github", enabled=False)
+    app.dependency_overrides[get_source_state_store] = lambda: source_state
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-excluded",
+                artifact_id="artifact-excluded",
+                filename="excluded.md",
+                text="Missing designs blocked the auth feature.",
+                embedding=embedding,
+                connector_id="github",
+                connector_source_id="owner/repo",
+            ),
+            Chunk(
+                id="chunk-included",
+                artifact_id="artifact-included",
+                filename="included.md",
+                text="Missing designs blocked the auth feature.",
+                embedding=embedding,
+                connector_id="jira",
+                connector_source_id="PROJ",
+            ),
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={"prompt": "What were the blockers?"},
+    )
+
+    events = parse_sse_events(response.text)
+    citation_events = [e for e in events if e["type"] == "citation"]
+    assert [e["artifact_id"] for e in citation_events] == ["artifact-included"]
+
+
+def test_chat_applies_source_exclusions_with_retrieval_filters(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http_client, _, store = client
+    embedding = [1.0] + [0.0] * 767
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
+
+    source_state = SourceStateStore(path=":memory:")
+    source_state.set_sources_enabled("github", {"owner/repo": False})
+    app.dependency_overrides[get_source_state_store] = lambda: source_state
+
+    store.add(
+        [
+            Chunk(
+                id="chunk-excluded",
+                artifact_id="artifact-excluded",
+                filename="excluded.py",
+                text="GitHub text",
+                embedding=embedding,
+                source_system="GITHUB",
+                connector_id="github",
+                connector_source_id="owner/repo",
+            ),
+            Chunk(
+                id="chunk-included",
+                artifact_id="artifact-included",
+                filename="included.py",
+                text="GitHub text",
+                embedding=embedding,
+                source_system="GITHUB",
+                connector_id="github",
+                connector_source_id="owner/other-repo",
+            ),
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/chat",
+        json={
+            "question": "What changed in code?",
+            "filters": {"source_systems": ["GITHUB"]},
+        },
+    )
+
+    assert response.status_code == 200
+    events = _parse_events(response.text)
+    citation_events = [event for event in events if event["type"] == "citation"]
+    assert [e["artifact_id"] for e in citation_events] == ["artifact-included"]
