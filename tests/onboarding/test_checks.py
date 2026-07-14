@@ -1,7 +1,8 @@
+# pyright: reportPrivateUsage=false
 import json
 
 from llm.base import Message
-from onboarding.checks import generate_phase_check
+from onboarding.checks import _build_prompt, generate_phase_check
 from onboarding.models import PathPhase, PathStep
 from rag.types import ScoredChunk
 from tests.stubs.llm import StubLLMClient
@@ -12,6 +13,15 @@ _CHUNKS: list[ScoredChunk] = []
 
 def _phase(steps: list[PathStep] | None = None) -> PathPhase:
     return PathPhase(title="Setup", steps=steps if steps is not None else [_STEP])
+
+
+def test_prompt_instructs_understanding_over_recall() -> None:
+    messages = _build_prompt(_phase(), _CHUNKS)
+
+    system = next(m["content"] for m in messages if m["role"] == "system")
+    assert "UNDERSTANDING, not memorization" in system
+    assert "recite a literal fact" in system
+    assert "never mark most or all options correct" in system
 
 
 def test_generates_valid_mixed_questions() -> None:
@@ -84,6 +94,66 @@ def test_drops_multiple_choice_question_without_a_correct_option() -> None:
 
     assert len(check.questions) == 1
     assert check.questions[0].question == "Good question"
+
+
+def test_drops_multiple_choice_question_where_every_option_is_correct() -> None:
+    """Regression test: the frontend renders MULTIPLE_CHOICE as checkboxes, and
+    grading requires an exact set match, so a question is answerable in
+    principle as long as it's not degenerate -- but a question where every
+    option is marked correct discriminates nothing and should never reach the
+    learner, regardless of how well the model followed the prompt.
+    """
+    raw = json.dumps(
+        {
+            "questions": [
+                {
+                    "type": "MULTIPLE_CHOICE",
+                    "question": "Which checks does the freshness agent perform?",
+                    "options": [
+                        {"label": "Broken citation links", "correct": True},
+                        {"label": "Deleted or renamed artifacts", "correct": True},
+                        {"label": "Substantial content changes", "correct": True},
+                    ],
+                },
+                {
+                    "type": "SHORT_TEXT",
+                    "question": "Good question",
+                    "correct_answer": "answer",
+                },
+            ]
+        }
+    )
+    llm = StubLLMClient(generate_response=raw)
+
+    check = generate_phase_check(_phase(), _CHUNKS, llm)
+
+    assert len(check.questions) == 1
+    assert check.questions[0].question == "Good question"
+
+
+def test_keeps_multiple_choice_question_with_some_but_not_all_options_correct() -> None:
+    raw = json.dumps(
+        {
+            "questions": [
+                {
+                    "type": "MULTIPLE_CHOICE",
+                    "question": "Which scopes are supported for onboarding blueprints?",
+                    "options": [
+                        {"label": "global", "correct": True},
+                        {"label": "area:<name>", "correct": True},
+                        {"label": "team:<name>", "correct": False},
+                    ],
+                },
+            ]
+        }
+    )
+    llm = StubLLMClient(generate_response=raw)
+
+    check = generate_phase_check(_phase(), _CHUNKS, llm)
+
+    assert len(check.questions) == 1
+    correct_labels = {o.label for o in check.questions[0].options if o.correct}
+    assert correct_labels == {"global", "area:<name>"}
     assert check.questions[0].position == 0
 
 
