@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from typing import Any
 
 import pytest
@@ -9,30 +9,37 @@ from api.dependencies import get_llm, get_store
 from llm.base import Message
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
+from tests.conftest import parse_sse_events
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
+
+_FINAL_SUMMARY = (
+    "## Key points\n"
+    "- The artifact describes the onboarding flow.\n\n"
+    "## Decisions\n"
+    "- Keep the local-first setup.\n\n"
+    "## What changed\n"
+    "- The setup instructions were clarified."
+)
 
 
 class CapturingLLM(StubLLMClient):
     def __init__(self) -> None:
         super().__init__(embedding=[1.0] + [0.0] * 767)
         self.messages: list[list[Message]] = []
-        self.generate_response = (
-            "## Key points\n"
-            "- The artifact describes the onboarding flow.\n\n"
-            "## Decisions\n"
-            "- Keep the local-first setup.\n\n"
-            "## What changed\n"
-            "- The setup instructions were clarified."
-        )
+        self.generate_response = "notes for a batch"
 
     def generate(self, messages: list[Message]) -> str:
         self.messages.append(messages)
         return self.generate_response
 
+    def stream(self, messages: list[Message]) -> Iterator[str]:
+        self.messages.append(messages)
+        yield _FINAL_SUMMARY
+
 
 class FailingLLM(CapturingLLM):
-    def generate(self, messages: list[Message]) -> str:
+    def stream(self, messages: list[Message]) -> Iterator[str]:
         raise LLMUnavailableError("local LLM unavailable")
 
 
@@ -49,7 +56,13 @@ def client() -> Generator[tuple[TestClient, CapturingLLM, StubVectorStore], Any,
     app.dependency_overrides.clear()
 
 
-def test_summary_returns_key_points_and_citation(
+def _summary_text(events: list[dict[str, object]]) -> str:
+    return "".join(
+        str(event["content"]) for event in events if event["type"] == "token"
+    )
+
+
+def test_summary_streams_key_points_and_citation(
     client: tuple[TestClient, CapturingLLM, StubVectorStore],
 ) -> None:
     http_client, _, store = client
@@ -70,16 +83,23 @@ def test_summary_returns_key_points_and_citation(
     response = http_client.post("/api/v1/artifacts/artifact-1/summary", json={})
 
     assert response.status_code == 200
+    events = parse_sse_events(response.text)
 
-    body = response.json()
-    assert "Key points" in body["summary"]
-    assert body["citations"] == [
+    assert "Key points" in _summary_text(events)
+    assert events[-1] == {"type": "done"}
+
+    citation_events = [e for e in events if e["type"] == "citation"]
+    assert citation_events == [
         {
+            "type": "citation",
             "artifact_id": "artifact-1",
             "filename": "onboarding.md",
             "source_url": "https://example.test/onboarding.md",
         }
     ]
+
+    stage_events = [e for e in events if e["type"] == "stage"]
+    assert [e["name"] for e in stage_events] == ["notes", "summary"]
 
 
 def test_summary_without_source_url_returns_backend_chunk_link(
@@ -102,9 +122,10 @@ def test_summary_without_source_url_returns_backend_chunk_link(
     response = http_client.post("/api/v1/artifacts/artifact-1/summary", json={})
 
     assert response.status_code == 200
-    body = response.json()
+    events = parse_sse_events(response.text)
+    citation_events = [e for e in events if e["type"] == "citation"]
 
-    assert body["citations"][0]["source_url"] == (
+    assert citation_events[0]["source_url"] == (
         "/api/v1/vector-db/artifacts/artifact-1/chunks"
     )
 
@@ -150,8 +171,9 @@ def test_summary_with_previous_artifact_mentions_change_context(
     assert "Old setup used manual configuration" in prompt_text
     assert "New setup uses automated configuration" in prompt_text
 
-    body = response.json()
-    assert len(body["citations"]) == 2
+    events = parse_sse_events(response.text)
+    citation_events = [e for e in events if e["type"] == "citation"]
+    assert len(citation_events) == 2
 
 
 def test_summary_respects_max_chunks(
@@ -231,7 +253,7 @@ def test_summary_unknown_artifact_returns_404(
     assert response.status_code == 404
 
 
-def test_summary_llm_unavailable_returns_503(
+def test_summary_llm_unavailable_emits_error_event(
     client: tuple[TestClient, CapturingLLM, StubVectorStore],
 ) -> None:
     http_client, _, store = client
@@ -253,8 +275,10 @@ def test_summary_llm_unavailable_returns_503(
 
     response = http_client.post("/api/v1/artifacts/artifact-1/summary", json={})
 
-    assert response.status_code == 503
-    assert "local LLM unavailable" in response.json()["detail"]
+    assert response.status_code == 200
+    events = parse_sse_events(response.text)
+    assert events[-1]["type"] == "error"
+    assert "local LLM unavailable" in events[-1]["message"]
 
 
 def test_long_artifact_is_batched(
