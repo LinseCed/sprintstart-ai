@@ -62,15 +62,41 @@ def _build_prompt(phase: PathPhase, chunks: list[ScoredChunk]) -> list[Message]:
     system = (
         "You write a short knowledge-check quiz for one phase of a software-team "
         "onboarding path, grounded ONLY in the given phase content and evidence.\n\n"
+        "The quiz measures UNDERSTANDING, not memorization. A learner who "
+        "skimmed the text once should NOT be able to answer just by pattern-"
+        "matching a name, flag, or number back to the source -- they should "
+        "have to reason about why something is done, what would happen in a "
+        "given situation, or how to choose between approaches. Do not ask the "
+        "learner to recite a literal fact (a tool's name, an env var's exact "
+        "spelling, a version number) unless getting that literal fact wrong "
+        "would actually cause a real mistake -- and even then, frame it "
+        "through a situation rather than a bare lookup.\n\n"
+        "Examples:\n"
+        'BAD (recall): "What CLI tool inspects how artifacts are chunked?"\n'
+        'GOOD (understanding): "You just changed a chunking parameter. What '
+        'should you do before re-ingesting everything, and why?"\n'
+        'BAD (recall): "Which embedding model does the vector store use?"\n'
+        'GOOD (understanding): "Why would switching the embedding model '
+        "without re-ingesting existing content quietly break retrieval "
+        'quality?"\n\n'
         f"Write {MIN_QUESTIONS}-{MAX_QUESTIONS} questions, mixing MULTIPLE_CHOICE "
         "and SHORT_TEXT types. Rules:\n"
-        "- MULTIPLE_CHOICE: at least 2 options, at least 1 marked correct (more "
-        "than one may be correct).\n"
-        "- SHORT_TEXT: provide a concise, non-empty 'correct_answer' reference.\n"
+        "- MULTIPLE_CHOICE: 3-4 options. Mark exactly one correct unless the "
+        "underlying concept genuinely has more than one right answer -- and "
+        "even then, never mark most or all options correct; a question where "
+        "nearly everything is 'correct' discriminates nothing. Wrong options "
+        "must be plausible misconceptions a learner could actually hold, not "
+        "random unrelated facts that are trivially eliminated.\n"
+        "- SHORT_TEXT: ask the learner to explain a consequence, trade-off, or "
+        "reasoning step in their own words, not recite a name or value. "
+        "Provide a concise, non-empty 'correct_answer' capturing the expected "
+        "idea (it does not need to be a verbatim quote from the evidence).\n"
         "- Every question needs a short 'explanation' of why the answer is "
         "correct, for learning effect.\n"
-        "- Base every question strictly on the phase content/evidence below; "
-        "never invent facts not supported by it.\n\n"
+        "- Base every question strictly on the phase content/evidence below -- "
+        "never invent facts not supported by it. Reason about the "
+        "implications of that content; don't just quote it back as a "
+        "question.\n\n"
         "Return STRICT JSON only (no prose, no markdown fences):\n"
         '{"questions": [{"type": "MULTIPLE_CHOICE", "question": str, '
         '"explanation": str, "options": [{"label": str, "correct": bool}]}, '
@@ -95,7 +121,12 @@ def _validate_question(item: _QuestionPayload) -> CheckQuestion | None:
 
     if item.type == "MULTIPLE_CHOICE":
         options = [o for o in item.options if o.label.strip()]
-        if len(options) < 2 or not any(o.correct for o in options):
+        correct_count = sum(1 for o in options if o.correct)
+        # Below the prompt's own guidance against near-all-correct questions:
+        # a question where every option is "correct" discriminates nothing
+        # and is dropped regardless of how well the model followed the
+        # prompt.
+        if len(options) < 2 or correct_count == 0 or correct_count == len(options):
             return None
         return CheckQuestion(
             position=0,
