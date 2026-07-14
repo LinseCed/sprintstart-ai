@@ -2,6 +2,7 @@
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Annotated
@@ -26,6 +27,14 @@ from store.base import VectorStore
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Each artifact already batches its own chunks into one embed_batch() call
+# (issue #129); this bounds how many artifacts are embedded concurrently
+# across the batch, since /ingest/sync otherwise processes them one at a
+# time and a few hundred artifacts can take minutes purely from sequential
+# network round-trips to the embedding API. Kept modest to stay well under
+# typical provider rate limits -- override via INGEST_CONCURRENCY.
+_DEFAULT_INGEST_CONCURRENCY = 8
 
 
 def _utc_now() -> str:
@@ -206,6 +215,26 @@ def _ingest_one(
     )
 
 
+def _ingest_one_safe(
+    artifact: ArtifactRunIngestRequest,
+    llm: LLMClient,
+    store: VectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> ArtifactRunIngestResponse:
+    try:
+        return _ingest_one(artifact, llm, store, metadata_store)
+    except Exception as exc:
+        logger.exception("Failed to ingest artifact %s", artifact.artifact_id)
+        metadata_store.mark_failed(
+            artifact.artifact_id,
+            f"Unexpected error during batch ingest: {exc}",
+            _utc_now(),
+        )
+        return ArtifactRunIngestResponse(
+            artifact_id=artifact.artifact_id, chunk_count=0, status="failed"
+        )
+
+
 @router.post(
     "/ingest/sync",
     response_model=RunArtifactsSyncResponse,
@@ -226,6 +255,12 @@ def ingest_run(
         Depends(get_ingestion_metadata_store),
     ],
 ) -> RunArtifactsSyncResponse:
+    logger.info(
+        "Sync request received: %d to ingest, %d to deindex",
+        len(body.artifacts_to_ingest),
+        len(body.artifacts_to_deindex),
+    )
+
     for artifact_id in body.artifacts_to_deindex:
         try:
             deleted_count = store.delete(artifact_id, exclude_ids=[])
@@ -235,21 +270,17 @@ def ingest_run(
             logger.exception("Failed to deindex artifact %s", artifact_id)
 
     results: list[ArtifactRunIngestResponse] = []
-    for artifact in body.artifacts_to_ingest:
-        try:
-            results.append(_ingest_one(artifact, llm, store, metadata_store))
-        except Exception as exc:
-            logger.exception("Failed to ingest artifact %s", artifact.artifact_id)
-            metadata_store.mark_failed(
-                artifact.artifact_id,
-                f"Unexpected error during batch ingest: {exc}",
-                _utc_now(),
-            )
-            results.append(
-                ArtifactRunIngestResponse(
-                    artifact_id=artifact.artifact_id, chunk_count=0, status="failed"
-                )
-            )
+    if body.artifacts_to_ingest:
+        concurrency = min(
+            int(os.getenv("INGEST_CONCURRENCY", str(_DEFAULT_INGEST_CONCURRENCY))),
+            len(body.artifacts_to_ingest),
+        )
+
+        def _ingest(artifact: ArtifactRunIngestRequest) -> ArtifactRunIngestResponse:
+            return _ingest_one_safe(artifact, llm, store, metadata_store)
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            results = list(executor.map(_ingest, body.artifacts_to_ingest))
 
     logger.info(
         "Sync complete: %d ingested, %d deindexed",
