@@ -2,11 +2,12 @@
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from api.schemas import (
@@ -27,9 +28,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Each artifact already batches its own chunks into one embed_batch() call
+# (issue #129); this bounds how many artifacts are embedded concurrently
+# across the batch, since /ingest/sync otherwise processes them one at a
+# time and a few hundred artifacts can take minutes purely from sequential
+# network round-trips to the embedding API. Kept modest to stay well under
+# typical provider rate limits -- override via INGEST_CONCURRENCY.
+_DEFAULT_INGEST_CONCURRENCY = 8
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _source_system_for(artifact: ArtifactRunIngestRequest) -> str:
+    return artifact.source_system or "GITHUB"
 
 
 def _filename_for(artifact: ArtifactRunIngestRequest) -> str:
@@ -48,6 +61,18 @@ def _filename_for(artifact: ArtifactRunIngestRequest) -> str:
     slug = artifact.source_id.rsplit(":", 1)[-1]
     type_prefix = artifact.artifact_type.lower().replace("_", "-")
     return f"{type_prefix}-{slug}.md"
+
+
+def _connector_source_id_for(artifact: ArtifactRunIngestRequest) -> str | None:
+    """Derive the connector-level source id (e.g. 'owner/repo') from sourceId.
+
+    sourceId format: "github:owner/repo:TYPE:unique" — the connector-level
+    source identity is always the second colon-separated segment, regardless
+    of artifact type. This is distinct from the artifact-level sourceId
+    itself, and from the enclosing connector id (artifact.source_system).
+    """
+    parts = artifact.source_id.split(":", 3)
+    return parts[1] if len(parts) >= 2 else None
 
 
 def _assemble_content(artifact: ArtifactRunIngestRequest) -> str:
@@ -75,11 +100,13 @@ def _ingest_one(
     existing = metadata_store.get_artifact(artifact.artifact_id)
     created_at = existing.created_at if existing is not None else request_time
 
+    source_system = _source_system_for(artifact)
+
     record = ArtifactRecord(
         id=artifact.artifact_id,
         filename=filename,
         content_type=artifact.mime or "text/plain",
-        source_type=artifact.source_system.lower(),
+        source_type=source_system.lower(),
         size_bytes=len(content_bytes),
         chunk_count=0,
         status="processing",
@@ -98,19 +125,21 @@ def _ingest_one(
             len(content),
             max_length,
         )
+        store.delete(artifact.artifact_id, exclude_ids=[])
         completed = replace(record, status="completed", updated_at=_utc_now())
         metadata_store.save_completed_artifact(completed)
         return ArtifactRunIngestResponse(
-            artifact_id=artifact.artifact_id, chunk_count=0
+            artifact_id=artifact.artifact_id, chunk_count=0, status="completed"
         )
 
     metadata_store.save_artifact(record)
 
     if not content:
+        store.delete(artifact.artifact_id, exclude_ids=[])
         completed = replace(record, status="completed", updated_at=_utc_now())
         metadata_store.save_completed_artifact(completed)
         return ArtifactRunIngestResponse(
-            artifact_id=artifact.artifact_id, chunk_count=0
+            artifact_id=artifact.artifact_id, chunk_count=0, status="completed"
         )
 
     try:
@@ -124,7 +153,7 @@ def _ingest_one(
         )
         metadata_store.mark_failed(artifact.artifact_id, str(exc), _utc_now())
         return ArtifactRunIngestResponse(
-            artifact_id=artifact.artifact_id, chunk_count=0
+            artifact_id=artifact.artifact_id, chunk_count=0, status="failed"
         )
 
     if not parsed_chunks:
@@ -132,30 +161,43 @@ def _ingest_one(
         completed = replace(record, status="completed", updated_at=_utc_now())
         metadata_store.save_completed_artifact(completed)
         return ArtifactRunIngestResponse(
-            artifact_id=artifact.artifact_id, chunk_count=0
+            artifact_id=artifact.artifact_id, chunk_count=0, status="completed"
         )
 
     source_role = classify_source_role(filename)
 
     try:
+        embeddings = llm.embed_batch([chunk.content for chunk in parsed_chunks])
         chunks = [
             replace(
                 to_chunk(
                     chunk,
                     artifact.artifact_id,
-                    llm.embed(chunk.content),
+                    embedding,
                     source_role=source_role,
+                    source_url=artifact.source_url,
+                    artifact_type=artifact.artifact_type,
+                    language=artifact.language,
+                    source_created_at=artifact.source_created_at,
+                    source_updated_at=artifact.source_updated_at,
+                    source_system=source_system,
                 ),
                 position=index,
-                source_url=artifact.source_url,
-                artifact_type=artifact.artifact_type,
-                language=artifact.language,
+                connector_id=source_system.lower(),
+                connector_source_id=_connector_source_id_for(artifact),
             )
-            for index, chunk in enumerate(parsed_chunks)
+            for index, (chunk, embedding) in enumerate(
+                zip(parsed_chunks, embeddings, strict=True)
+            )
         ]
     except LLMUnavailableError as exc:
+        # Mid-batch LLM outages must not sink the whole request (issue #129 #6):
+        # record this artifact as failed and let the caller retry it later while
+        # the rest of the batch still gets a chance to ingest.
         metadata_store.mark_failed(artifact.artifact_id, str(exc), _utc_now())
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return ArtifactRunIngestResponse(
+            artifact_id=artifact.artifact_id, chunk_count=0, status="failed"
+        )
 
     store.add(chunks)
     store.delete(artifact.artifact_id, exclude_ids=[chunk.id for chunk in chunks])
@@ -169,8 +211,28 @@ def _ingest_one(
     metadata_store.save_completed_artifact(completed)
 
     return ArtifactRunIngestResponse(
-        artifact_id=artifact.artifact_id, chunk_count=len(chunks)
+        artifact_id=artifact.artifact_id, chunk_count=len(chunks), status="completed"
     )
+
+
+def _ingest_one_safe(
+    artifact: ArtifactRunIngestRequest,
+    llm: LLMClient,
+    store: VectorStore,
+    metadata_store: IngestionMetadataStore,
+) -> ArtifactRunIngestResponse:
+    try:
+        return _ingest_one(artifact, llm, store, metadata_store)
+    except Exception as exc:
+        logger.exception("Failed to ingest artifact %s", artifact.artifact_id)
+        metadata_store.mark_failed(
+            artifact.artifact_id,
+            f"Unexpected error during batch ingest: {exc}",
+            _utc_now(),
+        )
+        return ArtifactRunIngestResponse(
+            artifact_id=artifact.artifact_id, chunk_count=0, status="failed"
+        )
 
 
 @router.post(
@@ -193,6 +255,12 @@ def ingest_run(
         Depends(get_ingestion_metadata_store),
     ],
 ) -> RunArtifactsSyncResponse:
+    logger.info(
+        "Sync request received: %d to ingest, %d to deindex",
+        len(body.artifacts_to_ingest),
+        len(body.artifacts_to_deindex),
+    )
+
     for artifact_id in body.artifacts_to_deindex:
         try:
             deleted_count = store.delete(artifact_id, exclude_ids=[])
@@ -201,10 +269,18 @@ def ingest_run(
         except Exception:
             logger.exception("Failed to deindex artifact %s", artifact_id)
 
-    results = [
-        _ingest_one(artifact, llm, store, metadata_store)
-        for artifact in body.artifacts_to_ingest
-    ]
+    results: list[ArtifactRunIngestResponse] = []
+    if body.artifacts_to_ingest:
+        concurrency = min(
+            int(os.getenv("INGEST_CONCURRENCY", str(_DEFAULT_INGEST_CONCURRENCY))),
+            len(body.artifacts_to_ingest),
+        )
+
+        def _ingest(artifact: ArtifactRunIngestRequest) -> ArtifactRunIngestResponse:
+            return _ingest_one_safe(artifact, llm, store, metadata_store)
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            results = list(executor.map(_ingest, body.artifacts_to_ingest))
 
     logger.info(
         "Sync complete: %d ingested, %d deindexed",

@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
@@ -45,6 +45,29 @@ class IngestRequest(BaseModel):
             "onboarding grounding. Defaults to auto-detection from the filename."
         ),
         examples=["primary"],
+    )
+    semantic_boundaries: bool = Field(
+        default=False,
+        description=(
+            "Only affects text and PDF content. When true, an LLM chooses "
+            "chunk boundaries based on semantic coherence (topic shifts, "
+            "section boundaries) instead of the default character-length "
+            "accumulation. Falls back to the default chunker if the "
+            "content is too large for the LLM or the LLM output is "
+            "invalid. Independently toggleable from 'contextualize'."
+        ),
+    )
+    contextualize: bool = Field(
+        default=False,
+        description=(
+            "Only affects text and PDF content. When true, an LLM flags "
+            "which chunks would benefit from a short situating context "
+            "block (Anthropic-style Contextual Retrieval) and prepends it "
+            "to their content; self-contained chunks are left untouched. "
+            "Falls back to the default chunker if the content is too "
+            "large for the LLM or the LLM output is invalid. "
+            "Independently toggleable from 'semantic_boundaries'."
+        ),
     )
 
     @field_validator("filename")
@@ -183,40 +206,64 @@ class HistoryEntry(BaseModel):
     }
 
 
-class ChatRequest(BaseModel):
-    prompt: str = Field(examples=["What were the main blockers in sprint 42?"])
-    context: Annotated[
-        list[HistoryEntry],
-        Field(
-            description=(
-                "Ordered conversation history for multi-turn context. "
-                "Entries are chronological (oldest first) and should alternate "
-                "between 'user' and 'assistant' roles. "
-                "May be omitted or empty for single-turn requests."
-            ),
-        ),
-    ] = []
+SourceSystemValue = Literal["GITHUB", "JIRA", "UPLOAD"]
 
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "prompt": "Can you summarize that?",
-                "context": [
-                    {
-                        "role": "user",
-                        "content": "What were the main blockers in sprint 42?",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": (
-                            "The main blockers were missing designs "
-                            "and a flaky CI pipeline."
-                        ),
-                    },
-                ],
-            }
-        }
-    }
+
+def _empty_history() -> list[HistoryEntry]:
+    return []
+
+
+class ChatFilters(BaseModel):
+    source_systems: list[SourceSystemValue] | None = Field(
+        default=None,
+        description="Optional source systems to include. Empty or missing means all.",
+    )
+    time_from: str | None = Field(
+        default=None,
+        description="Optional inclusive lower bound as ISO-8601 timestamp.",
+    )
+    time_to: str | None = Field(
+        default=None,
+        description="Optional inclusive upper bound as ISO-8601 timestamp.",
+    )
+
+    @field_validator("source_systems", mode="before")
+    @classmethod
+    def normalize_source_systems(cls, value: object) -> object:
+        if value is None:
+            return None
+
+        if not isinstance(value, list):
+            return value
+
+        items = cast(list[object], value)
+        return [str(item).upper() for item in items]
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(examples=["What changed in the auth implementation?"])
+    history: list[HistoryEntry] = Field(default_factory=_empty_history)
+    filters: ChatFilters | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_chat_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        raw_data = cast(dict[object, object], data)
+        updated: dict[str, object] = {}
+
+        for key, value in raw_data.items():
+            updated[str(key)] = value
+
+        if "question" not in updated and "prompt" in updated:
+            updated["question"] = updated["prompt"]
+
+        if "history" not in updated and "context" in updated:
+            updated["history"] = updated["context"]
+
+        return updated
 
 
 class HealthResponse(BaseModel):
@@ -267,6 +314,32 @@ class ValidationErrorResponse(BaseModel):
     detail: str
 
 
+class GradeAnswerItem(BaseModel):
+    id: str = Field(
+        description="Correlation id for this answer (the backend's questionId)."
+    )
+    question: str = Field(description="The short-text question being graded.")
+    reference_answer: str = Field(description="The authored reference answer.")
+    user_answer: str = Field(description="The user's submitted answer.")
+
+
+class GradeAnswersRequest(BaseModel):
+    answers: list[GradeAnswerItem] = Field(default_factory=list[GradeAnswerItem])
+
+
+class GradeAnswerResult(BaseModel):
+    id: str = Field(description="Correlation id matching the request item.")
+    correct: bool = Field(description="Whether the answer is semantically correct.")
+    confidence: float | None = Field(
+        default=None, ge=0, le=1, description="Optional confidence score, 0..1."
+    )
+    feedback: str = Field(description="Short feedback shown to the user.")
+
+
+class GradeAnswersResponse(BaseModel):
+    results: list[GradeAnswerResult] = Field(default_factory=list[GradeAnswerResult])
+
+
 class VectorDbChunkResponse(BaseModel):
     id: str = Field(description="Chunk identifier.")
     artifact_id: str = Field(description="Artifact/document this chunk belongs to.")
@@ -277,6 +350,20 @@ class VectorDbChunkResponse(BaseModel):
         description="Optional chunk position within the source artifact.",
     )
     kind: str = Field(description="Chunk kind, e.g. text, code, pdf, or image.")
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "1-based line the chunk starts on in the source file. "
+            "Set for text/code sources; None for PDFs (see start_page)."
+        ),
+    )
+    start_page: int | None = Field(
+        default=None,
+        description=(
+            "1-based PDF page the chunk was extracted from. "
+            "Set for PDF sources; None for text/code (see start_line)."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -287,6 +374,8 @@ class VectorDbChunkResponse(BaseModel):
                 "text": "Stored chunk text...",
                 "position": 0,
                 "kind": "text",
+                "start_line": 12,
+                "start_page": None,
             }
         }
     }
@@ -359,8 +448,21 @@ class TokenEvent(BaseModel):
 
 class CitationEvent(BaseModel):
     type: Literal["citation"]
-    chunk_id: str
-    filename: str
+    artifact_id: str
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "1-based line the cited chunk starts on in the source file. "
+            "Set for text/code sources; None for PDFs (see start_page)."
+        ),
+    )
+    start_page: int | None = Field(
+        default=None,
+        description=(
+            "1-based PDF page the cited chunk was extracted from. "
+            "Set for PDF sources; None for text/code (see start_line)."
+        ),
+    )
 
 
 class ToolUseEvent(BaseModel):
@@ -577,7 +679,10 @@ class ArtifactRunIngestRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     artifact_id: str
-    source_system: str
+    source_system: str | None = Field(
+        default=None,
+        alias="sourceSystem",
+    )
     source_id: str
     source_url: str | None = None
     artifact_type: str
@@ -585,6 +690,17 @@ class ArtifactRunIngestRequest(BaseModel):
     body_text: str | None = None
     mime: str | None = None
     language: str | None = None
+
+    source_created_at: str | None = Field(
+        default=None,
+        alias="sourceCreatedAt",
+        description="Original source creation timestamp, if known.",
+    )
+    source_updated_at: str | None = Field(
+        default=None,
+        alias="sourceUpdatedAt",
+        description="Original source update timestamp, if known.",
+    )
 
 
 class RunArtifactsSyncRequest(BaseModel):
@@ -599,7 +715,173 @@ class RunArtifactsSyncRequest(BaseModel):
 class ArtifactRunIngestResponse(BaseModel):
     artifact_id: str
     chunk_count: int
+    status: Literal["completed", "failed"] = "completed"
 
 
 class RunArtifactsSyncResponse(BaseModel):
     artifacts: list[ArtifactRunIngestResponse]
+
+
+# ── Connector / source enable-disable ───────────────────────────────────────
+
+
+class ConfigureConnectorRequest(BaseModel):
+    enabled: bool = Field(description="Whether the connector should be enabled.")
+
+
+class ConfigureConnectorResponse(BaseModel):
+    connector_id: str
+    enabled: bool
+
+
+class PatchSourcesRequest(BaseModel):
+    sources: dict[str, bool] = Field(
+        description="Map of source id (e.g. 'owner/repo') to enabled status."
+    )
+
+
+class PatchSourcesResponse(BaseModel):
+    connector_id: str
+    sources: dict[str, bool]
+
+
+class ArtifactSummaryRequest(BaseModel):
+    previous_artifact_id: str | None = Field(
+        default=None,
+        alias="previousArtifactId",
+        description="Optional previous artifact id for change summaries.",
+    )
+    max_chunks: int = Field(
+        default=500,
+        ge=1,
+        le=2000,
+        alias="maxChunks",
+        description="Maximum number of chunks to use for summary generation.",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# ── Knowledge-gaps (PM insights) ────────────────────────────────────────────
+
+
+class KnowledgeGapSchema(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    component: str = Field(
+        description="Component identifier derived from the ingestion index "
+        "(e.g. owner/repo)."
+    )
+    missing_types: list[str] = Field(
+        description="Expected documentation categories absent for this component."
+    )
+    present_types: list[str] = Field(
+        description="Documentation categories the component already has."
+    )
+    last_updated: str = Field(
+        description="ISO-8601 timestamp of the component's most recently updated "
+        "artifact."
+    )
+    severity: Literal["high", "medium", "low"] = Field(
+        description="Gap severity, from missing-critical-category count and staleness."
+    )
+
+
+class KnowledgeGapsResponse(BaseModel):
+    gaps: list[KnowledgeGapSchema]
+
+
+# ── FAQ grouping (PM insights) ──────────────────────────────────────────────
+
+
+class FaqQuestionSchema(BaseModel):
+    id: str = Field(description="Backend-assigned question identifier.")
+    text: str = Field(description="The question's text.")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"id": "q_1", "text": "How do I get VPN access?"}
+        }
+    }
+
+
+class FaqGroupRequest(BaseModel):
+    questions: list[FaqQuestionSchema] = Field(
+        description=(
+            "Questions collected by the backend. The AI service is stateless "
+            "and does not retain question history itself, so the full set to "
+            "group is sent on every request."
+        )
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "questions": [
+                    {"id": "q_1", "text": "How do I get VPN access?"},
+                    {"id": "q_2", "text": "Can someone enable VPN for me?"},
+                ]
+            }
+        }
+    }
+
+
+class FaqDocumentSchema(BaseModel):
+    id: str = Field(description="Knowledge-base artifact id for this document.")
+    title: str = Field(description="Document title (filename).")
+    source: str | None = Field(
+        default=None,
+        description="Origin system of the document, e.g. confluence, github.",
+    )
+
+
+class FaqGroupSchema(BaseModel):
+    question: Annotated[
+        str,
+        Field(description="Representative question for the group, PII-redacted."),
+    ]
+    count: Annotated[
+        int,
+        Field(
+            description=(
+                "Total number of questions in the group. May be greater than "
+                "len(questions), which is a redacted sample."
+            )
+        ),
+    ]
+    questions: Annotated[
+        list[str],
+        Field(description="PII-redacted sample of questions in the group."),
+    ]
+    documents: Annotated[
+        list[FaqDocumentSchema],
+        Field(description="Documents that answered the group's questions."),
+    ]
+
+
+class FaqGroupResponse(BaseModel):
+    groups: list[FaqGroupSchema]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "groups": [
+                    {
+                        "question": "How do I get VPN access?",
+                        "count": 14,
+                        "questions": [
+                            "How do I get VPN access?",
+                            "Can someone enable VPN for me?",
+                        ],
+                        "documents": [
+                            {
+                                "id": "doc_001",
+                                "title": "VPN Setup Guide",
+                                "source": "confluence",
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    }

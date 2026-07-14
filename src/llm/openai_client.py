@@ -222,15 +222,21 @@ class OpenAIClient(LLMClient):
             ) from exc
 
     def embed(self, text: str) -> list[float]:
+        return self.embed_batch([text])[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
         if self.embed_model is None:
             raise ValueError("No embed model specified")
+        if not texts:
+            return []
         try:
             response = self.client.embeddings.create(
                 model=self.embed_model,
-                input=text,
+                input=texts,
             )
 
-            return list(response.data[0].embedding)
+            by_index = sorted(response.data, key=lambda item: item.index)
+            return [list(item.embedding) for item in by_index]
 
         except OpenAIError as exc:
             raise LLMUnavailableError(

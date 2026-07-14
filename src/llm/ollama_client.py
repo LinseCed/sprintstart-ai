@@ -78,11 +78,11 @@ class OllamaBackend(Protocol):
         messages: Sequence[Message] | None = None,
     ) -> Iterator[ollama.ChatResponse]: ...
 
-    def embeddings(
+    def embed(
         self,
         model: str = "",
-        prompt: str = "",
-    ) -> ollama.EmbeddingsResponse: ...
+        input: Sequence[str] = (),
+    ) -> ollama.EmbedResponse: ...
 
     def chat_with_images(
         self,
@@ -170,12 +170,12 @@ class _OllamaAdapter:
             self._warn_if_truncated(chunk)
             yield chunk
 
-    def embeddings(
+    def embed(
         self,
         model: str = "",
-        prompt: str = "",
-    ) -> ollama.EmbeddingsResponse:
-        return self._client.embeddings(model=model, prompt=prompt)
+        input: Sequence[str] = (),
+    ) -> ollama.EmbedResponse:
+        return self._client.embed(model=model, input=list(input))
 
     def chat_with_images(
         self,
@@ -254,11 +254,16 @@ class OllamaClient:
             raise LLMUnavailableError(self._host, cause=exc) from exc
 
     def embed(self, text: str) -> list[float]:
+        return self.embed_batch([text])[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
         if self._embed_model is None:
             raise ValueError("No embed model specified")
+        if not texts:
+            return []
         try:
-            response = self._client.embeddings(model=self._embed_model, prompt=text)
-            return list(response.embedding or [])
+            response = self._client.embed(model=self._embed_model, input=texts)
+            return [list(embedding) for embedding in response.embeddings]
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc
 

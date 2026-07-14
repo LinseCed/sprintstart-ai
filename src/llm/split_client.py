@@ -28,3 +28,6 @@ class SplitLLMClient(LLMClient):
 
     def embed(self, text: str) -> list[float]:
         return self._embed.embed(text)
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return self._embed.embed_batch(texts)

@@ -192,6 +192,9 @@ class AnthropicClient(LLMClient):
             ) from exc
 
     def embed(self, text: str) -> list[float]:
+        return self.embed_batch([text])[0]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
         raise LLMUnavailableError(
             "Anthropic does not provide an embeddings API. Configure EMBED_BACKEND "
             "to a provider that does (e.g. the OpenAI-compatible LiteLLM endpoint)."

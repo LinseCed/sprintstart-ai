@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from rag.types import Chunk, ScoredChunk
+from rag.types import Chunk, RetrievalFilters, ScoredChunk
 
 
 class VectorStore(Protocol):
@@ -11,6 +11,7 @@ class VectorStore(Protocol):
         embedding: list[float],
         top_k: int,
         min_score: float,
+        filters: RetrievalFilters | None = None,
     ) -> list[ScoredChunk]: ...
 
     def delete(
@@ -31,5 +32,13 @@ class VectorStore(Protocol):
     def count_by_artifact(self, artifact_id: str) -> int: ...
 
     def all_chunks(self) -> list[Chunk]: ...
+
+    def all_chunks_without_embeddings(self) -> list[Chunk]: ...
+
+    def list_chunks_without_embeddings(
+        self, limit: int, offset: int = 0
+    ) -> list[Chunk]: ...
+
+    def all_ids(self) -> frozenset[str]: ...
 
     def count(self) -> int: ...

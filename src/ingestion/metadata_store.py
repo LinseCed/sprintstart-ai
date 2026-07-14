@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Literal, cast
 
-IngestionStatus = Literal["processing", "completed", "failed"]
+IngestionStatus = Literal["processing", "completed", "failed", "deindexed"]
 
 
 @dataclass(frozen=True)
@@ -142,6 +142,35 @@ class IngestionMetadataStore:
         if row is None:
             return None
 
+        return self._row_to_record(row)
+
+    def list_artifacts(
+        self, status: IngestionStatus | None = "completed"
+    ) -> list[ArtifactRecord]:
+        """Return all artifacts, optionally filtered by status.
+
+        Used by corpus-wide insights (e.g. knowledge-gap detection) that need to
+        enumerate the whole ingestion index rather than look up a single id.
+        Defaults to ``completed`` so callers see only fully-indexed material.
+        """
+        query = (
+            "SELECT id, filename, content_type, source_type, size_bytes, "
+            "chunk_count, status, created_at, updated_at, error_message, "
+            "source_id, source_url, artifact_type, language FROM artifacts"
+        )
+        params: tuple[str, ...] = ()
+        if status is not None:
+            query += " WHERE status = ?"
+            params = (status,)
+
+        with self._lock:
+            cursor = self._connection.execute(query, params)
+            rows = cursor.fetchall()
+
+        return [self._row_to_record(cast(sqlite3.Row, row)) for row in rows]
+
+    @staticmethod
+    def _row_to_record(row: sqlite3.Row) -> ArtifactRecord:
         return ArtifactRecord(
             id=str(row["id"]),
             filename=str(row["filename"]),

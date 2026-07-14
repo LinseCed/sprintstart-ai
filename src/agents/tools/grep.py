@@ -1,6 +1,7 @@
 from pydantic import BaseModel, field_validator
 
 from agents.tools.base import Tool, ToolResult
+from rag.source_filter import SourceExclusions, is_excluded
 from rag.types import ScoredChunk
 from store.base import VectorStore
 
@@ -24,8 +25,11 @@ class GrepTool(Tool[GrepArgs]):
     )
     args_model = GrepArgs
 
-    def __init__(self, store: VectorStore) -> None:
+    def __init__(
+        self, store: VectorStore, *, exclusions: SourceExclusions = SourceExclusions()
+    ) -> None:
         self._store = store
+        self._exclusions = exclusions
 
     def run(self, args: GrepArgs) -> ToolResult:
         needles = [p.lower() for p in args.patterns]
@@ -38,9 +42,12 @@ class GrepTool(Tool[GrepArgs]):
                 score=_GREP_SCORE,
                 position=chunk.position,
                 kind=chunk.kind,
+                start_line=chunk.start_line,
+                start_page=chunk.start_page,
             )
-            for chunk in self._store.all_chunks()
-            if any(needle in chunk.text.lower() for needle in needles)
+            for chunk in self._store.all_chunks_without_embeddings()
+            if not is_excluded(chunk, self._exclusions)
+            and any(needle in chunk.text.lower() for needle in needles)
         ]
         return ToolResult(
             summary=f"grep({args.patterns}): {len(results)} match(es).",

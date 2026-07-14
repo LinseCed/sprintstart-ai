@@ -145,10 +145,19 @@ def ingest(
     max_length = int(os.getenv("INGEST_MAX_CONTENT_LENGTH", "500000"))
     if len(body.content) > max_length:
         detail = f"Content exceeds maximum length of {max_length} characters."
+        store.delete(body.artifact_id, exclude_ids=[])
         metadata_store.mark_failed(body.artifact_id, detail, _utc_now())
         raise HTTPException(status_code=413, detail=detail)
 
-    parsed_chunks = parse(body.filename, content_bytes)
+    use_context_aware_chunking = body.semantic_boundaries or body.contextualize
+
+    parsed_chunks = parse(
+        body.filename,
+        content_bytes,
+        llm=llm if use_context_aware_chunking else None,
+        semantic_boundaries=body.semantic_boundaries,
+        contextualize=body.contextualize,
+    )
 
     if not parsed_chunks:
         try:
@@ -210,17 +219,21 @@ def ingest(
 
     source_role = body.source_role or classify_source_role(body.filename)
     try:
+        embeddings = llm.embed_batch([chunk.content for chunk in enriched])
         chunks = [
             replace(
                 to_chunk(
                     chunk,
                     body.artifact_id,
-                    llm.embed(chunk.content),
+                    embedding,
                     source_role=source_role,
+                    source_system="UPLOAD",
                 ),
                 position=index,
             )
-            for index, chunk in enumerate(enriched)
+            for index, (chunk, embedding) in enumerate(
+                zip(enriched, embeddings, strict=True)
+            )
         ]
     except LLMUnavailableError as exc:
         detail = str(exc)

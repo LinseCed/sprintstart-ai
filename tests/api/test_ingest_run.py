@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from ingestion.metadata_store import IngestionMetadataStore
+from llm.errors import LLMUnavailableError
+from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -85,9 +88,14 @@ def test_ingest_run_indexes_artifacts(
     assert len(data["artifacts"]) == 2
     assert data["artifacts"][0]["artifact_id"] == "uuid-1"
     assert data["artifacts"][0]["chunk_count"] > 0
+    assert data["artifacts"][0]["status"] == "completed"
     assert data["artifacts"][1]["artifact_id"] == "uuid-2"
     assert data["artifacts"][1]["chunk_count"] > 0
+    assert data["artifacts"][1]["status"] == "completed"
     assert len(vector_store.chunks) == 2
+    for chunk in vector_store.chunks:
+        assert chunk.connector_id == "github"
+        assert chunk.connector_source_id == "owner/repo"
 
 
 def test_ingest_run_deindexes_before_indexing(
@@ -175,3 +183,182 @@ def test_ingest_run_filename_derived_for_issue(
     record = metadata_store.get_artifact("uuid-issue")
     assert record is not None
     assert record.filename == "issue-42.md"
+
+
+class _FlakyEmbedLLMClient(StubLLMClient):
+    """Raises LLMUnavailableError while embedding the file artifact's content,
+    succeeds for everything else. Content-keyed (not a call counter) so the
+    failing artifact stays deterministic under /ingest/sync's concurrent
+    per-artifact processing, where call order across artifacts isn't fixed.
+    """
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if any("hello" in text for text in texts):
+            raise LLMUnavailableError("embedding backend unavailable")
+        return super().embed_batch(texts)
+
+
+def test_ingest_run_llm_outage_on_one_artifact_does_not_sink_the_batch(
+    metadata_store: IngestionMetadataStore,
+    vector_store: StubVectorStore,
+) -> None:
+    """Regression test for issue #129 #6: a mid-batch LLM outage must be recorded
+    per-artifact instead of 503ing the whole request and losing every result.
+    """
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: _FlakyEmbedLLMClient()
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/api/v1/ingest/sync",
+            json={
+                "artifactsToIngest": [
+                    _file_artifact("uuid-1"),
+                    _issue_artifact("uuid-2"),
+                ],
+                "artifactsToDeindex": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()["artifacts"]
+    assert data[0]["artifact_id"] == "uuid-1"
+    assert data[0]["status"] == "failed"
+    assert data[0]["chunk_count"] == 0
+    assert data[1]["artifact_id"] == "uuid-2"
+    assert data[1]["status"] == "completed"
+    assert data[1]["chunk_count"] > 0
+
+    failed_record = metadata_store.get_artifact("uuid-1")
+    assert failed_record is not None
+    assert failed_record.status == "failed"
+
+
+class _FlakyStore(StubVectorStore):
+    """Raises when storing the file artifact's chunks, succeeds for everything
+    else. Content-keyed (not a call counter) so the failing artifact stays
+    deterministic under /ingest/sync's concurrent per-artifact processing,
+    where call order across artifacts isn't fixed.
+    """
+
+    def add(self, chunks: list[Chunk]) -> None:
+        if any(chunk.artifact_id == "uuid-1" for chunk in chunks):
+            raise RuntimeError("storage backend unavailable")
+        super().add(chunks)
+
+
+def test_ingest_run_storage_error_on_one_artifact_does_not_sink_the_batch(
+    metadata_store: IngestionMetadataStore,
+) -> None:
+    """A storage error for one artifact must not 500 the whole batch."""
+    flaky_store = _FlakyStore()
+    app.dependency_overrides[get_store] = lambda: flaky_store
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient()
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/api/v1/ingest/sync",
+            json={
+                "artifactsToIngest": [
+                    _file_artifact("uuid-1"),
+                    _issue_artifact("uuid-2"),
+                ],
+                "artifactsToDeindex": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()["artifacts"]
+    assert data[0]["artifact_id"] == "uuid-1"
+    assert data[0]["status"] == "failed"
+    assert data[1]["artifact_id"] == "uuid-2"
+    assert data[1]["status"] == "completed"
+    assert data[1]["chunk_count"] > 0
+
+
+class _SlowFirstLLMClient(StubLLMClient):
+    """Delays embedding the file artifact's content so it finishes after
+    artifacts submitted behind it in the request -- proves the response
+    stays in request order even when completion order is reversed.
+    """
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if any("hello" in text for text in texts):
+            time.sleep(0.2)
+        return super().embed_batch(texts)
+
+
+def test_ingest_run_preserves_request_order_despite_reversed_completion_order(
+    metadata_store: IngestionMetadataStore,
+    vector_store: StubVectorStore,
+) -> None:
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: _SlowFirstLLMClient()
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/api/v1/ingest/sync",
+            json={
+                "artifactsToIngest": [
+                    _file_artifact("uuid-1"),
+                    _issue_artifact("uuid-2"),
+                ],
+                "artifactsToDeindex": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()["artifacts"]
+    assert [item["artifact_id"] for item in data] == ["uuid-1", "uuid-2"]
+    assert all(item["status"] == "completed" for item in data)
+
+
+class _DelayedLLMClient(StubLLMClient):
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        time.sleep(0.15)
+        return super().embed_batch(texts)
+
+
+def test_ingest_run_processes_artifacts_concurrently(
+    metadata_store: IngestionMetadataStore,
+    vector_store: StubVectorStore,
+) -> None:
+    """Regression test: /ingest/sync used to process artifacts one at a time,
+    so N artifacts took N times as long purely from sequential network
+    round-trips to the embedding API. This asserts real overlap, not just
+    that concurrent code runs without error.
+    """
+    app.dependency_overrides[get_store] = lambda: vector_store
+    app.dependency_overrides[get_llm] = lambda: _DelayedLLMClient()
+    app.dependency_overrides[get_ingestion_metadata_store] = lambda: metadata_store
+    client = TestClient(app)
+
+    artifacts = [_file_artifact(f"uuid-{i}") for i in range(5)]
+
+    try:
+        started = time.monotonic()
+        response = client.post(
+            "/api/v1/ingest/sync",
+            json={"artifactsToIngest": artifacts, "artifactsToDeindex": []},
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert all(item["status"] == "completed" for item in response.json()["artifacts"])
+    # Sequential would take >= 5 * 0.15s = 0.75s. Comfortably below that
+    # (but above a single 0.15s call) proves real concurrent overlap.
+    assert elapsed < 0.5

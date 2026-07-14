@@ -6,22 +6,18 @@ from fastapi import Depends
 
 from agents.orchestrator import ChatOrchestrator
 from ingestion.metadata_store import IngestionMetadataStore
+from ingestion.source_state_store import SourceStateStore
 from llm.anthropic_client import AnthropicClient
 from llm.base import LLMClient
 from llm.ollama_client import OllamaClient
 from llm.openai_client import OpenAIClient
 from llm.split_client import SplitLLMClient
 from onboarding.orchestrator import OnboardingOrchestrator
-from rag.hybrid import BM25IndexCache
+from rag.retriever import get_bm25_cache
 from store.base import VectorStore
 from store.chroma_store import ChromaVectorStore
 
 logger = logging.getLogger(__name__)
-
-# Process-wide BM25 index, shared across onboarding requests. The cache rebuilds
-# itself only when the corpus size changes, so requests reuse a warm index
-# instead of re-tokenizing the whole corpus on every call.
-_onboarding_bm25_cache = BM25IndexCache()
 
 
 def _build_client(backend: str) -> LLMClient:
@@ -88,15 +84,22 @@ def get_ingestion_metadata_store() -> IngestionMetadataStore:
     return IngestionMetadataStore(path=path)
 
 
+@lru_cache
+def get_source_state_store() -> SourceStateStore:
+    path = os.getenv("APP_DB_PATH", "").strip() or "data/sprintstart.db"
+    return SourceStateStore(path=path)
+
+
 def get_orchestrator(
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
+    source_state: SourceStateStore = Depends(get_source_state_store),
 ) -> ChatOrchestrator:
-    return ChatOrchestrator(llm, store)
+    return ChatOrchestrator(llm, store, source_state.get_exclusions())
 
 
 def get_onboarding_orchestrator(
     llm: LLMClient = Depends(get_llm),
     store: VectorStore = Depends(get_store),
 ) -> OnboardingOrchestrator:
-    return OnboardingOrchestrator(llm, store, bm25_cache=_onboarding_bm25_cache)
+    return OnboardingOrchestrator(llm, store, bm25_cache=get_bm25_cache())

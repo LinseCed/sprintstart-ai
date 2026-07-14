@@ -3,6 +3,7 @@ from agents.synthesis_agent import SynthesisAgent
 from agents.tools.agent_tool import AgentTool
 from agents.tools.base import ToolRegistry
 from llm.base import LLMClient
+from rag.source_filter import SourceExclusions
 from store.base import VectorStore
 
 _MAX_STEPS = 3
@@ -26,10 +27,15 @@ Be concise and precise. Use markdown formatting where appropriate.
 
 
 class OrchestratorAgent(Agent):
-    def __init__(self, llm: LLMClient, store: VectorStore) -> None:
+    def __init__(
+        self,
+        llm: LLMClient,
+        store: VectorStore,
+        exclusions: SourceExclusions = SourceExclusions(),
+    ) -> None:
         tools = ToolRegistry(
             [
-                AgentTool(SynthesisAgent(llm, store)),
+                AgentTool(SynthesisAgent(llm, store, exclusions)),
             ]
         )
         super().__init__(

@@ -7,18 +7,28 @@ from agents.tools.base import Tool, ToolRegistry, ToolResult
 from agents.tools.fetch_file import FetchFileTool
 from agents.tools.grep import GrepTool
 from agents.tools.retrieve import RetrieveTool
+from rag.source_filter import SourceExclusions
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
 
-def _chunk(chunk_id: str, filename: str, text: str, embedding: list[float]) -> Chunk:
+def _chunk(
+    chunk_id: str,
+    filename: str,
+    text: str,
+    embedding: list[float],
+    connector_id: str | None = None,
+    connector_source_id: str | None = None,
+) -> Chunk:
     return Chunk(
         id=chunk_id,
         artifact_id="doc-1",
         filename=filename,
         text=text,
         embedding=embedding,
+        connector_id=connector_id,
+        connector_source_id=connector_source_id,
     )
 
 
@@ -33,6 +43,31 @@ def test_retrieve_tool_returns_matching_chunks() -> None:
     assert isinstance(result, ToolResult)
     assert [c.id for c in result.chunks] == ["c1"]
     assert "1 chunk" in result.summary
+
+
+def test_retrieve_tool_excludes_disabled_source() -> None:
+    embedding = [1.0] + [0.0] * 767
+    store = StubVectorStore()
+    store.add(
+        [
+            _chunk(
+                "c1",
+                "retro.md",
+                "missing designs blocked auth",
+                embedding,
+                connector_id="github",
+                connector_source_id="owner/repo",
+            )
+        ]
+    )
+    llm = StubLLMClient(embedding=embedding)
+    exclusions = SourceExclusions(sources=frozenset({("github", "owner/repo")}))
+
+    result = RetrieveTool(llm, store, exclusions=exclusions).execute(
+        {"query": "blockers"}
+    )
+
+    assert result.chunks == []
 
 
 def test_retrieve_tool_rejects_bad_args() -> None:
@@ -56,6 +91,29 @@ def test_grep_tool_matches_substring_case_insensitively() -> None:
     result = GrepTool(store).execute({"patterns": "PARSE_CONFIG"})
 
     assert [c.id for c in result.chunks] == ["c1"]
+
+
+def test_grep_tool_excludes_disabled_connector() -> None:
+    store = StubVectorStore()
+    store.add(
+        [
+            _chunk(
+                "c1",
+                "a.py",
+                "def parse_config(): ...",
+                [0.0] * 768,
+                connector_id="github",
+                connector_source_id="owner/repo",
+            )
+        ]
+    )
+    exclusions = SourceExclusions(connectors=frozenset({"github"}))
+
+    result = GrepTool(store, exclusions=exclusions).execute(
+        {"patterns": "PARSE_CONFIG"}
+    )
+
+    assert result.chunks == []
 
 
 def test_grep_tool_coerces_single_string_pattern() -> None:
@@ -82,6 +140,29 @@ def test_fetch_file_tool_matches_by_name_and_stem() -> None:
 
     assert {c.id for c in by_name.chunks} == {"c1", "c2"}
     assert {c.id for c in by_stem.chunks} == {"c1", "c2"}
+
+
+def test_fetch_file_tool_excludes_disabled_source() -> None:
+    store = StubVectorStore()
+    store.add(
+        [
+            _chunk(
+                "c1",
+                "guide.md",
+                "part one",
+                [0.0] * 768,
+                connector_id="github",
+                connector_source_id="owner/repo",
+            )
+        ]
+    )
+    exclusions = SourceExclusions(sources=frozenset({("github", "owner/repo")}))
+
+    result = FetchFileTool(store, exclusions=exclusions).execute(
+        {"filename": "guide.md"}
+    )
+
+    assert result.chunks == []
 
 
 def test_fetch_file_with_extension_does_not_match_other_extensions() -> None:

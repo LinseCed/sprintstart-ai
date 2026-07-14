@@ -1,9 +1,12 @@
+from datetime import UTC, datetime, timedelta
+
 from src.rag.hybrid import (
     BM25IndexCache,
     hybrid_retrieve,
     reciprocal_rank_fusion,
 )
-from src.rag.types import Chunk, ScoredChunk
+from src.rag.source_filter import SourceExclusions
+from src.rag.types import Chunk, RetrievalFilters, ScoredChunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -13,6 +16,8 @@ def make_chunk(
     text: str,
     embedding: list[float],
     source_role: str = "primary",
+    connector_id: str | None = None,
+    connector_source_id: str | None = None,
 ) -> Chunk:
     return Chunk(
         id=chunk_id,
@@ -21,6 +26,8 @@ def make_chunk(
         text=text,
         embedding=embedding,
         source_role=source_role,  # type: ignore[arg-type]
+        connector_id=connector_id,
+        connector_source_id=connector_source_id,
     )
 
 
@@ -49,6 +56,49 @@ def test_rrf_merge_with_known_rankings() -> None:
 
     assert result[0].id == "b"
     assert {chunk.id for chunk in result} == {"a", "b", "c"}
+
+
+def test_bm25_cache_invalidates_when_content_replaces_same_count() -> None:
+    """Regression test for issue #129 #1: editing a chunk's text (same total
+    count, new content-hashed id) must invalidate the cache, not just a count
+    change. Stale BM25 hits would otherwise cite chunks Chroma no longer has.
+    """
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [make_chunk(chunk_id="chunk-1", text="original text", embedding=[1.0, 0.0])]
+    )
+    first_index = cache.get(store)
+    assert first_index.chunks[0].text == "original text"
+
+    store.delete("artifact-1")
+    store.add(
+        [
+            make_chunk(
+                chunk_id="chunk-1-edited", text="edited text", embedding=[1.0, 0.0]
+            )
+        ]
+    )
+
+    second_index = cache.get(store)
+
+    assert first_index is not second_index
+    assert second_index.chunks[0].text == "edited text"
+
+
+def test_bm25_cache_hit_does_not_rebuild_index() -> None:
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [make_chunk(chunk_id="chunk-1", text="first chunk", embedding=[1.0, 0.0])]
+    )
+
+    first_index = cache.get(store)
+    second_index = cache.get(store)
+
+    assert first_index is second_index
 
 
 def test_bm25_cache_invalidates_when_chunk_count_changes() -> None:
@@ -117,6 +167,47 @@ def test_large_corpus_uses_semantic_only_fallback() -> None:
 
     assert len(result) == 1
     assert result[0].id == "semantic-match"
+
+
+def test_bm25_only_match_is_returned_when_semantic_finds_nothing() -> None:
+    """Regression test for issue #129 #4: an exact-identifier query that embeds
+    poorly (nothing clears min_score) must still surface the BM25 hit instead
+    of being discarded.
+    """
+    llm = StubLLMClient(embedding=[0.0, 1.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    # BM25's idf is degenerate on a single-document corpus (score <= 0 even for
+    # an exact match), so a couple of unrelated chunks keep the corpus realistic.
+    store.add(
+        [
+            make_chunk(
+                chunk_id="keyword-only", text="FooBarHandler", embedding=[1.0, 0.0]
+            ),
+            make_chunk(
+                chunk_id="unrelated-1",
+                text="unrelated document one",
+                embedding=[1.0, 0.0],
+            ),
+            make_chunk(
+                chunk_id="unrelated-2",
+                text="unrelated document two",
+                embedding=[1.0, 0.0],
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="FooBarHandler",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.99,
+        bm25_cache=cache,
+    )
+
+    assert {chunk.id for chunk in result} == {"keyword-only"}
 
 
 def test_exclude_roles_drops_test_chunks() -> None:
@@ -194,3 +285,156 @@ def test_exclude_roles_in_semantic_only_fallback() -> None:
     )
 
     assert {chunk.id for chunk in result} == {"primary"}
+
+
+def test_exclusions_drop_disabled_source_chunks() -> None:
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [
+            make_chunk(
+                "enabled-repo",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/enabled-repo",
+            ),
+            make_chunk(
+                "disabled-repo",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/disabled-repo",
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="onboarding setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=cache,
+        exclusions=SourceExclusions(
+            sources=frozenset({("github", "owner/disabled-repo")})
+        ),
+    )
+
+    assert {chunk.id for chunk in result} == {"enabled-repo"}
+
+
+def test_exclusions_drop_disabled_connector_chunks() -> None:
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add(
+        [
+            make_chunk(
+                "jira-chunk",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="jira",
+                connector_source_id="PROJ",
+            ),
+            make_chunk(
+                "github-chunk",
+                "onboarding setup guide",
+                [1.0, 0.0],
+                connector_id="github",
+                connector_source_id="owner/repo",
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="onboarding setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=cache,
+        exclusions=SourceExclusions(connectors=frozenset({"github"})),
+    )
+
+    assert {chunk.id for chunk in result} == {"jira-chunk"}
+
+
+def test_exclusions_keep_legacy_chunks_without_connector() -> None:
+    """Chunks without a connector_id are never excluded."""
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    cache = BM25IndexCache()
+
+    store.add([make_chunk("legacy", "onboarding setup guide", [1.0, 0.0])])
+
+    result = hybrid_retrieve(
+        question="onboarding setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=cache,
+        exclusions=SourceExclusions(connectors=frozenset({"github"})),
+    )
+
+    assert {chunk.id for chunk in result} == {"legacy"}
+
+
+def test_hybrid_retrieval_applies_source_and_time_filters() -> None:
+    recent_date = datetime.now(UTC).isoformat()
+    old_date = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+
+    llm = StubLLMClient(embedding=[1.0, 0.0])
+    store = StubVectorStore()
+    store.add(
+        [
+            Chunk(
+                id="chunk-docs",
+                artifact_id="artifact-docs",
+                filename="doc.md",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                source_system="UPLOAD",
+                created_at=recent_date,
+            ),
+            Chunk(
+                id="chunk-old-code",
+                artifact_id="artifact-old-code",
+                filename="old.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_system="GITHUB",
+                created_at=old_date,
+            ),
+            Chunk(
+                id="chunk-recent-code",
+                artifact_id="artifact-recent-code",
+                filename="app.py",
+                text="database setup",
+                embedding=[1.0, 0.0],
+                kind="code",
+                source_system="GITHUB",
+                created_at=recent_date,
+            ),
+        ]
+    )
+
+    result = hybrid_retrieve(
+        question="database setup",
+        llm=llm,
+        store=store,
+        top_k=5,
+        min_score=0.0,
+        bm25_cache=BM25IndexCache(),
+        filters=RetrievalFilters(
+            source_systems=["GITHUB"],
+            time_from=(datetime.now(UTC) - timedelta(days=183)).isoformat(),
+        ),
+    )
+
+    assert [chunk.id for chunk in result] == ["chunk-recent-code"]
