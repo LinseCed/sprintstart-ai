@@ -567,6 +567,141 @@ class SkillAssessmentSchema(BaseModel):
     ] = "beginner"
 
 
+# ── Assessment (skill-chat interviewer) ─────────────────────────────────────
+
+
+class CandidateCompetencySchema(BaseModel):
+    key: str = Field(description="Stable competency key from the graph.")
+    label: str = Field(description="Human-readable competency name.")
+    description: str = Field(
+        default="", description="Optional longer description of the competency."
+    )
+    role_weight: float = Field(
+        default=1.0,
+        description="Backend-supplied importance weight for this role/scope.",
+    )
+
+
+class RepoSignalSchema(BaseModel):
+    languages: list[str] = Field(
+        default_factory=list, description="Languages detected in the target repo(s)."
+    )
+    frameworks: list[str] = Field(
+        default_factory=list, description="Frameworks detected in the target repo(s)."
+    )
+    notable: list[str] = Field(
+        default_factory=list,
+        description="Other notable repo signals (patterns, tools, conventions).",
+    )
+
+
+class AssessmentTurnRequest(BaseModel):
+    candidate_competencies: list[CandidateCompetencySchema] = Field(
+        description="Competencies this turn may assess. Never assess outside this set."
+    )
+    repo_signal: RepoSignalSchema = Field(
+        default_factory=RepoSignalSchema,
+        description=(
+            "Weak prior from repo ingestion; never a substitute for the "
+            "person's answers."
+        ),
+    )
+    history: list[HistoryEntry] = Field(
+        default_factory=_empty_history,
+        description=(
+            "Turn-by-turn transcript so far ('assistant' = interviewer question, "
+            "'user' = candidate answer). The service is stateless and re-derives "
+            "belief from this."
+        ),
+    )
+    turn: int = Field(ge=0, description="0-based index of this turn.")
+    max_turns: int = Field(ge=1, description="Backend-enforced cap on turns.")
+    must_finish: bool = Field(
+        default=False,
+        description="When true, this is the final turn: the response must be done=true "
+        "with an assessment for every candidate competency.",
+    )
+
+
+class AssessmentCoverageSchema(BaseModel):
+    key: str = Field(
+        description="Candidate competency key this coverage entry refers to."
+    )
+    level: str | None = Field(
+        default=None,
+        description=(
+            "Provisional level estimate so far, if any: "
+            "beginner|intermediate|advanced|expert."
+        ),
+    )
+    confidence: float | None = Field(
+        default=None, ge=0, le=1, description="Provisional confidence, 0..1."
+    )
+
+
+class AssessmentResultSchema(BaseModel):
+    key: str = Field(description="Candidate competency key this assessment covers.")
+    level: str = Field(description="beginner, intermediate, advanced, or expert.")
+    confidence: float = Field(ge=0, le=1, description="Confidence in this level, 0..1.")
+    evidence: str = Field(
+        description="Short justification drawn from the transcript, "
+        "or 'no signal' when defaulted."
+    )
+
+
+class AssessmentTurnResponse(BaseModel):
+    done: bool = Field(
+        description="False while still interviewing; true once placement is final."
+    )
+    question: str | None = Field(
+        default=None, description="Next question to ask, set when done=false."
+    )
+    targets: list[str] | None = Field(
+        default=None,
+        description="Candidate competency keys this question probes "
+        "(a single scenario question may target several).",
+    )
+    coverage: list[AssessmentCoverageSchema] | None = Field(
+        default=None,
+        description="Provisional per-competency coverage, set when done=false.",
+    )
+    assessments: list[AssessmentResultSchema] | None = Field(
+        default=None,
+        description="Final per-competency placement, set when done=true. "
+        "Covers every candidate competency.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "done": False,
+                    "question": (
+                        "Walk me through how you'd add a new field to an existing "
+                        "JPA entity and expose it through the API."
+                    ),
+                    "targets": ["kotlin", "jpa-persistence"],
+                    "coverage": [
+                        {"key": "kotlin", "level": None, "confidence": None},
+                        {"key": "jpa-persistence", "level": None, "confidence": None},
+                    ],
+                },
+                {
+                    "done": True,
+                    "assessments": [
+                        {
+                            "key": "kotlin",
+                            "level": "advanced",
+                            "confidence": 0.8,
+                            "evidence": "Discussed null-safety tradeoffs unprompted.",
+                        }
+                    ],
+                },
+            ]
+        }
+    }
+
+
 class OnboardingPathRequest(BaseModel):
     working_area: Annotated[
         str,
