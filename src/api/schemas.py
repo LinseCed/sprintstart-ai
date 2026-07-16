@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
+    from onboarding.graph_models import ActiveCompetency, ActiveEdge
     from onboarding.models import Blueprint, PersonProfile
 
 
@@ -547,6 +548,92 @@ class BlueprintSchema(BaseModel):
                 else None
             ),
         )
+
+
+class ProposedCompetencySchema(BaseModel):
+    key: str
+    label: str
+    description: str = ""
+    kind: str
+    repo_ref: str | None = None
+
+
+class ProposedEdgeSchema(BaseModel):
+    from_key: str
+    to_key: str
+    kind: str = "PREREQUISITE"
+    rationale: str = ""
+
+
+class GraphProvenanceSchema(BaseModel):
+    corpus_fingerprint: str | None = None
+    generated_at: str | None = None
+    model: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class ActiveCompetencySchema(BaseModel):
+    key: str
+    label: str
+    description: str = ""
+    kind: str
+    repo_ref: str | None = None
+
+    def to_model(self) -> "ActiveCompetency":
+        from onboarding.graph_models import ActiveCompetency
+
+        return ActiveCompetency(
+            key=self.key,
+            label=self.label,
+            description=self.description,
+            kind=self.kind,  # type: ignore[arg-type]
+            repo_ref=self.repo_ref,
+        )
+
+
+class ActiveEdgeSchema(BaseModel):
+    from_key: str
+    to_key: str
+    kind: str = "PREREQUISITE"
+
+    def to_model(self) -> "ActiveEdge":
+        from onboarding.graph_models import ActiveEdge
+
+        return ActiveEdge(from_key=self.from_key, to_key=self.to_key, kind=self.kind)  # type: ignore[arg-type]
+
+
+class GraphProposalOutcomeSchema(BaseModel):
+    status: str
+    competencies: list[ProposedCompetencySchema] = Field(
+        default_factory=list[ProposedCompetencySchema]
+    )
+    edges: list[ProposedEdgeSchema] = Field(default_factory=list[ProposedEdgeSchema])
+    provenance: GraphProvenanceSchema | None = None
+    chunks_retrieved: int = 0
+    notes: list[str] = Field(default_factory=list[str])
+
+
+class GenerateCompetencyGraphRequest(BaseModel):
+    active_competencies: list[ActiveCompetencySchema] = Field(
+        default=[],
+        description=(
+            "The backend's current live competency graph nodes. Drives dedup "
+            "(never re-proposed as new) and is a valid prerequisite edge endpoint."
+        ),
+    )
+    active_edges: list[ActiveEdgeSchema] = Field(
+        default=[],
+        description="The backend's current live prerequisite edges.",
+    )
+    last_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "The corpus fingerprint recorded from the caller's previous proposal "
+            "run, if any. The AI service is stateless, so idempotency is driven "
+            "by this rather than by state kept here -- there is no persisted "
+            "'active proposal' the way a Blueprint's provenance carries one."
+        ),
+    )
 
 
 class SkillAssessmentSchema(BaseModel):
