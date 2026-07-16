@@ -63,6 +63,8 @@ class OllamaBackend(Protocol):
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
+        *,
+        options: Mapping[str, Any] | None = None,
     ) -> ollama.ChatResponse: ...
 
     def chat_tools(
@@ -131,9 +133,12 @@ class _OllamaAdapter:
         self,
         model: str = "",
         messages: Sequence[Message] | None = None,
+        *,
+        options: Mapping[str, Any] | None = None,
     ) -> ollama.ChatResponse:
+        merged = {**self._options, **options} if options else self._options
         response = self._client.chat(  # pyright: ignore[reportUnknownMemberType]
-            model=model, messages=list(messages or []), options=self._options
+            model=model, messages=list(messages or []), options=merged
         )
         self._warn_if_truncated(response)
         return response
@@ -235,11 +240,16 @@ class OllamaClient:
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc
 
-    def generate(self, messages: list[Message]) -> str:
+    def generate(
+        self, messages: list[Message], *, temperature: float | None = None
+    ) -> str:
         if self._model is None:
             raise ValueError("No model specified")
         try:
-            response = self._client.chat(model=self._model, messages=messages)
+            options = {"temperature": temperature} if temperature is not None else None
+            response = self._client.chat(
+                model=self._model, messages=messages, options=options
+            )
             return response.message.content or ""
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc

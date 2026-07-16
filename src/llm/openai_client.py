@@ -181,11 +181,14 @@ class OpenAIClient(LLMClient):
             )
         return ChatResult(text=message.content or "", tool_calls=calls)
 
-    def generate(self, messages: list[Message]) -> str:
+    def generate(
+        self, messages: list[Message], *, temperature: float | None = None
+    ) -> str:
         try:
             response = self.client.chat.completions.create(
                 model=self.chat_model,
                 messages=_to_openai_messages(messages),
+                temperature=temperature if temperature is not None else omit,
             )
 
             content = response.choices[0].message.content
