@@ -636,6 +636,45 @@ class GenerateCompetencyGraphRequest(BaseModel):
     )
 
 
+class SynthesizeLessonRequest(BaseModel):
+    competency_key: str = Field(description="The competency this lesson teaches.")
+    competency_label: str
+    competency_description: str = ""
+    level: str = Field(
+        default="beginner",
+        description="Target level to teach to: beginner/intermediate/advanced/expert.",
+    )
+    last_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "The corpus fingerprint recorded from the caller's previous synthesis "
+            "run for this exact (competency, level) pair, if any. Idempotency is "
+            "per-lesson, not corpus-wide -- lessons are synthesized one node at a "
+            "time as the backend needs them."
+        ),
+    )
+
+
+class VerifyRequest(BaseModel):
+    type: str = Field(description="Grading type: knowledge/exact/attest.")
+    question: str = ""
+    answer: str = ""
+    attempt_no: int = Field(default=1, ge=1)
+    canonical_answer: str | None = Field(
+        default=None, description="Required for 'exact' grading."
+    )
+    rubric: str | None = Field(
+        default=None, description="Required for 'knowledge' grading."
+    )
+    evidence: str = Field(
+        default="",
+        description=(
+            "Grounded evidence backing the rubric (e.g. the lesson body), used "
+            "only for 'knowledge' grading."
+        ),
+    )
+
+
 class SkillAssessmentSchema(BaseModel):
     name: Annotated[
         str,
