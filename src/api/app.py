@@ -19,11 +19,13 @@ from api.routes import (  # noqa: E402
     ingest_run,
     insights,
     knowledge_gaps,
+    lessons,
     onboarding,
     sources,
     summaries,
     title,
     vector_db,
+    verification,
 )
 from llm.errors import LLMUnavailableError  # noqa: E402
 
@@ -69,6 +71,8 @@ api_router.include_router(vector_db.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(competency_graph.router)
+api_router.include_router(lessons.router)
+api_router.include_router(verification.router)
 api_router.include_router(summaries.router)
 api_router.include_router(sources.router)
 api_router.include_router(knowledge_gaps.router)
