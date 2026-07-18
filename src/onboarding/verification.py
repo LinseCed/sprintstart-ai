@@ -2,10 +2,15 @@
 
 Unlike lesson synthesis, this is on the hire's request path -- the backend
 calls it synchronously per verification attempt (see backend issue #8's
-"grading orchestration calling the AI graders") -- so ``grade_knowledge`` is a
-single LLM call and ``grade_exact``/``grade_attest`` make none at all.
-``artifact`` grading (real repo-state detection) is out of scope here,
-deferred to ai/backend Phase 4.
+"grading orchestration calling the AI graders") -- so ``grade_knowledge``/
+``grade_artifact`` each make a single LLM call and ``grade_exact``/
+``grade_attest`` make none at all.
+
+``grade_artifact`` (Phase 4, ai issue 5) assists the backend's highest-rigor
+tier: the backend deterministically gathers real repo/world-state evidence
+(PR content, changed files, CI status) -- this module only judges whether
+that evidence's *content* satisfies the rubric, it never re-derives facts
+like merge or CI status itself.
 """
 
 import json
@@ -19,7 +24,7 @@ from llm.parsing import extract_json_object
 
 logger = logging.getLogger(__name__)
 
-GradingType = Literal["knowledge", "exact", "attest"]
+GradingType = Literal["knowledge", "exact", "attest", "artifact"]
 
 
 class GradeResult(BaseModel):
@@ -133,6 +138,132 @@ def grade_knowledge(
         payload = _JudgePayload.model_validate_json(extract_json_object(raw))
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         logger.warning("Could not parse knowledge grading output: %s", exc)
+        return GradeResult(
+            passed=False,
+            score=0.0,
+            feedback="Could not be graded automatically.",
+            hint=None,
+        )
+
+    return GradeResult(
+        passed=payload.passed,
+        score=payload.score,
+        feedback=payload.feedback,
+        hint=None if payload.passed else payload.hint,
+    )
+
+
+class ArtifactEvidence(BaseModel):
+    """Repo/world-state evidence the backend has deterministically gathered.
+
+    Every field is a fact the backend already knows (PR content, files it
+    touched, whether CI passed) -- this module never re-derives any of it,
+    it only judges whether the content satisfies the rubric.
+    """
+
+    pr_title: str = ""
+    pr_body: str = ""
+    pr_state: str = Field(
+        default="", description="e.g. 'OPEN'/'MERGED'/'CLOSED'; informational only."
+    )
+    files_changed: list[str] = Field(default_factory=list[str])
+    checks_passed: bool | None = Field(
+        default=None, description="None when CI status is unknown/not reported."
+    )
+    commit_messages: list[str] = Field(default_factory=list[str])
+
+
+def _has_evidence(evidence: ArtifactEvidence) -> bool:
+    return bool(
+        evidence.pr_title.strip()
+        or evidence.pr_body.strip()
+        or evidence.files_changed
+        or evidence.commit_messages
+    )
+
+
+def _build_artifact_prompt(
+    task_description: str, rubric: str, evidence: ArtifactEvidence
+) -> list[Message]:
+    files = "\n".join(f"- {f}" for f in evidence.files_changed) or "(none reported)"
+    commits = "\n".join(f"- {c}" for c in evidence.commit_messages) or "(none reported)"
+    checks = (
+        "passing"
+        if evidence.checks_passed
+        else "failing"
+        if evidence.checks_passed is False
+        else "unknown"
+    )
+    system = (
+        "You judge whether a pull request's real, observed repo state "
+        "actually satisfies an onboarding task's rubric. The backend has "
+        "already deterministically gathered this evidence (PR content, "
+        "changed files, CI status) -- your job is semantic judgment of "
+        "*content*, not re-verifying facts like merge/CI status, which are "
+        "given below as ground truth.\n\n"
+        "- 'passed' is true only if the PR's actual changes plausibly "
+        "accomplish what the rubric describes -- a PR that merely mentions "
+        "the task without doing the work does not pass.\n"
+        "- 'score' is 0..1, how completely the evidence satisfies the "
+        "rubric.\n"
+        "- 'feedback' is one or two short sentences explaining the verdict.\n"
+        "- If 'passed' is false, include a 'hint' for what's missing; "
+        "otherwise 'hint' is null.\n\n"
+        "Return STRICT JSON only (no prose, no markdown fences):\n"
+        '{"passed": bool, "score": number, "feedback": str, "hint": str|null}'
+    )
+    user = (
+        f"Task: {task_description}\n\nRubric: {rubric}\n\n"
+        f"PR title: {evidence.pr_title or '(none)'}\n"
+        f"PR body: {evidence.pr_body or '(none)'}\n"
+        f"PR state: {evidence.pr_state or 'unknown'}\n"
+        f"CI checks: {checks}\n"
+        f"Files changed:\n{files}\n\nCommit messages:\n{commits}"
+    )
+    return [
+        Message(role="system", content=system),
+        Message(role="user", content=user),
+    ]
+
+
+def grade_artifact(
+    llm: LLMClient,
+    *,
+    task_description: str,
+    rubric: str,
+    evidence: ArtifactEvidence,
+) -> GradeResult:
+    """LLM-judge whether gathered PR/repo evidence satisfies an artifact-tier rubric.
+
+    No evidence at all (no PR linked yet) is marked incorrect without an LLM
+    call, mirroring ``grade_knowledge``'s blank-answer short circuit.
+    Explicit failing CI (``checks_passed is False``) is also short-circuited
+    to a fail without a call -- that's a deterministic fact the backend
+    already knows, not a judgment call. Unparseable LLM output degrades to a
+    failed, ungraded result rather than raising -- ``LLMUnavailableError`` is
+    the one exception that propagates.
+    """
+    if not _has_evidence(evidence):
+        return GradeResult(
+            passed=False,
+            score=0.0,
+            feedback="No linked pull request or commit evidence yet.",
+            hint="Open a PR that addresses the task to submit this check.",
+        )
+
+    if evidence.checks_passed is False:
+        return GradeResult(
+            passed=False,
+            score=0.0,
+            feedback="CI checks are failing on the linked pull request.",
+            hint="Get the checks green before resubmitting.",
+        )
+
+    raw = llm.generate(_build_artifact_prompt(task_description, rubric, evidence))
+    try:
+        payload = _JudgePayload.model_validate_json(extract_json_object(raw))
+    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Could not parse artifact grading output: %s", exc)
         return GradeResult(
             passed=False,
             score=0.0,

@@ -5,7 +5,9 @@ from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
     from onboarding.graph_models import ActiveCompetency, ActiveEdge
-    from onboarding.models import Blueprint, PersonProfile
+    from onboarding.models import Blueprint, CitationRef, PersonProfile
+    from onboarding.starter_work import ProposedStarterTask
+    from onboarding.verification import ArtifactEvidence
 
 
 class IngestRequest(BaseModel):
@@ -636,6 +638,89 @@ class GenerateCompetencyGraphRequest(BaseModel):
     )
 
 
+# ── Starter-work mining / matching ──────────────────────────────────────────
+#
+# Request bodies get dedicated schemas + ``to_model()`` bridges, per this
+# file's convention (see ActiveCompetencySchema). Responses return the
+# ``onboarding.starter_work``/``onboarding.matching`` domain models directly
+# as ``response_model``, per ``api/routes/lessons.py`` and
+# ``api/routes/verification.py``'s convention -- there is no dedicated output
+# schema to keep in sync here.
+
+
+class CitationRefSchema(BaseModel):
+    filename: str
+    chunk_id: str
+    source_url: str | None = None
+
+    def to_model(self) -> "CitationRef":
+        from onboarding.models import CitationRef
+
+        return CitationRef(**self.model_dump())
+
+
+class ProposedStarterTaskSchema(BaseModel):
+    source_id: str
+    title: str
+    summary: str = ""
+    competency_keys: list[str] = Field(default_factory=list)
+    rationale: str = ""
+    citations: list[CitationRefSchema] = Field(default_factory=list[CitationRefSchema])
+
+    def to_model(self) -> "ProposedStarterTask":
+        from onboarding.starter_work import ProposedStarterTask
+
+        return ProposedStarterTask(
+            source_id=self.source_id,
+            title=self.title,
+            summary=self.summary,
+            competency_keys=self.competency_keys,
+            rationale=self.rationale,
+            citations=[c.to_model() for c in self.citations],
+        )
+
+
+class MineStarterWorkRequest(BaseModel):
+    active_source_ids: list[str] = Field(
+        default=[],
+        description=(
+            "Issues already in the backend's starter-work pool (proposed or "
+            "approved). Drives dedup -- never re-proposed."
+        ),
+    )
+    active_competency_keys: list[str] = Field(
+        default=[],
+        description=(
+            "The backend's live competency graph keys, used to ground each "
+            "task's competency tags. A tag outside this set is dropped, not "
+            "invented; when empty, tags are kept as proposed."
+        ),
+    )
+    last_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "The corpus fingerprint recorded from the caller's previous "
+            "mining run, if any."
+        ),
+    )
+
+
+class HireCompetencySchema(BaseModel):
+    key: str = Field(description="Stable competency key from the graph.")
+    label: str
+    description: str = ""
+
+
+class MatchHireToPoolRequest(BaseModel):
+    hire_competencies: list[HireCompetencySchema] = Field(
+        default=[], description="The hire's freshly-built competencies (ledger)."
+    )
+    pool: list[ProposedStarterTaskSchema] = Field(
+        default=[],
+        description="The backend's current (PM-approved) starter-work pool.",
+    )
+
+
 class SynthesizeLessonRequest(BaseModel):
     competency_key: str = Field(description="The competency this lesson teaches.")
     competency_label: str
@@ -655,8 +740,26 @@ class SynthesizeLessonRequest(BaseModel):
     )
 
 
+class ArtifactEvidenceSchema(BaseModel):
+    pr_title: str = ""
+    pr_body: str = ""
+    pr_state: str = Field(
+        default="", description="e.g. 'OPEN'/'MERGED'/'CLOSED'; informational only."
+    )
+    files_changed: list[str] = Field(default_factory=list)
+    checks_passed: bool | None = Field(
+        default=None, description="None when CI status is unknown/not reported."
+    )
+    commit_messages: list[str] = Field(default_factory=list)
+
+    def to_model(self) -> "ArtifactEvidence":
+        from onboarding.verification import ArtifactEvidence
+
+        return ArtifactEvidence(**self.model_dump())
+
+
 class VerifyRequest(BaseModel):
-    type: str = Field(description="Grading type: knowledge/exact/attest.")
+    type: str = Field(description="Grading type: knowledge/exact/attest/artifact.")
     question: str = ""
     answer: str = ""
     attempt_no: int = Field(default=1, ge=1)
@@ -664,13 +767,20 @@ class VerifyRequest(BaseModel):
         default=None, description="Required for 'exact' grading."
     )
     rubric: str | None = Field(
-        default=None, description="Required for 'knowledge' grading."
+        default=None, description="Required for 'knowledge' and 'artifact' grading."
     )
     evidence: str = Field(
         default="",
         description=(
             "Grounded evidence backing the rubric (e.g. the lesson body), used "
             "only for 'knowledge' grading."
+        ),
+    )
+    artifact_evidence: ArtifactEvidenceSchema | None = Field(
+        default=None,
+        description=(
+            "Backend-gathered PR/repo state, used only for 'artifact' grading. "
+            "Missing/empty is treated as no evidence yet."
         ),
     )
 

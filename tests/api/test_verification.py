@@ -85,6 +85,60 @@ def test_verify_knowledge_missing_rubric_is_422(http: TestClient) -> None:
 
 
 def test_verify_unknown_type_is_422(http: TestClient) -> None:
-    response = http.post(f"{_BASE}", json={"type": "artifact", "answer": "x"})
+    response = http.post(f"{_BASE}", json={"type": "bogus", "answer": "x"})
 
     assert response.status_code == 422
+
+
+def test_verify_artifact(http: TestClient) -> None:
+    _override_llm(
+        json.dumps(
+            {"passed": True, "score": 1.0, "feedback": "Addresses it.", "hint": None}
+        )
+    )
+
+    response = http.post(
+        f"{_BASE}",
+        json={
+            "type": "artifact",
+            "question": "Fix the typo in the README.",
+            "rubric": "The README install section no longer has a typo.",
+            "artifact_evidence": {
+                "pr_title": "Fix typo",
+                "pr_body": "Fixes the typo in the install section.",
+                "pr_state": "MERGED",
+                "files_changed": ["README.md"],
+                "checks_passed": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["passed"] is True
+    assert body["hint"] is None
+
+
+def test_verify_artifact_missing_rubric_is_422(http: TestClient) -> None:
+    _override_llm("irrelevant")
+
+    response = http.post(
+        f"{_BASE}",
+        json={"type": "artifact", "question": "q", "artifact_evidence": {}},
+    )
+
+    assert response.status_code == 422
+
+
+def test_verify_artifact_no_evidence_skips_llm_call(http: TestClient) -> None:
+    _override_llm("should never be parsed")
+
+    response = http.post(
+        f"{_BASE}",
+        json={"type": "artifact", "question": "q", "rubric": "r"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["passed"] is False
+    assert "pull request" in body["feedback"].lower()

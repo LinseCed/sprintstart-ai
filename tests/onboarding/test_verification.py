@@ -1,6 +1,12 @@
 import json
 
-from onboarding.verification import grade_attest, grade_exact, grade_knowledge
+from onboarding.verification import (
+    ArtifactEvidence,
+    grade_artifact,
+    grade_attest,
+    grade_exact,
+    grade_knowledge,
+)
 from tests.stubs.llm import StubLLMClient
 
 
@@ -133,3 +139,79 @@ def test_knowledge_grading_never_hints_on_pass() -> None:
 
     assert result.passed is True
     assert result.hint is None
+
+
+def test_artifact_grading_no_evidence_skips_llm_call() -> None:
+    llm = StubLLMClient(generate_response="should never be parsed")
+
+    result = grade_artifact(
+        llm,
+        task_description="Fix the typo.",
+        rubric="README typo is fixed.",
+        evidence=ArtifactEvidence(),
+    )
+
+    assert result.passed is False
+    assert result.feedback == "No linked pull request or commit evidence yet."
+
+
+def test_artifact_grading_failing_checks_skips_llm_call() -> None:
+    llm = StubLLMClient(generate_response="should never be parsed")
+
+    result = grade_artifact(
+        llm,
+        task_description="Fix the typo.",
+        rubric="README typo is fixed.",
+        evidence=ArtifactEvidence(
+            pr_title="Fix typo",
+            files_changed=["README.md"],
+            checks_passed=False,
+        ),
+    )
+
+    assert result.passed is False
+    assert "CI checks are failing" in result.feedback
+
+
+def test_artifact_grading_passes_a_satisfying_pr() -> None:
+    llm = StubLLMClient(
+        generate_response=json.dumps(
+            {
+                "passed": True,
+                "score": 0.95,
+                "feedback": "The PR fixes the typo as described.",
+                "hint": None,
+            }
+        )
+    )
+
+    result = grade_artifact(
+        llm,
+        task_description="Fix the typo in the README install section.",
+        rubric="The README install section no longer has a typo.",
+        evidence=ArtifactEvidence(
+            pr_title="Fix typo",
+            pr_body="Fixes the typo in the install section.",
+            pr_state="MERGED",
+            files_changed=["README.md"],
+            checks_passed=True,
+        ),
+    )
+
+    assert result.passed is True
+    assert result.score == 0.95
+    assert result.hint is None
+
+
+def test_artifact_grading_malformed_output_degrades_to_fail() -> None:
+    llm = StubLLMClient(generate_response="not json")
+
+    result = grade_artifact(
+        llm,
+        task_description="Fix the typo.",
+        rubric="README typo is fixed.",
+        evidence=ArtifactEvidence(pr_title="Fix typo", files_changed=["README.md"]),
+    )
+
+    assert result.passed is False
+    assert result.feedback == "Could not be graded automatically."
