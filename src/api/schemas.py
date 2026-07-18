@@ -963,6 +963,15 @@ class ArtifactRunIngestRequest(BaseModel):
         description="Original source update timestamp, if known.",
     )
 
+    state: str | None = Field(
+        default=None,
+        description="GitHub issue state (e.g. 'OPEN'/'CLOSED'); null for non-issue.",
+    )
+    labels: list[str] = Field(
+        default_factory=list,
+        description="GitHub issue labels (e.g. 'good first issue'); empty otherwise.",
+    )
+
 
 class RunArtifactsSyncRequest(BaseModel):
     """Batch payload sent by the backend after a GitHub ingestion run completes."""
