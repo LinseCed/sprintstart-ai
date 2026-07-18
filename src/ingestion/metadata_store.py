@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
 from typing import Literal, cast
@@ -25,6 +26,12 @@ class ArtifactRecord:
     source_url: str | None = None
     artifact_type: str | None = None
     language: str | None = None
+    # GitHub issue state (e.g. "OPEN"/"CLOSED") and labels (e.g. "good first
+    # issue"); both unset for non-issue artifacts. Used by starter-work mining
+    # to deterministically exclude closed issues rather than relying on an LLM
+    # to notice.
+    state: str | None = None
+    labels: list[str] = field(default_factory=list[str])
 
 
 class IngestionMetadataStore:
@@ -57,10 +64,24 @@ class IngestionMetadataStore:
                     source_id TEXT,
                     source_url TEXT,
                     artifact_type TEXT,
-                    language TEXT
+                    language TEXT,
+                    state TEXT,
+                    labels TEXT
                 )
                 """
             )
+            # A pre-existing DB file predates the state/labels columns; CREATE
+            # TABLE IF NOT EXISTS alone won't add them to it. This SQLite build
+            # has no ADD COLUMN IF NOT EXISTS guarantee, so add them
+            # defensively and ignore "duplicate column".
+            for column in ("state TEXT", "labels TEXT"):
+                try:
+                    self._connection.execute(
+                        f"ALTER TABLE artifacts ADD COLUMN {column}"
+                    )
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
 
             self._connection.execute("DROP TABLE IF EXISTS artifact_chunks")
             self._connection.commit()
@@ -131,7 +152,9 @@ class IngestionMetadataStore:
                     source_id,
                     source_url,
                     artifact_type,
-                    language
+                    language,
+                    state,
+                    labels
                 FROM artifacts
                 WHERE id = ?
                 """,
@@ -156,7 +179,8 @@ class IngestionMetadataStore:
         query = (
             "SELECT id, filename, content_type, source_type, size_bytes, "
             "chunk_count, status, created_at, updated_at, error_message, "
-            "source_id, source_url, artifact_type, language FROM artifacts"
+            "source_id, source_url, artifact_type, language, state, labels "
+            "FROM artifacts"
         )
         params: tuple[str, ...] = ()
         if status is not None:
@@ -190,6 +214,8 @@ class IngestionMetadataStore:
                 None if row["artifact_type"] is None else str(row["artifact_type"])
             ),
             language=None if row["language"] is None else str(row["language"]),
+            state=None if row["state"] is None else str(row["state"]),
+            labels=json.loads(row["labels"]) if row["labels"] else [],
         )
 
     def _upsert_artifact(self, artifact: ArtifactRecord) -> None:
@@ -209,9 +235,11 @@ class IngestionMetadataStore:
                 source_id,
                 source_url,
                 artifact_type,
-                language
+                language,
+                state,
+                labels
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 artifact.id,
@@ -228,5 +256,7 @@ class IngestionMetadataStore:
                 artifact.source_url,
                 artifact.artifact_type,
                 artifact.language,
+                artifact.state,
+                json.dumps(artifact.labels) if artifact.labels else None,
             ),
         )

@@ -116,6 +116,8 @@ def _ingest_one(
         source_url=artifact.source_url,
         artifact_type=artifact.artifact_type,
         language=artifact.language,
+        state=artifact.state,
+        labels=artifact.labels,
     )
 
     if len(content) > max_length:
