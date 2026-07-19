@@ -33,6 +33,7 @@ def upsert_step(
     citations: list[CitationRef] | None = None,
     audience: list[str] | None = None,
     min_experience: str | None = None,
+    competency_key: str | None = None,
 ) -> str:
     """Add a step to the pool (or reuse an existing one) and return its id.
 
@@ -69,6 +70,7 @@ def upsert_step(
         citations=citations or [],
         audience=audience or [],
         min_experience=min_experience,
+        competency_key=competency_key,
     )
     return step_id
 
@@ -102,6 +104,7 @@ def resolve(skeleton: Skeleton, pool: dict[str, StepRecord]) -> Blueprint:
                 resources=record.resources,
                 citations=record.citations,
                 invariant=ref.invariant,
+                competency_key=record.competency_key,
             )
         )
     return Blueprint(

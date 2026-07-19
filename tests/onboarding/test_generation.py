@@ -5,6 +5,7 @@ from onboarding.generation import (
     filter_semantic_duplicates,
     generate_blueprints,
 )
+from onboarding.graph_models import ActiveCompetency
 from onboarding.models import (
     Blueprint,
     BlueprintStep,
@@ -200,6 +201,107 @@ def test_identical_title_proposals_dedup() -> None:
 def test_empty_corpus_is_skipped() -> None:
     outcomes = generate_blueprints(_llm([]), StubVectorStore(), scopes=[_SCOPE])
     assert outcomes[0].status == "skipped"
+
+
+_CATALOG = [
+    ActiveCompetency(
+        key="deploy-runbook",
+        label="Deploy the service",
+        description="Follow the deploy runbook end to end.",
+        kind="SKILL",
+    ),
+    ActiveCompetency(
+        key="rag-pipeline",
+        label="RAG pipeline",
+        description="How retrieval augmented generation works here.",
+        kind="CONCEPT",
+    ),
+]
+
+
+def test_step_tagged_with_matched_competency_key() -> None:
+    store = _store("backend onboarding deploy runbook local db setup")
+    llm = _llm(
+        [
+            {
+                "title": "Read the deploy runbook",
+                "requirement": "required",
+                "chunk_ids": ["c1"],
+                "competency_key": "deploy-runbook",
+            }
+        ]
+    )
+
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
+
+    bp = outcomes[0].blueprint
+    assert bp is not None
+    assert bp.steps[0].competency_key == "deploy-runbook"
+
+
+def test_invented_competency_key_is_discarded() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm(
+        [
+            {
+                "title": "Read the deploy runbook",
+                "chunk_ids": ["c1"],
+                # Not in the catalog — the backend would drop it, so we null it here.
+                "competency_key": "made-up-key",
+            }
+        ]
+    )
+
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
+
+    bp = outcomes[0].blueprint
+    assert bp is not None
+    assert bp.steps[0].competency_key is None
+
+
+def test_no_catalog_leaves_key_none() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm(
+        [
+            {
+                "title": "Read the deploy runbook",
+                "chunk_ids": ["c1"],
+                "competency_key": "deploy-runbook",
+            }
+        ]
+    )
+
+    # No competencies supplied: every proposed key is unmatched, so nothing is tagged.
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
+
+    bp = outcomes[0].blueprint
+    assert bp is not None
+    assert bp.steps[0].competency_key is None
+
+
+def test_competency_key_round_trips_through_reinjected_step() -> None:
+    """A protected active step's competency_key survives re-injection on re-gen."""
+    runbook = "Read the deploy runbook"
+    active = _active(
+        BlueprintStep(
+            id=content_id(runbook),
+            title=runbook,
+            requirement="required",
+            competency_key="deploy-runbook",
+        ),
+    )
+    store = _store("backend onboarding deploy runbook")
+    # The draft omits the required step, forcing _enforce_invariants to re-inject it.
+    llm = _llm([{"title": "Something else", "chunk_ids": ["c1"]}])
+
+    outcomes = generate_blueprints(
+        llm, store, scopes=[_SCOPE], active=[active], competencies=_CATALOG
+    )
+
+    bp = outcomes[0].blueprint
+    assert bp is not None
+    reinjected = next(s for s in bp.steps if s.id == content_id(runbook))
+    assert reinjected.competency_key == "deploy-runbook"
 
 
 def testfilter_semantic_duplicates_drops_similar_steps() -> None:

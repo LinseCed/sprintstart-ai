@@ -55,7 +55,14 @@ def generate(
 ) -> GenerateResponse:
     try:
         active = [b.to_model() for b in request.active]
-        outcomes = generate_blueprints(llm, store, scopes=request.scopes, active=active)
+        competencies = [c.to_model() for c in request.active_competencies]
+        outcomes = generate_blueprints(
+            llm,
+            store,
+            scopes=request.scopes,
+            active=active,
+            competencies=competencies,
+        )
     except LLMUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)

@@ -105,3 +105,31 @@ def test_generate_bumps_version_against_active(
 
     assert outcome["status"] == "updated"
     assert outcome["blueprint"]["version"] == "2"
+
+
+def test_generate_tags_step_with_catalog_competency_key(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, llm, _ = client
+    # The stubbed LLM emits a key that is in the supplied catalog.
+    llm.generate_response = json.dumps(
+        {
+            "steps": [
+                {
+                    "title": "Read the deploy runbook",
+                    "requirement": "required",
+                    "chunk_ids": ["c1"],
+                    "competency_key": "deploy-runbook",
+                }
+            ]
+        }
+    )
+
+    outcome = _generate(
+        http,
+        active_competencies=[
+            {"key": "deploy-runbook", "label": "Deploy the service", "kind": "SKILL"}
+        ],
+    )["outcomes"][0]
+
+    assert outcome["blueprint"]["steps"][0]["competency_key"] == "deploy-runbook"
