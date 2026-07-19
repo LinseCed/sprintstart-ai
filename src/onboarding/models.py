@@ -160,6 +160,10 @@ class StepRecord(BaseModel):
     tags: list[str] = Field(default_factory=list)
     resources: list[Resource] = []
     citations: list[CitationRef] = []
+    # The competency graph key this step teaches, when the generator could match
+    # one from the backend-supplied catalog. Content-level (which competency the
+    # step is about), so it lives on the record, not the scope-specific ref.
+    competency_key: str | None = None
 
 
 class BlueprintStep(BaseModel):
@@ -181,6 +185,11 @@ class BlueprintStep(BaseModel):
     # Human-owned protection flag. An ``invariant`` step may not be removed or
     # downgraded by the generation job; such changes are blocked or escalated.
     invariant: bool = False
+    # The competency graph key this step targets, when known. The backend's
+    # blueprint->target bridge terminates a project's path in the keys its steps
+    # declare here (falling back to all-visible when none carry a key), so a
+    # matched key is what lets a per-project path narrow to real targets.
+    competency_key: str | None = None
 
 
 class BlueprintProvenance(BaseModel):

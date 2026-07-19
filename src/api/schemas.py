@@ -505,6 +505,7 @@ class BlueprintStepSchema(BaseModel):
     min_experience: str | None = None
     tags: list[str] = Field(default_factory=list)
     invariant: bool = False
+    competency_key: str | None = None
 
 
 class BlueprintProvenanceSchema(BaseModel):
@@ -541,6 +542,7 @@ class BlueprintSchema(BaseModel):
                     min_experience=s.min_experience,
                     tags=s.tags,
                     invariant=s.invariant,
+                    competency_key=s.competency_key,
                 )
                 for s in self.steps
             ],
@@ -1015,6 +1017,14 @@ class GenerateBlueprintsRequest(BaseModel):
             "The backend's currently-active blueprints. The AI service is "
             "stateless, so these drive idempotency and version numbering — pass "
             "them on every request."
+        ),
+    )
+    active_competencies: list[ActiveCompetencySchema] = Field(
+        default_factory=list[ActiveCompetencySchema],
+        description=(
+            "The backend's live competency graph. Each generated step is tagged "
+            "with the best-matching key from this catalog (the blueprint→target "
+            "bridge); omit to leave steps untagged."
         ),
     )
 
