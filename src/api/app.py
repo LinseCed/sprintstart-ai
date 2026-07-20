@@ -20,7 +20,6 @@ from api.routes import (  # noqa: E402
     ingest_run,
     insights,
     knowledge_gaps,
-    lessons,
     modules,
     onboarding,
     sources,
@@ -75,7 +74,6 @@ api_router.include_router(vector_db.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(competency_graph.router)
-api_router.include_router(lessons.router)
 api_router.include_router(modules.router)
 api_router.include_router(verification.router)
 api_router.include_router(starter_work.router)
