@@ -405,3 +405,32 @@ def test_path_serializes_to_yaml_round_trip() -> None:
 
     assert loaded["working_area"] == "backend"
     assert loaded["phases"][0]["steps"][0]["id"] == "a"
+
+
+def test_path_steps_carry_the_blueprint_competency_key() -> None:
+    """The key is what lets the backend attach a check and open the graph node."""
+    blueprint = Blueprint(
+        scope="global",
+        steps=[
+            BlueprintStep(
+                id="s1",
+                title="Set up the local stack",
+                description="Run it locally",
+                requirement="required",
+                competency_key="local-dev",
+            ),
+            BlueprintStep(
+                id="s2",
+                title="Read the architecture notes",
+                description="Understand the modules",
+                requirement="recommended",
+            ),
+        ],
+    )
+
+    phases, _ = _build_phases([blueprint], PersonProfile(working_area="backend"))
+
+    steps = {step.id: step for phase in phases for step in phase.steps}
+    assert steps["s1"].competency_key == "local-dev"
+    # A blueprint step with no key stays keyless rather than inventing one.
+    assert steps["s2"].competency_key is None

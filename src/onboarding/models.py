@@ -254,6 +254,12 @@ class PathStep(BaseModel):
     description: str = ""
     requirement: Requirement = "recommended"
     origin: Origin = "blueprint"
+    #: The competency this step teaches, carried over from the blueprint step it
+    #: came from. It is what lets the backend attach a graded check to the step
+    #: and, through it, turn the matching graph node into an openable module.
+    #: ``None`` for steps the LLM added on top of the blueprint, which have no
+    #: competency attached to copy.
+    competency_key: str | None = None
     tags: list[str] = Field(default_factory=list)
     resources: list[Resource] = []
     citations: list[CitationRef] = []
