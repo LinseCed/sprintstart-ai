@@ -1,18 +1,9 @@
 import json
 
-from onboarding.generation import (
-    corpus_fingerprint,
-    filter_semantic_duplicates,
-    generate_blueprints,
-)
+from llm.base import Message
+from onboarding.generation import corpus_fingerprint, generate_blueprints
 from onboarding.graph_models import ActiveCompetency
-from onboarding.models import (
-    Blueprint,
-    BlueprintStep,
-    SkeletonRef,
-    StepRecord,
-    content_id,
-)
+from onboarding.models import Baseline, BaselineCompetency
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -21,9 +12,24 @@ from tests.stubs.store import StubVectorStore
 _EMBED = [1.0] + [0.0] * 767
 _SCOPE = "area:backend"
 
+_CATALOG = [
+    ActiveCompetency(
+        key="deploy-runbook",
+        label="Deploy the service",
+        description="Follow the deploy runbook end to end.",
+        kind="SKILL",
+    ),
+    ActiveCompetency(
+        key="rag-pipeline",
+        label="RAG pipeline",
+        description="How retrieval augmented generation works here.",
+        kind="CONCEPT",
+    ),
+]
 
-def _llm(steps: list[dict[str, object]]) -> StubLLMClient:
-    llm = StubLLMClient(generate_response=json.dumps({"steps": steps}))
+
+def _llm(competencies: list[dict[str, object]]) -> StubLLMClient:
+    llm = StubLLMClient(generate_response=json.dumps({"competencies": competencies}))
     llm.embedding = _EMBED
     return llm
 
@@ -45,52 +51,46 @@ def _store(*texts: str) -> StubVectorStore:
     return store
 
 
-def _active(*steps: BlueprintStep, version: str = "1") -> Blueprint:
-    """An authored active blueprint as the backend would pass it in."""
-    return Blueprint(
-        scope=_SCOPE, version=version, source="authored", steps=list(steps)
+def _active(*entries: BaselineCompetency, version: str = "1") -> Baseline:
+    """An authored active baseline as the backend would pass it in."""
+    return Baseline(
+        scope=_SCOPE, version=version, source="authored", competencies=list(entries)
     )
 
 
-def test_first_time_generation_drafts_grounded_steps() -> None:
+def _selection(key: str, **kwargs: object) -> dict[str, object]:
+    return {"competency_key": key, "chunk_ids": ["c1"], **kwargs}
+
+
+def test_first_time_generation_selects_grounded_competencies() -> None:
     store = _store("backend onboarding deploy runbook local db setup")
-    llm = _llm(
-        [
-            {
-                "id": "deploy-runbook",
-                "title": "Read the deploy runbook",
-                "requirement": "required",
-                "chunk_ids": ["c1"],
-            }
-        ]
-    )
+    llm = _llm([_selection("deploy-runbook", requirement="required")])
 
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
 
     assert [(o.scope, o.status) for o in outcomes] == [(_SCOPE, "created")]
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    assert bp.source == "generated"
-    assert bp.version == "1"
-    assert [s.id for s in bp.steps] == [content_id("Read the deploy runbook")]
-    assert bp.steps[0].citations[0].chunk_id == "c1"
-    assert bp.provenance is not None
-    assert bp.provenance.corpus_fingerprint == corpus_fingerprint(store)
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert baseline.source == "generated"
+    assert baseline.version == "1"
+    assert [c.competency_key for c in baseline.competencies] == ["deploy-runbook"]
+    assert baseline.competencies[0].requirement == "required"
+    assert baseline.provenance is not None
+    assert baseline.provenance.corpus_fingerprint == corpus_fingerprint(store)
 
 
 def test_unchanged_corpus_is_a_noop() -> None:
     store = _store("backend onboarding deploy runbook")
-    llm = _llm(
-        [{"id": "x", "title": "X", "requirement": "required", "chunk_ids": ["c1"]}]
-    )
+    llm = _llm([_selection("deploy-runbook")])
 
-    first = generate_blueprints(llm, store, scopes=[_SCOPE])
-    # The backend persists the result and passes it back as the active blueprint.
+    first = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
+    # The backend persists the result and passes it back as the active baseline.
     again = generate_blueprints(
         llm,
         store,
         scopes=[_SCOPE],
         active=[first[0].blueprint],  # type: ignore[list-item]
+        competencies=_CATALOG,
     )
 
     assert again[0].status == "unchanged"
@@ -98,11 +98,9 @@ def test_unchanged_corpus_is_a_noop() -> None:
 
 def test_corpus_change_updates_active_with_new_version() -> None:
     store = _store("backend onboarding deploy runbook")
-    llm = _llm(
-        [{"id": "x", "title": "X", "requirement": "required", "chunk_ids": ["c1"]}]
-    )
+    llm = _llm([_selection("deploy-runbook")])
 
-    first = generate_blueprints(llm, store, scopes=[_SCOPE])
+    first = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
     active = first[0].blueprint
     assert active is not None
 
@@ -117,302 +115,176 @@ def test_corpus_change_updates_active_with_new_version() -> None:
             )
         ]
     )
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], active=[active])
+    outcomes = generate_blueprints(
+        llm, store, scopes=[_SCOPE], active=[active], competencies=_CATALOG
+    )
 
     assert outcomes[0].status == "updated"
     assert outcomes[0].draft_version == "2"
 
 
-def test_invariant_removal_is_blocked_and_reinjected() -> None:
-    sec = "Security policy"
+def test_required_removal_is_blocked_and_reinjected() -> None:
     active = _active(
-        BlueprintStep(id=content_id(sec), title=sec, requirement="required"),
+        BaselineCompetency(competency_key="rag-pipeline", requirement="required"),
     )
     store = _store("backend onboarding deploy runbook")
-    # The draft omits the required "security" step entirely.
-    llm = _llm([{"title": "Deploy", "requirement": "recommended", "chunk_ids": ["c1"]}])
-
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], active=[active])
-
-    assert outcomes[0].status == "escalated"
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    sec_id = content_id(sec)
-    ids = {s.id for s in bp.steps}
-    assert sec_id in ids  # protected step re-injected, never silently dropped
-    assert bp.provenance is not None
-    assert any(sec_id in note for note in bp.provenance.notes)
-
-
-def test_invariant_flag_protects_recommended_step() -> None:
-    ethics = "Ethics training"
-    active = _active(
-        BlueprintStep(
-            id=content_id(ethics),
-            title=ethics,
-            requirement="recommended",
-            invariant=True,
-        ),
-    )
-    store = _store("backend onboarding")
-    llm = _llm([{"title": "Deploy", "chunk_ids": ["c1"]}])
-
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], active=[active])
-
-    assert outcomes[0].status == "escalated"
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    assert content_id(ethics) in {s.id for s in bp.steps}
-
-
-def test_ungrounded_steps_are_dropped() -> None:
-    store = _store("backend onboarding deploy runbook")
-    llm = _llm(
-        [
-            {"id": "grounded", "title": "Grounded", "chunk_ids": ["c1"]},
-            {"id": "ungrounded", "title": "Ungrounded", "chunk_ids": ["missing"]},
-        ]
-    )
-
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
-
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    assert [s.id for s in bp.steps] == [content_id("Grounded")]
-
-
-def test_identical_title_proposals_dedup() -> None:
-    store = _store("backend onboarding deploy runbook")
-    llm = _llm(
-        [
-            {"title": "Read the deploy runbook", "chunk_ids": ["c1"]},
-            {"title": "Read the deploy runbook", "chunk_ids": ["c1"]},
-        ]
-    )
-
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
-
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    # Same title -> same content id -> collapsed to a single step.
-    assert [s.id for s in bp.steps] == [content_id("Read the deploy runbook")]
-
-
-def test_empty_corpus_is_skipped() -> None:
-    outcomes = generate_blueprints(_llm([]), StubVectorStore(), scopes=[_SCOPE])
-    assert outcomes[0].status == "skipped"
-
-
-_CATALOG = [
-    ActiveCompetency(
-        key="deploy-runbook",
-        label="Deploy the service",
-        description="Follow the deploy runbook end to end.",
-        kind="SKILL",
-    ),
-    ActiveCompetency(
-        key="rag-pipeline",
-        label="RAG pipeline",
-        description="How retrieval augmented generation works here.",
-        kind="CONCEPT",
-    ),
-]
-
-
-def test_step_tagged_with_matched_competency_key() -> None:
-    store = _store("backend onboarding deploy runbook local db setup")
-    llm = _llm(
-        [
-            {
-                "title": "Read the deploy runbook",
-                "requirement": "required",
-                "chunk_ids": ["c1"],
-                "competency_key": "deploy-runbook",
-            }
-        ]
-    )
-
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
-
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    assert bp.steps[0].competency_key == "deploy-runbook"
-
-
-def test_invented_competency_key_is_discarded() -> None:
-    store = _store("backend onboarding deploy runbook")
-    llm = _llm(
-        [
-            {
-                "title": "Read the deploy runbook",
-                "chunk_ids": ["c1"],
-                # Not in the catalog — the backend would drop it, so we null it here.
-                "competency_key": "made-up-key",
-            }
-        ]
-    )
-
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
-
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    assert bp.steps[0].competency_key is None
-
-
-def test_no_catalog_leaves_key_none() -> None:
-    store = _store("backend onboarding deploy runbook")
-    llm = _llm(
-        [
-            {
-                "title": "Read the deploy runbook",
-                "chunk_ids": ["c1"],
-                "competency_key": "deploy-runbook",
-            }
-        ]
-    )
-
-    # No competencies supplied: every proposed key is unmatched, so nothing is tagged.
-    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE])
-
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    assert bp.steps[0].competency_key is None
-
-
-def test_competency_key_round_trips_through_reinjected_step() -> None:
-    """A protected active step's competency_key survives re-injection on re-gen."""
-    runbook = "Read the deploy runbook"
-    active = _active(
-        BlueprintStep(
-            id=content_id(runbook),
-            title=runbook,
-            requirement="required",
-            competency_key="deploy-runbook",
-        ),
-    )
-    store = _store("backend onboarding deploy runbook")
-    # The draft omits the required step, forcing _enforce_invariants to re-inject it.
-    llm = _llm([{"title": "Something else", "chunk_ids": ["c1"]}])
+    # The draft omits the required competency entirely.
+    llm = _llm([_selection("deploy-runbook")])
 
     outcomes = generate_blueprints(
         llm, store, scopes=[_SCOPE], active=[active], competencies=_CATALOG
     )
 
-    bp = outcomes[0].blueprint
-    assert bp is not None
-    reinjected = next(s for s in bp.steps if s.id == content_id(runbook))
-    assert reinjected.competency_key == "deploy-runbook"
+    assert outcomes[0].status == "escalated"
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    keys = {c.competency_key for c in baseline.competencies}
+    assert "rag-pipeline" in keys  # protected entry re-injected, never dropped
+    assert baseline.provenance is not None
+    assert any("rag-pipeline" in note for note in baseline.provenance.notes)
 
 
-def testfilter_semantic_duplicates_drops_similar_steps() -> None:
-    """Area steps whose embeddings are too close to global steps are filtered."""
-    similar_embed = [1.0, 0.1] + [0.0] * 766
-    different_embed = [0.0, 1.0] + [0.0] * 766
-
-    def embed_fn(text: str) -> list[float]:
-        if "python" in text.lower():
-            return similar_embed
-        return different_embed
-
-    global_steps = [
-        BlueprintStep(
-            id=content_id("Verify Python 3.12+ installation"),
-            title="Verify Python 3.12+ installation",
-            description="Ensure Python 3.12 or later is installed.",
+def test_invariant_flag_protects_a_recommended_entry() -> None:
+    active = _active(
+        BaselineCompetency(
+            competency_key="rag-pipeline", requirement="recommended", invariant=True
         ),
-    ]
-    dup_id = content_id("Verify Python and Tooling Prerequisites")
-    unique_id = content_id("Understand the RAG pipeline")
-    pool = {
-        dup_id: StepRecord(
-            id=dup_id,
-            title="Verify Python and Tooling Prerequisites",
-            description="Ensure Python 3.12 or later is installed.",
+    )
+    store = _store("backend onboarding")
+    llm = _llm([_selection("deploy-runbook")])
+
+    outcomes = generate_blueprints(
+        llm, store, scopes=[_SCOPE], active=[active], competencies=_CATALOG
+    )
+
+    assert outcomes[0].status == "escalated"
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert "rag-pipeline" in {c.competency_key for c in baseline.competencies}
+
+
+def test_lowering_the_bar_of_a_protected_entry_is_restored() -> None:
+    active = _active(
+        BaselineCompetency(
+            competency_key="deploy-runbook", requirement="required", target_level=3
         ),
-        unique_id: StepRecord(
-            id=unique_id,
-            title="Understand the RAG pipeline",
-            description="Learn how retrieval augmented generation works.",
+    )
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm([_selection("deploy-runbook", requirement="required", target_level=1)])
+
+    outcomes = generate_blueprints(
+        llm, store, scopes=[_SCOPE], active=[active], competencies=_CATALOG
+    )
+
+    assert outcomes[0].status == "escalated"
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert baseline.competencies[0].target_level == 3
+
+
+def test_raising_the_bar_of_a_protected_entry_is_allowed() -> None:
+    active = _active(
+        BaselineCompetency(
+            competency_key="deploy-runbook", requirement="required", target_level=2
         ),
-    }
-    refs = [SkeletonRef(id=dup_id), SkeletonRef(id=unique_id)]
-    llm = StubLLMClient(embed_fn=embed_fn)
+    )
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm([_selection("deploy-runbook", requirement="required", target_level=4)])
 
-    kept = filter_semantic_duplicates(refs, pool, global_steps, llm)
+    outcomes = generate_blueprints(
+        llm, store, scopes=[_SCOPE], active=[active], competencies=_CATALOG
+    )
 
-    kept_ids = {r.id for r in kept}
-    assert dup_id not in kept_ids  # similar to global → dropped
-    assert unique_id in kept_ids  # different → kept
-
-
-def testfilter_semantic_duplicates_keeps_dissimilar_steps() -> None:
-    """Area steps with low similarity to global steps survive the filter."""
-    call_count = {"n": 0}
-
-    def embed_fn(text: str) -> list[float]:
-        call_count["n"] += 1
-        vec = [0.0] * 768
-        vec[call_count["n"] % 768] = 1.0
-        return vec
-
-    global_steps = [
-        BlueprintStep(
-            id=content_id("Verify Python 3.12+"),
-            title="Verify Python 3.12+",
-        ),
-    ]
-    docker_id = content_id("Set up Docker Compose")
-    pool = {
-        docker_id: StepRecord(
-            id=docker_id,
-            title="Set up Docker Compose",
-            description="Run docker-compose up for local development.",
-        ),
-    }
-    refs = [SkeletonRef(id=docker_id)]
-    llm = StubLLMClient(embed_fn=embed_fn)
-
-    kept = filter_semantic_duplicates(refs, pool, global_steps, llm)
-
-    assert [r.id for r in kept] == [docker_id]
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert baseline.competencies[0].target_level == 4
+    assert outcomes[0].status == "updated"
 
 
-def testfilter_semantic_duplicates_within_scope() -> None:
-    """Two near-identical steps in the same scope collapse to the first."""
+def test_ungrounded_selections_are_dropped() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm(
+        [
+            _selection("deploy-runbook"),
+            {"competency_key": "rag-pipeline", "chunk_ids": ["missing"]},
+        ]
+    )
 
-    def embed_fn(text: str) -> list[float]:
-        # Both "verify python" variants map to the same vector; docker differs.
-        if "python" in text.lower():
-            return [1.0, 0.0] + [0.0] * 766
-        return [0.0, 1.0] + [0.0] * 766
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
 
-    first_id = content_id("Verify Python version")
-    dup_id = content_id("Check the installed Python version")
-    docker_id = content_id("Start Docker Compose")
-    pool = {
-        first_id: StepRecord(
-            id=first_id,
-            title="Verify Python version",
-            description="Confirm the Python interpreter version.",
-        ),
-        dup_id: StepRecord(
-            id=dup_id,
-            title="Check the installed Python version",
-            description="Confirm the Python interpreter version.",
-        ),
-        docker_id: StepRecord(
-            id=docker_id,
-            title="Start Docker Compose",
-            description="Bring up the local stack.",
-        ),
-    }
-    refs = [SkeletonRef(id=first_id), SkeletonRef(id=dup_id), SkeletonRef(id=docker_id)]
-    llm = StubLLMClient(embed_fn=embed_fn)
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert [c.competency_key for c in baseline.competencies] == ["deploy-runbook"]
 
-    # No global steps → pure within-scope dedup (as for the global scope itself).
-    kept = filter_semantic_duplicates(refs, pool, [], llm)
 
-    kept_ids = [r.id for r in kept]
-    assert first_id in kept_ids  # first occurrence wins
-    assert dup_id not in kept_ids  # within-scope duplicate dropped
-    assert docker_id in kept_ids  # genuinely different step survives
+def test_repeated_selection_of_the_same_competency_collapses() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm([_selection("deploy-runbook"), _selection("deploy-runbook")])
+
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
+
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert [c.competency_key for c in baseline.competencies] == ["deploy-runbook"]
+
+
+def test_invented_competency_key_is_discarded() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm([_selection("made-up-key"), _selection("deploy-runbook")])
+
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
+
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert [c.competency_key for c in baseline.competencies] == ["deploy-runbook"]
+
+
+def test_target_level_outside_the_rank_range_is_ignored() -> None:
+    store = _store("backend onboarding deploy runbook")
+    llm = _llm([_selection("deploy-runbook", target_level=9)])
+
+    outcomes = generate_blueprints(llm, store, scopes=[_SCOPE], competencies=_CATALOG)
+
+    baseline = outcomes[0].blueprint
+    assert baseline is not None
+    assert baseline.competencies[0].target_level is None
+
+
+def test_empty_catalog_is_skipped_rather_than_proposed_empty() -> None:
+    store = _store("backend onboarding deploy runbook")
+
+    outcomes = generate_blueprints(_llm([]), store, scopes=[_SCOPE])
+
+    assert outcomes[0].status == "skipped"
+    assert outcomes[0].blueprint is None
+
+
+def test_empty_corpus_is_skipped() -> None:
+    outcomes = generate_blueprints(
+        _llm([]), StubVectorStore(), scopes=[_SCOPE], competencies=_CATALOG
+    )
+    assert outcomes[0].status == "skipped"
+
+
+def test_area_scope_is_told_what_global_already_requires() -> None:
+    """The global selection reaches the area prompt as an exclusion list."""
+    store = _store("team onboarding deploy runbook rag pipeline setup")
+    llm = _llm([_selection("deploy-runbook")])
+    prompts: list[str] = []
+    inner = llm.generate
+
+    def recording(messages: list[Message], **kwargs: object) -> str:
+        prompts.append(str(messages[0]["content"]))
+        return inner(messages)
+
+    llm.generate = recording  # type: ignore[method-assign]
+
+    outcomes = generate_blueprints(
+        llm, store, scopes=["global", _SCOPE], competencies=_CATALOG
+    )
+
+    assert [o.scope for o in outcomes] == ["global", _SCOPE]
+    # The stub returns the same selection for both scopes; what matters is that
+    # the area prompt was told which keys global already covers.
+    assert "ALREADY IN THE GLOBAL BASELINE" not in prompts[0]
+    assert "ALREADY IN THE GLOBAL BASELINE" in prompts[1]

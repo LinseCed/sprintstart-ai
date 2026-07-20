@@ -142,34 +142,12 @@ class Task(BaseModel):
     description: str = Field(default="", description="Optional details for this task")
 
 
-class StepRecord(BaseModel):
-    """A unit of onboarding content held in the in-memory step pool during generation.
-
-    The ``id`` is assigned once as ``content_id(title)`` and then frozen —
-    renaming the title keeps the step's identity across revisions. Status
-    (``requirement`` / ``invariant``) is absent here: it is structural and lives
-    on the :class:`SkeletonRef` that references the step, so the same step can be
-    required for one scope and recommended for another.
-    """
-
-    id: str
-    title: str
-    description: str = ""
-    audience: list[str] = Field(default_factory=list)
-    min_experience: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    resources: list[Resource] = []
-    citations: list[CitationRef] = []
-    # The competency graph key this step teaches, when the generator could match
-    # one from the backend-supplied catalog. Content-level (which competency the
-    # step is about), so it lives on the record, not the scope-specific ref.
-    competency_key: str | None = None
-
-
 class BlueprintStep(BaseModel):
-    """A step as served: content from a :class:`StepRecord` merged with the
-    contextual status (requirement, invariant) from the :class:`SkeletonRef`
-    that referenced it. This is the view the pipeline and quality gate operate on.
+    """A step of the per-user onboarding path, as path generation consumes it.
+
+    Transitional: the backend derives these from its baseline's competency
+    selection, since path generation has not been rewritten around
+    competency-owned modules yet.
     """
 
     id: str
@@ -221,30 +199,37 @@ class Blueprint(BaseModel):
     provenance: BlueprintProvenance | None = None
 
 
-class SkeletonRef(BaseModel):
-    """A skeleton's ordered reference to a step in the pool.
+class BaselineCompetency(BaseModel):
+    """One competency selected into a baseline.
 
-    ``requirement`` / ``invariant`` are properties of the step *in this path*,
-    not of the step itself, so a step can be required for one scope and merely
-    recommended for another.
+    A baseline is a *selection over the competency graph*, not a list of prose
+    steps: which competencies must everyone in a scope reach, and to what level.
+    ``target_level`` is ``None`` when the scope has no opinion beyond the
+    competency's own bar — the normal case.
     """
 
-    id: str
+    competency_key: str
+    target_level: int | None = None
     requirement: Requirement = "recommended"
+    # Human-owned protection flag. An ``invariant`` entry may not be removed or
+    # downgraded by the generation job; such changes are blocked or escalated.
     invariant: bool = False
+    # Why this competency belongs in the baseline, in the proposer's words. Shown
+    # to the PM reviewing the proposal; not persisted as part of the selection.
+    rationale: str = ""
 
 
-class Skeleton(BaseModel):
-    """Internal generation structure: an ordered, versioned list of step refs by scope.
+class Baseline(BaseModel):
+    """A versioned, scoped competency selection — the mandatory baseline.
 
-    Resolving a skeleton against the in-memory step pool yields a
-    :class:`Blueprint` — the view returned to the backend.
+    ``source`` distinguishes human-authored from AI-generated baselines.
+    ``provenance`` is populated for generated ones and drives idempotency.
     """
 
     scope: str = Field(description="'global' or 'area:<name>'")
     version: str = "0"
     source: Source = "authored"
-    steps: list[SkeletonRef] = []
+    competencies: list[BaselineCompetency] = []
     provenance: BlueprintProvenance | None = None
 
 

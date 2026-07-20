@@ -5,7 +5,7 @@ from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
     from onboarding.graph_models import ActiveCompetency, ActiveEdge
-    from onboarding.models import Blueprint, CitationRef, PersonProfile
+    from onboarding.models import Baseline, Blueprint, CitationRef, PersonProfile
     from onboarding.starter_work import ProposedStarterTask
     from onboarding.verification import ArtifactEvidence
 
@@ -554,6 +554,51 @@ class BlueprintSchema(BaseModel):
         )
 
 
+class BaselineCompetencySchema(BaseModel):
+    competency_key: str
+    target_level: int | None = None
+    requirement: str = "recommended"
+    invariant: bool = False
+    rationale: str = ""
+
+
+class BaselineSchema(BaseModel):
+    """A baseline on the wire: a scoped, versioned competency selection."""
+
+    scope: str
+    version: str = "0"
+    source: str = "authored"
+    competencies: list[BaselineCompetencySchema] = []
+    # Carried so the backend can round-trip it: ``corpus_fingerprint`` is what
+    # lets a re-generation against an unchanged corpus short-circuit.
+    provenance: BlueprintProvenanceSchema | None = None
+
+    def to_model(self) -> "Baseline":
+        """Convert the wire schema into the internal Baseline model."""
+        from onboarding.models import Baseline, BaselineCompetency, BlueprintProvenance
+
+        return Baseline(
+            scope=self.scope,
+            version=self.version,
+            source=self.source,  # type: ignore[arg-type]
+            competencies=[
+                BaselineCompetency(
+                    competency_key=c.competency_key,
+                    target_level=c.target_level,
+                    requirement=c.requirement,  # type: ignore[arg-type]
+                    invariant=c.invariant,
+                    rationale=c.rationale,
+                )
+                for c in self.competencies
+            ],
+            provenance=(
+                BlueprintProvenance(**self.provenance.model_dump())
+                if self.provenance is not None
+                else None
+            ),
+        )
+
+
 class ProposedCompetencySchema(BaseModel):
     key: str
     label: str
@@ -1040,10 +1085,10 @@ class GenerateBlueprintsRequest(BaseModel):
             "Omit to refresh 'global' plus any active blueprint scopes."
         ),
     )
-    active: list[BlueprintSchema] = Field(
+    active: list[BaselineSchema] = Field(
         default=[],
         description=(
-            "The backend's currently-active blueprints. The AI service is "
+            "The backend's currently-active baselines. The AI service is "
             "stateless, so these drive idempotency and version numbering — pass "
             "them on every request."
         ),
@@ -1051,9 +1096,9 @@ class GenerateBlueprintsRequest(BaseModel):
     active_competencies: list[ActiveCompetencySchema] = Field(
         default_factory=list[ActiveCompetencySchema],
         description=(
-            "The backend's live competency graph. Each generated step is tagged "
-            "with the best-matching key from this catalog (the blueprint→target "
-            "bridge); omit to leave steps untagged."
+            "The backend's live competency graph — the set a baseline is "
+            "selected from. With an empty catalog there is nothing to choose, "
+            "and every scope is skipped."
         ),
     )
 

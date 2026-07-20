@@ -1,22 +1,30 @@
-"""AI-authoring of onboarding blueprints from the ingested corpus.
+"""AI-authoring of the mandatory onboarding baseline from the ingested corpus.
 
-A batch, re-runnable job that drafts/updates blueprints (``scope: global`` and
+A batch, re-runnable job that drafts/updates baselines (``scope: global`` and
 ``scope: area:<name>``) as ``source: generated`` artifacts. It reuses the
 existing retrieval layer (:func:`rag.hybrid.hybrid_retrieve`) and the
 ``LLMClient`` abstraction — there is no separate ingest or retrieval path.
 
+A baseline is a **selection over the competency graph**: which competencies must
+everyone in a scope reach, and to what level. It used to be a list of prose
+steps — a second content model running in parallel to the graph — and this job's
+work was to write that prose. It is now to *choose*, from the catalog the
+backend supplies, and to say why.
+
 The job is deliberately conservative:
 
-* **Grounded** — every proposed step must cite at least one retrieved chunk;
-  ungrounded steps are dropped (consistent with the path-generation grounding
-  gate in ``onboarding/pipeline.py``).
-* **Idempotent** — a blueprint records the ``corpus_fingerprint`` it was drafted
+* **Grounded** — a competency is only selected when the retrieved corpus shows
+  the team actually works this way; the model must cite the evidence that put it
+  in the baseline. Ungrounded selections are dropped.
+* **Catalog-bound** — only keys present in the supplied catalog may be selected.
+  An invented key is discarded here, not silently dropped by the backend.
+* **Idempotent** — a baseline records the ``corpus_fingerprint`` it was drafted
   from. Re-running against an unchanged corpus is a no-op.
-* **Invariant-safe** — it may not remove or downgrade a human-owned step
-  (``required`` or ``invariant`` in the active blueprint). Such changes are
-  blocked: the protected step is re-injected and the outcome is escalated.
+* **Invariant-safe** — it may not remove or downgrade a human-owned entry
+  (``required`` or ``invariant`` in the active baseline). Such changes are
+  blocked: the protected entry is re-injected and the outcome is escalated.
 
-The backend owns blueprint persistence; the AI service is stateless and only
+The backend owns baseline persistence; the AI service is stateless and only
 returns generated data.
 """
 
@@ -33,21 +41,8 @@ from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.citations import resolve_citations
 from onboarding.graph_models import ActiveCompetency
-from onboarding.models import (
-    Blueprint,
-    BlueprintProvenance,
-    BlueprintStep,
-    Skeleton,
-    SkeletonRef,
-    StepRecord,
-)
-from onboarding.registry import resolve, upsert_step
+from onboarding.models import Baseline, BaselineCompetency, BlueprintProvenance
 from onboarding.scope import GLOBAL, Scope
-from onboarding.similarity import (
-    SIMILARITY_THRESHOLD,
-    cosine_similarity,
-    step_text,
-)
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
 from store.base import VectorStore
@@ -59,6 +54,10 @@ OutcomeStatus = Literal["created", "updated", "unchanged", "escalated", "skipped
 _TOP_K = 12
 _MIN_SCORE = 0.3
 
+# Proficiency ranks, mirroring the backend's ledger levels.
+_MIN_LEVEL = 1
+_MAX_LEVEL = 4
+
 
 class GenerationError(Exception):
     """Raised when the LLM output for a scope cannot be parsed/validated."""
@@ -67,10 +66,10 @@ class GenerationError(Exception):
 class GenerationOutcome(BaseModel):
     scope: str
     status: OutcomeStatus
-    blueprint: Blueprint | None = None
+    blueprint: Baseline | None = None
     draft_version: str | None = None
     chunks_retrieved: int = 0
-    steps_drafted: int = 0
+    competencies_selected: int = 0
     model: str | None = None
     notes: list[str] = Field(default_factory=list)
 
@@ -78,21 +77,18 @@ class GenerationOutcome(BaseModel):
 # --- LLM payload -----------------------------------------------------------
 
 
-class _GenStep(BaseModel):
-    title: str
-    description: str = ""
+class _GenEntry(BaseModel):
+    competency_key: str
+    # Absent/null means "the competency's own bar applies", which is what the
+    # model should return unless this scope genuinely demands a different depth.
+    target_level: int | None = None
     requirement: Literal["required", "recommended"] = "recommended"
-    tags: list[str] = Field(default_factory=list)
+    rationale: str = ""
     chunk_ids: list[str] = Field(default_factory=list)
-    # The competency key the LLM matched this step to, chosen from the supplied
-    # catalog. Validated against that catalog before use — a key not in the
-    # catalog is discarded (treated as ``None``) so the backend never receives an
-    # invented key it would silently drop against its visible graph.
-    competency_key: str | None = None
 
 
 class _GenPayload(BaseModel):
-    steps: list[_GenStep] = []
+    competencies: list[_GenEntry] = []
 
 
 # --- corpus fingerprint (idempotency) --------------------------------------
@@ -112,8 +108,8 @@ def corpus_fingerprint(store: VectorStore) -> str:
 # --- scope helpers ---------------------------------------------------------
 
 
-def default_scopes(active: list[Blueprint]) -> list[str]:
-    """``global`` plus every area scope present among the active blueprints."""
+def default_scopes(active: list[Baseline]) -> list[str]:
+    """``global`` plus every area scope present among the active baselines."""
     scopes = {b.scope for b in active}
     scopes.add(GLOBAL)
     return sorted(scopes)
@@ -140,77 +136,53 @@ def _scope_query(scope: str) -> str:
 # --- prompt / parsing ------------------------------------------------------
 
 
-_DUPLICATE_EXAMPLES = (
-    "Examples of what counts as a duplicate (WRONG) vs."
-    " an area-specific step (RIGHT):\n"
-    "  WRONG: 'Install packages'"
-    "          — same concept as a global 'Install dependencies' step\n"
-    "  WRONG: 'Set up Python environment'"
-    " — same concept as a global 'Verify prerequisites' step\n"
-    "  WRONG: 'Run the server'"
-    "            — same concept as a global 'Start the service locally' step\n"
-    "  WRONG: 'Configure .env file'"
-    "       — same concept as a global 'Configure environment variables' step\n"
-    "  RIGHT: 'Understand the RAG pipeline architecture'"
-    "  — area-specific concept not in global\n"
-    "  RIGHT: 'Explore the agent tool registry'"
-    "           — area-specific concept not in global\n"
-)
-
-
 def _build_prompt(
     scope: str,
     chunks: list[ScoredChunk],
-    global_steps: list[BlueprintStep] | None = None,
-    competencies: list[ActiveCompetency] | None = None,
+    competencies: list[ActiveCompetency],
+    global_keys: set[str] | None = None,
 ) -> list[Message]:
     evidence = "\n".join(f"[{c.id}] ({c.filename}) {c.text}" for c in chunks)
+    catalog = "\n".join(
+        f"- {c.key}: {c.label}" + (f" — {c.description}" if c.description else "")
+        for c in competencies
+    )
     exclusion = ""
-    if global_steps:
-        covered = "\n".join(
-            f"- {s.title}" + (f": {s.description}" if s.description else "")
-            for s in global_steps
-        )
+    if global_keys:
+        covered = "\n".join(f"- {key}" for key in sorted(global_keys))
         exclusion = (
-            "\n3. ALREADY COVERED — the global onboarding blueprint contains the "
-            "steps below. You MUST NOT propose any step whose concept overlaps "
-            "with them, even when phrased differently.\n\n"
-            f"Global steps (do not repeat these concepts):\n{covered}\n\n"
-            'Before writing each step, ask: "Is this concept already covered '
-            'above, even under a different title?" If yes, skip it.\n\n'
-            f"{_DUPLICATE_EXAMPLES}"
-            "Only propose steps that are genuinely specific to this area.\n"
-        )
-    competency_rule = ""
-    if competencies:
-        catalog = "\n".join(
-            f"- {c.key}: {c.label}" + (f" — {c.description}" if c.description else "")
-            for c in competencies
-        )
-        competency_rule = (
-            "\nCOMPETENCY MATCHING — the team's competency graph contains the "
-            "keys below. For each step, set 'competency_key' to the SINGLE key "
-            "whose competency the step most directly teaches or proves. Copy the "
-            "key EXACTLY as written; do not invent a key or alter one. If no "
-            "listed competency genuinely matches the step, set 'competency_key' "
-            "to null — a wrong or approximate match is worse than none.\n\n"
-            f"Competency keys (choose from these only):\n{catalog}\n"
+            "5. ALREADY IN THE GLOBAL BASELINE — the competencies below are "
+            "already required of everyone on the team. Do NOT select them again "
+            "here; this scope's baseline adds only what is specific to it.\n\n"
+            f"{covered}\n\n"
         )
     system = (
-        "You draft an onboarding blueprint for a software team from its knowledge "
-        "base. You are given evidence snippets, each prefixed with its chunk id in "
-        "square brackets.\n\n"
-        "Return STRICT JSON only (no prose, no markdown fences). Propose a concise, "
-        f"ordered list of onboarding steps for {_scope_label(scope)}. Rules:\n"
-        "1. Every step MUST reference at least one chunk id from the evidence; do "
-        "not invent sources.\n"
-        "2. Mark foundational/mandatory steps as 'required', others as "
-        "'recommended'.\n"
+        "You choose the mandatory onboarding baseline for a software team: which "
+        "competencies from the team's competency graph every new joiner in a "
+        "given scope must reach, and how deeply.\n\n"
+        "You are given the team's competency catalog and evidence snippets from "
+        "its knowledge base, each prefixed with its chunk id in square "
+        "brackets.\n\n"
+        "Return STRICT JSON only (no prose, no markdown fences). Select a "
+        f"concise baseline for {_scope_label(scope)}. Rules:\n"
+        "1. Choose ONLY keys from the catalog below. Copy each key EXACTLY as "
+        "written; never invent, alter, or approximate a key.\n"
+        "2. Every selection MUST cite at least one chunk id showing this team "
+        "actually works this way. A competency you cannot ground in the evidence "
+        "does not belong in the baseline, however plausible it sounds.\n"
+        "3. Select what a new joiner genuinely cannot contribute without. A "
+        "baseline everyone must clear is not a wish list: every entry delays the "
+        "first contribution of every hire in the scope.\n"
+        "4. 'requirement': 'required' for what is genuinely mandatory, "
+        "'recommended' otherwise. 'target_level' is 1-4 (1 beginner, 2 "
+        "intermediate, 3 advanced, 4 expert) — set it ONLY when this scope needs "
+        "a different depth than the competency's own default; otherwise omit it "
+        "or use null.\n"
         f"{exclusion}"
-        f"{competency_rule}"
-        'JSON schema: {"steps": [{"title": str, "description": str, '
-        '"requirement": "required"|"recommended", "tags": [str], '
-        '"chunk_ids": [str], "competency_key": str|null}]}'
+        f"\nCompetency catalog (choose from these only):\n{catalog}\n\n"
+        'JSON schema: {"competencies": [{"competency_key": str, '
+        '"target_level": int|null, "requirement": "required"|"recommended", '
+        '"rationale": str, "chunk_ids": [str]}]}'
     )
     user = f"Scope: {scope}\n\nEvidence:\n{evidence}"
     return [
@@ -219,157 +191,122 @@ def _build_prompt(
     ]
 
 
-def _draft_steps(
+def _select_competencies(
     scope: str,
     chunks: list[ScoredChunk],
     llm: LLMClient,
-    pool: dict[str, StepRecord],
-    global_steps: list[BlueprintStep] | None = None,
-    competencies: list[ActiveCompetency] | None = None,
-) -> list[SkeletonRef]:
-    """Ask the LLM for steps, keep the grounded ones, and upsert them.
+    competencies: list[ActiveCompetency],
+    global_keys: set[str] | None = None,
+) -> list[BaselineCompetency]:
+    """Ask the LLM to select the baseline; keep the valid, grounded entries.
 
-    Grounded steps are written into ``pool`` (deduplicating by content
-    fingerprint) and returned as ordered skeleton references carrying the
-    proposed ``requirement``.
+    Deduplication is exact rather than semantic: entries are competency keys, so
+    two selections of the same competency *are* the same selection — the
+    embedding-similarity pass prose steps needed has nothing left to do.
     """
-    raw = llm.generate(_build_prompt(scope, chunks, global_steps, competencies))
+    raw = llm.generate(_build_prompt(scope, chunks, competencies, global_keys))
     try:
         payload = _GenPayload.model_validate_json(extract_json_object(raw))
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         raise GenerationError(f"invalid generation output: {exc}") from exc
 
     chunks_by_id = {c.id: c for c in chunks}
-    # Only keys the backend actually has may be attached; a key the LLM invented
-    # (or hallucinated a variant of) would be silently dropped by the backend's
-    # visible-graph filter, so discard it here to keep the contract honest.
-    valid_keys = {c.key for c in competencies or []}
+    valid_keys = {c.key for c in competencies}
 
-    refs: list[SkeletonRef] = []
-    seen_ids: set[str] = set()
-    for item in payload.steps:
-        citations = resolve_citations(item.chunk_ids, chunks_by_id)
-        if not citations:
-            continue  # grounding gate: drop ungrounded steps
-        competency_key = (
-            item.competency_key if item.competency_key in valid_keys else None
-        )
-        step_id = upsert_step(
-            pool,
-            title=item.title,
-            description=item.description,
-            tags=item.tags,
-            citations=citations,
-            competency_key=competency_key,
-        )
-        if step_id in seen_ids:
-            continue  # identical-title proposals collapse to one ref
-        seen_ids.add(step_id)
-        refs.append(SkeletonRef(id=step_id, requirement=item.requirement))
-
-    refs = filter_semantic_duplicates(refs, pool, global_steps or [], llm)
-    return refs
-
-
-# --- embedding-based semantic dedup ----------------------------------------
-
-
-def filter_semantic_duplicates(
-    refs: list[SkeletonRef],
-    pool: dict[str, StepRecord],
-    global_steps: list[BlueprintStep],
-    llm: LLMClient,
-) -> list[SkeletonRef]:
-    """Drop steps that duplicate a prior step by embedding similarity.
-
-    A step is dropped if its embedding is too close to (a) any ``global_steps``
-    step (cross-scope: an area step rehashing a global one) or (b) any step
-    already kept earlier in this same list (within-scope: two near-identical
-    steps in one scope). The first occurrence wins; later duplicates are
-    dropped. Passing an empty ``global_steps`` performs pure within-scope dedup,
-    which is how the global scope itself is deduplicated.
-    """
-    # Seed the "already seen" embeddings with the global steps so area steps are
-    # compared against them; subsequent kept steps extend this list.
-    seen_embeddings: list[list[float]] = [
-        llm.embed(step_text(s.title, s.description)) for s in global_steps
-    ]
-
-    kept: list[SkeletonRef] = []
-    for ref in refs:
-        record = pool.get(ref.id)
-        if record is None:
-            kept.append(ref)
-            continue
-        embedding = llm.embed(step_text(record.title, record.description))
-        max_sim = max(
-            (cosine_similarity(embedding, prior) for prior in seen_embeddings),
-            default=0.0,
-        )
-        if max_sim >= SIMILARITY_THRESHOLD:
+    selected: list[BaselineCompetency] = []
+    seen: set[str] = set()
+    for item in payload.competencies:
+        if item.competency_key not in valid_keys:
             logger.info(
-                "Dropped duplicate step %r (sim=%.2f with an earlier step)",
-                record.title,
-                max_sim,
+                "Dropped selection of unknown competency %r for scope %s",
+                item.competency_key,
+                scope,
             )
             continue
-        kept.append(ref)
-        seen_embeddings.append(embedding)
-    return kept
+        if item.competency_key in seen:
+            continue
+        if not resolve_citations(item.chunk_ids, chunks_by_id):
+            continue  # grounding gate: drop ungrounded selections
+        seen.add(item.competency_key)
+        selected.append(
+            BaselineCompetency(
+                competency_key=item.competency_key,
+                target_level=_valid_level(item.target_level),
+                requirement=item.requirement,
+                rationale=item.rationale,
+            )
+        )
+    return selected
+
+
+def _valid_level(level: int | None) -> int | None:
+    """Keep a target-level override only when it is a real proficiency rank."""
+    if level is None or not _MIN_LEVEL <= level <= _MAX_LEVEL:
+        return None
+    return level
 
 
 # --- invariant gate --------------------------------------------------------
 
 
 def _enforce_invariants(
-    draft: Skeleton, active: Blueprint | None
-) -> tuple[Skeleton, list[str]]:
-    """Re-inject any human-owned step a draft skeleton would remove or downgrade.
+    draft: Baseline, active: Baseline | None
+) -> tuple[Baseline, list[str]]:
+    """Re-inject any human-owned entry a draft would remove or downgrade.
 
-    Protected = ``required`` or ``invariant`` in the active (resolved) blueprint.
-    Such steps are never silently dropped: their reference is restored on the
-    draft skeleton and the change is reported as an escalation. The referenced
-    step already lives in the pool (it is an active step), so the restored ref
-    resolves.
+    Protected = ``required`` or ``invariant`` in the active baseline. Such
+    entries are never silently dropped: they are restored on the draft and the
+    change is reported as an escalation.
 
-    Returns a *new* Skeleton — the input ``draft`` is never mutated.
+    Returns a *new* Baseline — the input ``draft`` is never mutated.
     """
     if active is None:
         return draft, []
 
-    patched_refs = [r.model_copy(deep=True) for r in draft.steps]
-    by_id = {r.id: r for r in patched_refs}
+    patched = [e.model_copy(deep=True) for e in draft.competencies]
+    by_key = {e.competency_key: e for e in patched}
     notes: list[str] = []
-    for prev in active.steps:
+    for prev in active.competencies:
         protected = prev.requirement == "required" or prev.invariant
         if not protected:
             continue
-        existing = by_id.get(prev.id)
+        existing = by_key.get(prev.competency_key)
         if existing is None:
-            patched_refs.append(
-                SkeletonRef(
-                    id=prev.id,
-                    requirement=prev.requirement,
-                    invariant=prev.invariant,
-                )
-            )
+            patched.append(prev.model_copy(deep=True))
             notes.append(
-                f"re-injected protected step removed by draft: {prev.title} ({prev.id})"
+                "re-injected protected competency removed by draft: "
+                f"{prev.competency_key}"
             )
-        elif existing.requirement != prev.requirement:
+            continue
+        if existing.requirement != prev.requirement:
             existing.requirement = prev.requirement
             existing.invariant = existing.invariant or prev.invariant
             notes.append(
-                f"restored requirement of protected step: {prev.title} ({prev.id})"
+                f"restored requirement of protected competency: {prev.competency_key}"
             )
-    patched = draft.model_copy(update={"steps": patched_refs})
-    return patched, notes
+        if _lowers_bar(existing.target_level, prev.target_level):
+            existing.target_level = prev.target_level
+            notes.append(
+                f"restored target level of protected competency: {prev.competency_key}"
+            )
+    return draft.model_copy(update={"competencies": patched}), notes
+
+
+def _lowers_bar(drafted: int | None, protected: int | None) -> bool:
+    """True when a draft asks less of a protected entry than the active one.
+
+    ``None`` means "the competency's own bar applies", which is not a number to
+    compare — dropping an explicit bar back to the default is itself a downgrade.
+    """
+    if protected is None:
+        return False
+    return drafted is None or drafted < protected
 
 
 # --- job -------------------------------------------------------------------
 
 
-def _next_version(active: Blueprint | None) -> str:
+def _next_version(active: Baseline | None) -> str:
     if active is None:
         return "1"
     try:
@@ -386,11 +323,11 @@ def _generate_scope(
     store: VectorStore,
     bm25_cache: BM25IndexCache,
     model: str | None,
-    active: Blueprint | None = None,
-    global_steps: list[BlueprintStep] | None = None,
-    competencies: list[ActiveCompetency] | None = None,
+    competencies: list[ActiveCompetency],
+    active: Baseline | None = None,
+    global_keys: set[str] | None = None,
 ) -> GenerationOutcome:
-    # Idempotency: skip if the active blueprint already reflects this corpus.
+    # Idempotency: skip if the active baseline already reflects this corpus.
     if (
         active is not None
         and active.source == "generated"
@@ -399,6 +336,14 @@ def _generate_scope(
     ):
         return GenerationOutcome(
             scope=scope, status="unchanged", notes=["corpus unchanged since active"]
+        )
+
+    if not competencies:
+        # There is nothing to select from. Proposing an empty baseline would read
+        # as "this team requires nothing"; the honest answer is that the graph
+        # has to exist first.
+        return GenerationOutcome(
+            scope=scope, status="skipped", notes=["competency graph is empty"]
         )
 
     if store.count() == 0:
@@ -420,50 +365,17 @@ def _generate_scope(
             scope=scope, status="skipped", notes=["no grounding evidence retrieved"]
         )
 
-    # Strip chunks already cited by global steps from the area evidence pool.
-    # The grounding gate requires every step to cite at least one chunk, so
-    # removing global-owned chunks makes it structurally impossible for the LLM
-    # to generate setup/install steps that merely rephrase what global covers.
-    if global_steps:
-        global_chunk_ids = {ref.chunk_id for s in global_steps for ref in s.citations}
-        chunks = [c for c in chunks if c.id not in global_chunk_ids]
-    if not chunks:
+    selected = _select_competencies(scope, chunks, llm, competencies, global_keys)
+    if not selected:
         return GenerationOutcome(
-            scope=scope,
-            status="skipped",
-            notes=["no area-specific evidence after excluding global citations"],
+            scope=scope, status="skipped", notes=["no grounded competencies selected"]
         )
 
-    pool: dict[str, StepRecord] = {}
-    # Seed the pool with the active blueprint's steps so protected steps that
-    # _enforce_invariants re-injects can be resolved (the backend owns the pool;
-    # the active blueprint is the only state passed in).
-    for step in active.steps if active is not None else []:
-        pool.setdefault(
-            step.id,
-            StepRecord(
-                id=step.id,
-                title=step.title,
-                description=step.description,
-                audience=step.audience,
-                min_experience=step.min_experience,
-                tags=step.tags,
-                resources=step.resources,
-                citations=step.citations,
-                competency_key=step.competency_key,
-            ),
-        )
-    refs = _draft_steps(scope, chunks, llm, pool, global_steps, competencies)
-    if not refs:
-        return GenerationOutcome(
-            scope=scope, status="skipped", notes=["no grounded steps proposed"]
-        )
-
-    draft = Skeleton(
+    draft = Baseline(
         scope=scope,
         version=_next_version(active),
         source="generated",
-        steps=refs,
+        competencies=selected,
         provenance=BlueprintProvenance(
             corpus_fingerprint=fingerprint,
             generated_at=datetime.now(UTC).isoformat(),
@@ -475,8 +387,6 @@ def _generate_scope(
     if draft.provenance is not None:
         draft.provenance.notes = invariant_notes
 
-    resolved = resolve(draft, pool)
-
     status: OutcomeStatus
     if invariant_notes:
         status = "escalated"
@@ -487,10 +397,10 @@ def _generate_scope(
     return GenerationOutcome(
         scope=scope,
         status=status,
-        blueprint=resolved,
+        blueprint=draft,
         draft_version=draft.version,
         chunks_retrieved=len(chunks),
-        steps_drafted=len(refs),
+        competencies_selected=len(draft.competencies),
         model=model,
         notes=invariant_notes,
     )
@@ -501,35 +411,33 @@ def generate_blueprints(
     store: VectorStore,
     *,
     scopes: list[str] | None = None,
-    active: list[Blueprint] | None = None,
+    active: list[Baseline] | None = None,
     competencies: list[ActiveCompetency] | None = None,
 ) -> list[GenerationOutcome]:
-    """Draft/update blueprints for each scope; returns data without persisting.
+    """Draft/update baselines for each scope; returns data without persisting.
 
-    ``active`` is the set of currently-active blueprints owned by the backend.
+    ``active`` is the set of currently-active baselines owned by the backend.
     They drive idempotency (skip when the corpus fingerprint is unchanged) and
     version numbering; the AI service holds no state of its own.
 
-    ``competencies`` is the backend's live competency graph (key + label +
-    description). Steps are tagged with the best-matching key from it — the
-    blueprint->target bridge — so a project's path can terminate in real
-    competency keys. Omitted/empty leaves every step's key ``None`` (the
-    backend then falls back to all-visible), so behavior is unchanged when the
-    graph is empty or the caller doesn't supply it.
+    ``competencies`` is the backend's live competency graph — the set every
+    baseline is selected from. With an empty catalog there is nothing to select,
+    so every scope is skipped rather than proposed empty.
     """
     fingerprint = corpus_fingerprint(store)
     bm25_cache = BM25IndexCache()
     model = llm.model_name
+    catalog = competencies or []
 
     active_by_scope = {b.scope: b for b in (active or [])}
     outcomes: list[GenerationOutcome] = []
     resolved_scopes = scopes or default_scopes(active or [])
 
-    # Generate global first so area scopes can exclude its steps.
+    # Generate global first so area scopes can exclude what it already requires.
     if GLOBAL in resolved_scopes:
         resolved_scopes = [GLOBAL] + [s for s in resolved_scopes if s != GLOBAL]
 
-    global_steps: list[BlueprintStep] | None = None
+    global_keys: set[str] | None = None
     for scope in resolved_scopes:
         try:
             outcome = _generate_scope(
@@ -539,19 +447,18 @@ def generate_blueprints(
                 store=store,
                 bm25_cache=bm25_cache,
                 model=model,
+                competencies=catalog,
                 active=active_by_scope.get(scope),
-                global_steps=global_steps if scope != GLOBAL else None,
-                competencies=competencies,
+                global_keys=global_keys if scope != GLOBAL else None,
             )
             outcomes.append(outcome)
-            # After global is generated, capture its steps for area scopes
-            # from the outcome (no disk reads).
+            # After global is generated, capture its keys for the area scopes.
             if (
                 scope == GLOBAL
-                and global_steps is None
+                and global_keys is None
                 and outcome.blueprint is not None
             ):
-                global_steps = outcome.blueprint.steps
+                global_keys = {e.competency_key for e in outcome.blueprint.competencies}
         except GenerationError as exc:
             logger.warning("Generation failed for scope %s: %s", scope, exc)
             outcomes.append(

@@ -1,10 +1,11 @@
-"""Generation API for AI-proposed onboarding blueprints.
+"""Generation API for the AI-proposed onboarding baseline.
 
-The AI service is stateless: this router runs the batch generation job over the
-ingested corpus and returns the resulting blueprints. The backend owns
-persistence, versioning, and rollback — it passes its currently-active
-blueprints in on every request so generation can number versions and skip an
-unchanged corpus.
+A baseline is a *selection over the competency graph*: which competencies must
+everyone in a scope reach, and to what level. The AI service is stateless: this
+router runs the batch generation job over the ingested corpus and returns the
+resulting selections. The backend owns persistence, versioning, and rollback —
+it passes its currently-active baselines in on every request so generation can
+number versions and skip an unchanged corpus.
 """
 
 from typing import Annotated
@@ -32,7 +33,7 @@ class GenerateResponse(BaseModel):
 @router.post(
     "/generate",
     response_model=GenerateResponse,
-    summary="Draft/update blueprints from the corpus",
+    summary="Draft/update the competency baseline from the corpus",
     description=(
         "Runs the batch generation job over the ingested corpus and returns "
         "`source: generated` blueprints for the backend to persist. The job is "
