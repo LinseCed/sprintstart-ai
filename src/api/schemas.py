@@ -838,6 +838,22 @@ class CandidateSignalSchema(BaseModel):
     )
 
 
+class AssessmentTargetsSchema(BaseModel):
+    """The candidate competency keys one past question set out to probe.
+
+    Accumulated by the caller across the session and re-sent every turn, for the
+    same reason ``candidate_signal`` is: this service holds no session state.
+    Carried per turn rather than as one flat set so the interviewer can also see
+    *when* a key was probed.
+    """
+
+    turn: int = Field(ge=0, description="0-based index of the turn that asked it.")
+    keys: list[str] = Field(
+        default_factory=list[str],
+        description="Candidate competency keys that question targeted.",
+    )
+
+
 class AssessmentTurnRequest(BaseModel):
     candidate_competencies: list[CandidateCompetencySchema] = Field(
         description="Competencies this turn may assess. Never assess outside this set."
@@ -863,6 +879,14 @@ class AssessmentTurnRequest(BaseModel):
             "Turn-by-turn transcript so far ('assistant' = interviewer question, "
             "'user' = candidate answer). The service is stateless and re-derives "
             "belief from this."
+        ),
+    )
+    targets: list[AssessmentTargetsSchema] = Field(
+        default_factory=list["AssessmentTargetsSchema"],
+        description=(
+            "Which candidate keys each past question probed, accumulated by the "
+            "caller. The transcript cannot supply this -- a question is prose -- "
+            "and without it completion can only be gated on a turn count."
         ),
     )
     turn: int = Field(ge=0, description="0-based index of this turn.")
@@ -918,8 +942,9 @@ class AssessmentTurnResponse(BaseModel):
     )
     assessments: list[AssessmentResultSchema] | None = Field(
         default=None,
-        description="Final per-competency placement, set when done=true. "
-        "Covers every candidate competency.",
+        description="Final per-competency placement, set when done=true. Covers "
+        "every candidate competency that was probed; keys no question ever "
+        "targeted are omitted rather than defaulted.",
     )
 
     model_config = {
