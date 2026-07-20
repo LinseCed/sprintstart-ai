@@ -787,6 +787,24 @@ class SynthesizeLessonRequest(BaseModel):
     )
 
 
+class ProposeModuleRequest(BaseModel):
+    competency_key: str = Field(description="The competency this module teaches.")
+    competency_label: str
+    competency_description: str = ""
+    level: str = Field(
+        default="beginner",
+        description="Target level to teach to: beginner/intermediate/advanced/expert.",
+    )
+    last_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "The corpus fingerprint recorded from the caller's previous proposal "
+            "run for this competency, if any. Idempotency is per module, not "
+            "corpus-wide -- modules are proposed one node at a time."
+        ),
+    )
+
+
 class ArtifactEvidenceSchema(BaseModel):
     pr_title: str = ""
     pr_body: str = ""
