@@ -22,6 +22,7 @@ from api.routes import (  # noqa: E402
     knowledge_gaps,
     modules,
     onboarding,
+    orientation,
     sources,
     starter_work,
     summaries,
@@ -75,6 +76,7 @@ api_router.include_router(onboarding.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(competency_graph.router)
 api_router.include_router(modules.router)
+api_router.include_router(orientation.router)
 api_router.include_router(verification.router)
 api_router.include_router(starter_work.router)
 api_router.include_router(summaries.router)

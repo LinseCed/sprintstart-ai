@@ -726,6 +726,28 @@ class ProposeModuleRequest(BaseModel):
     )
 
 
+class AssembleOrientationRequest(BaseModel):
+    task_title: str = Field(description="The task the packet orients somebody for.")
+    task_body: str = ""
+    labels: list[str] = Field(default_factory=list)
+    touched_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Repository paths the task is expected to touch, when known. Used to "
+            "aim retrieval at the right part of the codebase, never asserted."
+        ),
+    )
+    last_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "The corpus fingerprint recorded when this task's packet was last "
+            "assembled, if any. Idempotency is per task: an unchanged corpus "
+            "yields `unchanged` so a cached packet can be served, and a moved "
+            "corpus regenerates rather than describing code that changed."
+        ),
+    )
+
+
 class ArtifactEvidenceSchema(BaseModel):
     pr_title: str = ""
     pr_body: str = ""
