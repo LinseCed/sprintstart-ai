@@ -10,9 +10,10 @@ from api.sse import sse_event
 from ingestion.source_state_store import SourceStateStore
 from llm.base import LLMClient, Message
 from llm.errors import LLMUnavailableError
-from onboarding.buddy import build_buddy_prompt
+from onboarding.buddy import build_buddy_prompt, build_handoff_prompt
 from rag.citation import build_citations
 from rag.retriever import retrieve
+from rag.types import ScoredChunk
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -20,12 +21,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _TOP_K = 5
+# The retrieval floor is also the confidence line: `retrieve` drops anything below
+# it, so an empty result means nothing indexed answers this with confidence. And if
+# the answer *were* in the docs, the buddy would have grounded it here -- so a
+# hand-off inherently means "not in the indexed material", not "not looked for".
 _MIN_SCORE = 0.3
-
-_NO_RESULTS_MESSAGE = (
-    "I don't have any grounded evidence for that yet -- try asking someone on "
-    "the team, or check back once more of the codebase has been indexed."
-)
 
 
 @router.post(
@@ -54,9 +54,10 @@ def buddy(
                 exclusions=source_state.get_exclusions(),
             )
 
+            # Nothing indexed answers this with confidence: don't guess -- hand
+            # off and draft the question the hire should ask a person instead.
             if not chunks:
-                yield sse_event({"type": "token", "content": _NO_RESULTS_MESSAGE})
-                yield sse_event({"type": "done"})
+                yield from _draft_handoff(body.question, chunks, llm)
                 return
 
             history: list[Message] = [
@@ -89,3 +90,26 @@ def buddy(
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _draft_handoff(
+    question: str,
+    chunks: list[ScoredChunk],
+    llm: LLMClient,
+) -> Iterator[str]:
+    """Streams the hand-off: instead of an answer, the question the hire should
+    put to their human buddy, composed from what was (and wasn't) found.
+
+    Emits a ``tool_use`` marker (``name="draft_question"``) before the text so a
+    client can tell "answered from the corpus" from "handed to a person" without
+    parsing prose; the drafted text itself also says which mode it is in. No
+    citations follow -- nothing here is a grounded answer to cite.
+    """
+    yield sse_event({"type": "tool_use", "name": "draft_question", "kind": "handoff"})
+
+    messages = build_handoff_prompt(question, chunks)
+    for token in llm.stream(messages):
+        if token:
+            yield sse_event({"type": "token", "content": token})
+
+    yield sse_event({"type": "done"})
