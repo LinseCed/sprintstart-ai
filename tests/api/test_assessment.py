@@ -526,3 +526,164 @@ def test_must_finish_is_never_overridden_by_the_floor(
 
     assert response.json()["done"] is True
     assert calls["n"] == 1
+
+
+def test_completion_is_refused_while_a_candidate_has_never_been_probed(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """The issue this closes: 10 candidates, 2 assessed, done=true after one
+    "I don't know". A turn count cannot catch that; coverage can."""
+    http_client, _ = client
+    responses = [
+        {"done": True, "assessments": []},
+        {"done": False, "question": "And JPA?", "targets": ["jpa-persistence"]},
+    ]
+
+    class _Sequenced(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            return json.dumps(responses.pop(0))
+
+    app.dependency_overrides[get_llm] = lambda: _Sequenced()
+
+    response = http_client.post(
+        _URL,
+        json=_request(
+            turn=4,
+            targets=[{"turn": 0, "keys": ["kotlin"]}],
+        ),
+    )
+
+    # Turn 4 is past MIN_ASSESSMENT_TURNS, so only coverage can be refusing this.
+    body = response.json()
+    assert body["done"] is False
+    assert body["targets"] == ["jpa-persistence"]
+
+
+def test_completion_is_allowed_once_every_candidate_has_been_probed(
+    client: tuple[TestClient, StubLLMClient],
+):
+    http_client, _ = client
+    app.dependency_overrides[get_llm] = _stub(
+        {
+            "done": True,
+            "assessments": [
+                {
+                    "key": "kotlin",
+                    "level": "intermediate",
+                    "confidence": 0.7,
+                    "evidence": "explained coroutines",
+                }
+            ],
+        }
+    )
+
+    response = http_client.post(
+        _URL,
+        json=_request(
+            turn=1,
+            targets=[{"turn": 0, "keys": ["kotlin", "jpa-persistence"]}],
+        ),
+    )
+
+    body = response.json()
+    assert body["done"] is True
+    assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}
+
+
+def test_a_key_that_was_never_asked_about_is_left_unplaced(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """ "Not asked" is not "asked and saw nothing" -- the caller records the
+    latter as a level, so defaulting an unprobed key credits an assessment that
+    never happened."""
+    http_client, _ = client
+    app.dependency_overrides[get_llm] = _stub({"done": True, "assessments": []})
+
+    response = http_client.post(
+        _URL,
+        json=_request(
+            turn=5,
+            must_finish=True,
+            targets=[{"turn": 0, "keys": ["kotlin"]}],
+        ),
+    )
+
+    body = response.json()
+    assert body["done"] is True
+    assert [a["key"] for a in body["assessments"]] == ["kotlin"]
+
+
+def test_the_turn_ceiling_still_ends_the_interview(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """Coverage gates completion but must never prevent it: a large candidate
+    set cannot produce an endless interview."""
+    http_client, _ = client
+    app.dependency_overrides[get_llm] = _stub(
+        {"done": False, "question": "one more?", "targets": []}
+    )
+
+    response = http_client.post(
+        _URL,
+        json=_request(
+            turn=5,
+            must_finish=True,
+            targets=[{"turn": 0, "keys": ["kotlin"]}],
+        ),
+    )
+
+    assert response.json()["done"] is True
+
+
+def test_the_prompt_names_the_keys_that_have_not_been_probed(
+    client: tuple[TestClient, StubLLMClient],
+):
+    http_client, _ = client
+    captured: list[list[Message]] = []
+
+    class _Capturing(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            captured.append(messages)
+            return json.dumps({"done": False, "question": "q", "targets": []})
+
+    app.dependency_overrides[get_llm] = lambda: _Capturing()
+
+    http_client.post(
+        _URL,
+        json=_request(turn=1, targets=[{"turn": 0, "keys": ["kotlin"]}]),
+    )
+
+    prompt = str(captured[0][-1]["content"])
+    assert "Not probed yet (target these next): jpa-persistence" in prompt
+
+
+def test_a_caller_sending_no_targets_still_gets_the_turn_floor(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """Without coverage information the service cannot tell probed from unprobed,
+    so it falls back to the turn floor rather than blocking forever."""
+    http_client, _ = client
+    app.dependency_overrides[get_llm] = _stub(
+        {
+            "done": True,
+            "assessments": [
+                {
+                    "key": "kotlin",
+                    "level": "advanced",
+                    "confidence": 0.8,
+                    "evidence": "detailed",
+                }
+            ],
+        }
+    )
+
+    response = http_client.post(_URL, json=_request(turn=4))
+
+    body = response.json()
+    assert body["done"] is True
+    # No coverage information: every candidate is placed, as before.
+    assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}

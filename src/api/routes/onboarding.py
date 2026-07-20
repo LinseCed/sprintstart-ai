@@ -26,6 +26,18 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 MIN_ASSESSMENT_TURNS = 3
 
 
+def _probed_keys(body: AssessmentTurnRequest) -> set[str]:
+    """Candidate keys some past question actually targeted."""
+    valid = {c.key for c in body.candidate_competencies}
+    return {key for entry in body.targets for key in entry.keys if key in valid}
+
+
+def _unprobed_keys(body: AssessmentTurnRequest) -> list[str]:
+    """Candidate keys no question has targeted yet, in candidate order."""
+    probed = _probed_keys(body)
+    return [c.key for c in body.candidate_competencies if c.key not in probed]
+
+
 ASSESSMENT_SYSTEM_PROMPT = """
 You are an adaptive skill-assessment interviewer placing a new hire on a
 competency graph.
@@ -51,8 +63,9 @@ it inflate a level the answers do not support. A candidate with no signal at all
 a beginner, they may simply be new here.
 
 Finish only once EVERY candidate competency has been targeted by at least one question.
-"Further turns have marginal value" is about diminishing returns on keys you have
-already probed -- it is never a reason to leave a key untouched.
+The keys you have not probed yet are listed for you each turn -- aim your next question
+at those. "Further turns have marginal value" is about diminishing returns on keys you
+have already probed -- it is never a reason to leave a key untouched.
 
 A candidate saying "I don't know" or going off-topic is evidence about THE TARGETED KEYS
 ONLY, and never grounds to finish. Record low confidence for those keys and move on to
@@ -125,19 +138,35 @@ def _build_assessment_prompt(body: AssessmentTurnRequest) -> list[Message]:
     history_block = (
         "\n".join(f"{h.role}: {h.content}" for h in body.history) or "(no turns yet)"
     )
+    unprobed = _unprobed_keys(body)
+    coverage_block = (
+        "\n".join(
+            f"turn {entry.turn}: {', '.join(entry.keys) or '(none)'}"
+            for entry in body.targets
+        )
+        or "(nothing probed yet)"
+    )
 
     user_parts = [
         f"Candidate competencies (assess ONLY these keys):\n{competencies_block}",
         f"Repo signal (weak prior only):\n{repo_block}",
         f"Candidate's prior involvement here (weak prior only):\n{candidate_block}",
         f"Transcript so far:\n{history_block}",
+        f"Already probed, by turn:\n{coverage_block}",
+        # Named explicitly rather than left for the model to work out from the
+        # transcript: the mapping from a prose question back to competency keys
+        # is exactly what it proved unreliable at.
+        "Not probed yet (target these next): "
+        + (", ".join(unprobed) if unprobed else "(none -- full coverage reached)"),
         f"Turn {body.turn} of max {body.max_turns}.",
     ]
     if body.must_finish:
         user_parts.append(
             "This is the FINAL turn. You must respond with done=true and an "
-            "assessment for every candidate competency key, even if unassessed "
-            "(use level='beginner', confidence=0.0, evidence='no signal')."
+            "assessment for every competency you PROBED, even where the answers "
+            "showed nothing (use level='beginner', confidence=0.0, "
+            "evidence='no signal'). Leave out keys you never asked about -- not "
+            "asking is not the same as asking and seeing nothing."
         )
     return [
         Message(role="system", content=ASSESSMENT_SYSTEM_PROMPT),
@@ -153,6 +182,14 @@ def _retry_without_finishing(
     Returns the retried payload, or None to accept the original early finish --
     an unreachable or unparseable retry must not cost the caller their interview.
     """
+    unprobed = _unprobed_keys(body)
+    demand = (
+        "Respond with done=false and ask your next question, targeting these "
+        "specifically: " + ", ".join(unprobed)
+        if unprobed
+        else "Respond with done=false and ask your next question, targeting keys "
+        "you have NOT asked about yet."
+    )
     messages = _build_assessment_prompt(body)
     messages.append(
         Message(
@@ -161,8 +198,7 @@ def _retry_without_finishing(
                 "You returned done=true, but candidate competencies have not been "
                 "probed yet and this is not the final turn. A weak or absent answer "
                 "is evidence about the keys you targeted, not about the rest. "
-                "Respond with done=false and ask your next question, targeting keys "
-                "you have NOT asked about yet."
+                f"{demand}"
             ),
         )
     )
@@ -188,18 +224,26 @@ def _normalize_level(level: str | None) -> str:
 def _finalize_with_defaults(
     candidates: list[CandidateCompetencySchema],
     parsed_assessments: list[_AssessmentItem],
+    probed: set[str] | None = None,
 ) -> AssessmentTurnResponse:
-    """Build a done=true response covering every candidate.
+    """Build a done=true response over the candidates that were actually asked about.
 
-    Anything the model didn't (validly) assess defaults to beginner/no-signal.
-    Used both when the model finishes on its own and as the forced-finalize
-    safety net for invalid JSON or a must_finish turn the model didn't honor.
+    Anything the model didn't (validly) assess but *was* probed defaults to
+    beginner/no-signal -- "we asked and saw nothing" is a real placement.
+
+    A key that was never targeted is omitted entirely. "Not asked" is not the
+    same as "asked and saw nothing", and the caller records the latter as a
+    level, so defaulting an unprobed key would credit an assessment that never
+    happened. This only applies when `probed` is known; without coverage
+    information every candidate is returned, as before.
     """
     valid_keys = {c.key for c in candidates}
     by_key = {a.key: a for a in parsed_assessments if a.key in valid_keys}
     results: list[AssessmentResultSchema] = []
     for c in candidates:
         item = by_key.get(c.key)
+        if item is None and probed is not None and c.key not in probed:
+            continue
         results.append(
             AssessmentResultSchema(
                 key=c.key,
@@ -220,6 +264,13 @@ def _finalize_with_defaults(
         "graph. Each call either asks the next question (done=false) or returns a "
         "final per-competency placement (done=true). The caller (backend) owns "
         "session state and passes the full transcript back on every call.\n\n"
+        "Completion is gated on coverage: while a candidate competency has never been "
+        "targeted by a question (per the caller's accumulated 'targets'), a done=true "
+        "is refused and the interviewer is re-asked, aimed at the unprobed keys. "
+        "'must_finish' always wins, so a large candidate set cannot produce an endless "
+        "interview -- keys still unprobed at that ceiling are omitted from the "
+        "placement rather than defaulted, since 'not asked' is not 'asked and saw "
+        "nothing'.\n\n"
         "Robustness: never emits a competency key outside 'candidate_competencies'; "
         "an unparseable model response, or must_finish=true with a model that still "
         "wants to continue, forces a finalized response with safe defaults "
@@ -254,18 +305,31 @@ def assessment_turn(
         logger.warning("Could not parse assessment-turn output: %s", exc)
         return _finalize_with_defaults(body.candidate_competencies, [])
 
-    if payload.done and not body.must_finish and body.turn < MIN_ASSESSMENT_TURNS:
-        # A model that finishes on turn 0 is being compliant, not broken: one "I don't
-        # know" reads as both "a defensible estimate" and "further turns have marginal
-        # value". Prompt wording alone can't be trusted to hold that line, so refuse the
-        # early finish and ask again. Falls through to finalize if it still won't
-        # continue -- a short interview beats a failed one.
+    # Completion is gated on coverage, not on a turn count: the interview may not end
+    # while a candidate competency has never been asked about. A model that finishes on
+    # turn 0 is being compliant, not broken -- one "I don't know" reads as both "a
+    # defensible estimate" and "further turns have marginal value" -- so prompt wording
+    # alone can't hold the line. Falls through to finalize if it still won't continue: a
+    # short interview beats a failed one, and `must_finish` (the caller's turn ceiling)
+    # always wins, so a large candidate set can't produce an endless interview.
+    coverage_known = bool(body.targets)
+    too_early = (
+        bool(_unprobed_keys(body))
+        if coverage_known
+        else body.turn < MIN_ASSESSMENT_TURNS
+    )
+
+    if payload.done and not body.must_finish and too_early:
         retried = _retry_without_finishing(body, llm)
         if retried is not None:
             payload = retried
 
     if payload.done or body.must_finish:
-        return _finalize_with_defaults(body.candidate_competencies, payload.assessments)
+        return _finalize_with_defaults(
+            body.candidate_competencies,
+            payload.assessments,
+            _probed_keys(body) if coverage_known else None,
+        )
 
     coverage = [
         AssessmentCoverageSchema(
