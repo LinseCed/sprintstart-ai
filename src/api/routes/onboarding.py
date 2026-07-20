@@ -147,6 +147,14 @@ the question targets in 'targets'.
 repo_signal is a weak prior only, never a substitute for what the candidate
 actually says.
 
+candidate_signal says where this person has already been involved in the project's
+repositories and how much (they consented to it being used). Use it to choose where to
+start probing and how hard to push -- somebody who has authored many pull requests in a
+repo should not be asked whether they have ever opened one. It is evidence of
+involvement, NOT of proficiency: never assess a competency from it alone, and never let
+it inflate a level the answers do not support. A candidate with no signal at all is not
+a beginner, they may simply be new here.
+
 Stop and finish once every candidate competency has a defensible estimate, or further
 turns would have marginal value. If the candidate says "I don't know" or goes off-topic,
 record 'beginner'/low confidence for the targeted keys and move on rather than repeating
@@ -201,6 +209,13 @@ def _build_assessment_prompt(body: AssessmentTurnRequest) -> list[Message]:
         f"frameworks: {', '.join(body.repo_signal.frameworks) or 'unknown'}\n"
         f"notable: {', '.join(body.repo_signal.notable) or 'none'}"
     )
+    candidate_block = (
+        "\n".join(
+            f"- {key}: {count}"
+            for key, count in sorted(body.candidate_signal.signals.items())
+        )
+        or "(none on record)"
+    )
     history_block = (
         "\n".join(f"{h.role}: {h.content}" for h in body.history) or "(no turns yet)"
     )
@@ -208,6 +223,7 @@ def _build_assessment_prompt(body: AssessmentTurnRequest) -> list[Message]:
     user_parts = [
         f"Candidate competencies (assess ONLY these keys):\n{competencies_block}",
         f"Repo signal (weak prior only):\n{repo_block}",
+        f"Candidate's prior involvement here (weak prior only):\n{candidate_block}",
         f"Transcript so far:\n{history_block}",
         f"Turn {body.turn} of max {body.max_turns}.",
     ]

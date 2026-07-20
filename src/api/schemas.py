@@ -833,6 +833,27 @@ class RepoSignalSchema(BaseModel):
     )
 
 
+class CandidateSignalSchema(BaseModel):
+    """What the candidate has already done in the project's own repositories.
+
+    Consent-gated and derived by the backend from artifacts it has already
+    ingested -- issues and pull requests the candidate authored -- reduced to
+    counted buckets (``repo:owner/name``, ``type:PULL_REQUEST``,
+    ``label:bug``). It says where and how much somebody has been involved, and
+    deliberately *not* what they know: nothing here is evidence of proficiency
+    on its own.
+    """
+
+    signals: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Counted involvement buckets, e.g. {'repo:owner/api': 9, "
+            "'type:PULL_REQUEST': 9}. Empty when the candidate has not "
+            "consented or has authored nothing."
+        ),
+    )
+
+
 class AssessmentTurnRequest(BaseModel):
     candidate_competencies: list[CandidateCompetencySchema] = Field(
         description="Competencies this turn may assess. Never assess outside this set."
@@ -842,6 +863,14 @@ class AssessmentTurnRequest(BaseModel):
         description=(
             "Weak prior from repo ingestion; never a substitute for the "
             "person's answers."
+        ),
+    )
+    candidate_signal: CandidateSignalSchema = Field(
+        default_factory=CandidateSignalSchema,
+        description=(
+            "Weak prior about *this candidate's* prior involvement in the "
+            "project's repositories (consent-gated). Calibrates where to start "
+            "probing; never a substitute for the person's answers."
         ),
     )
     history: list[HistoryEntry] = Field(
