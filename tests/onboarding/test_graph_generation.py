@@ -1,5 +1,6 @@
 import json
 
+from llm.base import Message
 from onboarding.generation import corpus_fingerprint
 from onboarding.graph_generation import generate_competency_graph
 from onboarding.graph_models import ActiveCompetency, ActiveEdge
@@ -11,13 +12,40 @@ _EMBED = [1.0] + [0.0] * 767
 _OTHER_EMBED = [0.0, 1.0] + [0.0] * 766
 
 
+class _TwoPassLLM(StubLLMClient):
+    """Node generation and edge generation are separate calls, so the stub has to
+    answer them separately: the node payload first, the edge payload after."""
+
+    def __init__(
+        self,
+        node_response: str,
+        edge_response: str,
+        embedding: list[float] | None = None,
+    ) -> None:
+        super().__init__(generate_response=node_response, embedding=embedding)
+        self.node_response = node_response
+        self.edge_response = edge_response
+        self.prompts: list[list[Message]] = []
+
+    def generate(
+        self, messages: list[Message], *, temperature: float | None = None
+    ) -> str:
+        self.prompts.append(messages)
+        is_edge_pass = "relationships" in str(messages[0]["content"])
+        return self.edge_response if is_edge_pass else self.node_response
+
+
 def _llm(
-    competencies: list[dict[str, object]], edges: list[dict[str, object]] | None = None
-) -> StubLLMClient:
-    llm = StubLLMClient(
-        generate_response=json.dumps(
-            {"competencies": competencies, "edges": edges or []}
-        )
+    competencies: list[dict[str, object]],
+    edges: list[dict[str, object]] | None = None,
+    *,
+    isolated: list[dict[str, object]] | None = None,
+) -> _TwoPassLLM:
+    llm = _TwoPassLLM(
+        node_response=json.dumps({"competencies": competencies}),
+        edge_response=json.dumps(
+            {"tiers": [], "edges": edges or [], "isolated": isolated or []}
+        ),
     )
     llm.embedding = _EMBED
     return llm
@@ -245,7 +273,7 @@ def test_empty_corpus_is_skipped() -> None:
 
 def test_invalid_llm_json_is_skipped_not_raised() -> None:
     store = _store("Kotlin is the primary backend language")
-    llm = StubLLMClient(generate_response="not json at all")
+    llm = _TwoPassLLM(node_response="not json at all", edge_response="not json either")
     llm.embedding = _EMBED
 
     outcome = generate_competency_graph(llm, store)
@@ -274,3 +302,239 @@ def test_reruns_on_the_same_corpus_propose_the_same_graph() -> None:
 
     assert first.competencies == second.competencies
     assert first.edges == second.edges
+
+
+def test_edge_pass_runs_separately_from_the_node_pass() -> None:
+    """Nodes and edges are two calls: a single call spent its budget on nodes and
+    left the graph a scatter (10 nodes, 3 edges in live testing)."""
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [{"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]}],
+        edges=[
+            {
+                "from_key": "kotlin",
+                "to_key": "our-domain-model",
+                "kind": "RELATED",
+                "rationale": "n/a",
+            }
+        ],
+    )
+    llm.embed_fn = lambda text: _OTHER_EMBED if text == "Our Domain Model" else _EMBED
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        )
+    ]
+
+    generate_competency_graph(llm, store, active_competencies=active)
+
+    assert len(llm.prompts) == 2
+    assert "relationships" in str(llm.prompts[1][0]["content"])
+
+
+def test_related_edges_are_proposed_and_kept_non_gating() -> None:
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [{"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]}],
+        edges=[
+            {
+                "from_key": "kotlin",
+                "to_key": "our-domain-model",
+                "kind": "RELATED",
+                "rationale": "Both live in the backend service",
+            }
+        ],
+    )
+    llm.embed_fn = lambda text: _OTHER_EMBED if text == "Our Domain Model" else _EMBED
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        )
+    ]
+
+    outcome = generate_competency_graph(llm, store, active_competencies=active)
+
+    assert [e.kind for e in outcome.edges] == ["RELATED"]
+
+
+def test_unknown_edge_kind_falls_back_to_the_non_gating_one() -> None:
+    """An unrecognised kind must not become PREREQUISITE: guessing wrong there
+    locks a node a hire has no reason to be blocked on."""
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [{"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]}],
+        edges=[
+            {
+                "from_key": "kotlin",
+                "to_key": "our-domain-model",
+                "kind": "BUILDS_ON",
+                "rationale": "n/a",
+            }
+        ],
+    )
+    llm.embed_fn = lambda text: _OTHER_EMBED if text == "Our Domain Model" else _EMBED
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        )
+    ]
+
+    outcome = generate_competency_graph(llm, store, active_competencies=active)
+
+    assert [e.kind for e in outcome.edges] == ["RELATED"]
+
+
+def test_prerequisite_edge_that_closes_a_cycle_is_dropped() -> None:
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [{"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]}],
+        edges=[
+            {
+                "from_key": "our-domain-model",
+                "to_key": "kotlin",
+                "kind": "PREREQUISITE",
+                "rationale": "reverses an edge already in the graph",
+            }
+        ],
+    )
+    llm.embed_fn = lambda text: _OTHER_EMBED if text == "Our Domain Model" else _EMBED
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        )
+    ]
+    active_edges = [
+        ActiveEdge(from_key="kotlin", to_key="our-domain-model", kind="PREREQUISITE")
+    ]
+
+    outcome = generate_competency_graph(
+        llm, store, active_competencies=active, active_edges=active_edges
+    )
+
+    assert outcome.edges == []
+    assert any("cycle" in note for note in outcome.notes)
+
+
+def test_related_cycle_is_allowed_because_it_gates_nothing() -> None:
+    """Only PREREQUISITE locks a node, so a RELATED edge that closes a loop with
+    existing prerequisites is structure, not a deadlock."""
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [{"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]}],
+        edges=[
+            {
+                "from_key": "testing",
+                "to_key": "kotlin",
+                "kind": "RELATED",
+                "rationale": "n/a",
+            }
+        ],
+    )
+    # Exact-match only: the retrieval query text must keep the chunk embedding,
+    # or nothing is retrieved and the node pass never runs.
+    llm.embed_fn = lambda text: (
+        _OTHER_EMBED if text in ("Our Domain Model", "Testing") else _EMBED
+    )
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        ),
+        ActiveCompetency(key="testing", label="Testing", kind="SKILL"),
+    ]
+    active_edges = [
+        ActiveEdge(from_key="kotlin", to_key="our-domain-model", kind="PREREQUISITE"),
+        ActiveEdge(from_key="our-domain-model", to_key="testing", kind="PREREQUISITE"),
+    ]
+
+    outcome = generate_competency_graph(
+        llm, store, active_competencies=active, active_edges=active_edges
+    )
+
+    assert [(e.from_key, e.to_key) for e in outcome.edges] == [("testing", "kotlin")]
+
+
+def test_unchanged_corpus_still_proposes_missing_edges() -> None:
+    """The scatter this fixes lives in an already-generated graph, so an
+    unchanged corpus must not short-circuit the relationships pass."""
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [],
+        edges=[
+            {
+                "from_key": "kotlin",
+                "to_key": "our-domain-model",
+                "kind": "PREREQUISITE",
+                "rationale": "The domain model is written in Kotlin",
+            }
+        ],
+    )
+    active = [
+        ActiveCompetency(key="kotlin", label="Kotlin", kind="SKILL"),
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        ),
+    ]
+
+    outcome = generate_competency_graph(
+        llm,
+        store,
+        active_competencies=active,
+        last_fingerprint=corpus_fingerprint(store),
+    )
+
+    assert outcome.status == "proposed"
+    assert outcome.competencies == []
+    assert [(e.from_key, e.to_key) for e in outcome.edges] == [
+        ("kotlin", "our-domain-model")
+    ]
+
+
+def test_unconnected_nodes_are_reported_to_the_reviewer() -> None:
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [{"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]}],
+        isolated=[{"key": "our-domain-model", "reason": "nothing depends on it yet"}],
+    )
+    llm.embed_fn = lambda text: _OTHER_EMBED if text == "Our Domain Model" else _EMBED
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        )
+    ]
+
+    outcome = generate_competency_graph(llm, store, active_competencies=active)
+
+    assert any("nothing depends on it yet" in note for note in outcome.notes)
+    assert any("remain unconnected" in note for note in outcome.notes)
+
+
+def test_failed_edge_pass_still_keeps_the_node_proposals() -> None:
+    store = _store("Kotlin is the primary backend language")
+    llm = _TwoPassLLM(
+        node_response=json.dumps(
+            {
+                "competencies": [
+                    {
+                        "key": "kotlin",
+                        "label": "Kotlin",
+                        "kind": "SKILL",
+                        "chunk_ids": ["c1"],
+                    }
+                ]
+            }
+        ),
+        edge_response="not json at all",
+    )
+    llm.embedding = _EMBED
+    llm.embed_fn = lambda text: _OTHER_EMBED if text == "Our Domain Model" else _EMBED
+    active = [
+        ActiveCompetency(
+            key="our-domain-model", label="Our Domain Model", kind="CONCEPT"
+        )
+    ]
+
+    outcome = generate_competency_graph(llm, store, active_competencies=active)
+
+    assert outcome.status == "proposed"
+    assert [c.key for c in outcome.competencies] == ["kotlin"]
+    assert outcome.edges == []

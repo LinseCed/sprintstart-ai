@@ -32,12 +32,16 @@ router = APIRouter(
     summary="Propose competency graph nodes/edges from the corpus",
     description=(
         "Runs the batch proposal job over the ingested corpus and returns candidate "
-        "`SKILL`/`CONCEPT` competencies and `PREREQUISITE` edges for the backend to "
-        "persist as proposals awaiting PM approval -- never auto-applied. The job is "
-        "idempotent given the caller's last recorded fingerprint: an unchanged corpus "
-        "yields an `unchanged` outcome with nothing proposed.\n\n"
-        "This is a heavyweight, schedulable operation (one retrieval + LLM pass over "
-        "the whole corpus); it is not on the onboarding request path."
+        "`SKILL`/`CONCEPT` competencies plus the `PREREQUISITE`/`RELATED` edges "
+        "between them, for the backend to persist as proposals awaiting PM approval "
+        "-- never auto-applied.\n\n"
+        "Nodes and relationships are two separate passes. The caller's last recorded "
+        "fingerprint makes the *node* pass idempotent (an unchanged corpus proposes "
+        "no new nodes), but the relationships pass still runs: the structure between "
+        "nodes already in the graph is not a function of the corpus, so a sparse "
+        "graph can be re-densified without re-ingesting anything.\n\n"
+        "This is a heavyweight, schedulable operation (one retrieval + two LLM passes "
+        "over the whole corpus); it is not on the onboarding request path."
     ),
     responses={
         503: {
