@@ -364,3 +364,165 @@ def test_candidate_signal_is_optional(client: tuple[TestClient, StubLLMClient]):
     response = http_client.post("/api/v1/onboarding/assessment/turn", json=_request())
 
     assert response.status_code == 200
+
+
+def test_early_done_is_refused_and_the_interview_continues(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """One "I don't know" on turn 0 must not end the assessment.
+
+    The live failure: a hire answered the first question with "i dont know, i am a
+    beginner" and the interview finished immediately, placing every competency off a
+    single non-answer.
+    """
+    http_client, _ = client
+    responses = [
+        {"done": True, "assessments": [{"key": "kotlin", "level": "beginner"}]},
+        {
+            "done": False,
+            "question": "What have you built, even in a course project?",
+            "targets": ["jpa-persistence"],
+            "coverage": [],
+        },
+    ]
+
+    class _Sequenced(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            return json.dumps(responses.pop(0))
+
+    app.dependency_overrides[get_llm] = lambda: _Sequenced()
+
+    response = http_client.post(
+        _URL,
+        json=_request(
+            turn=0,
+            history=[
+                {"role": "assistant", "content": "Walk me through a Kotlin service."},
+                {"role": "user", "content": "i dont know, i am a beginner"},
+            ],
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["done"] is False
+    assert body["question"] == "What have you built, even in a course project?"
+    assert body["targets"] == ["jpa-persistence"]
+
+
+def test_the_retry_tells_the_model_a_weak_answer_is_not_grounds_to_finish(
+    client: tuple[TestClient, StubLLMClient],
+):
+    http_client, _ = client
+    captured: list[list[Message]] = []
+    responses = [
+        {"done": True, "assessments": []},
+        {"done": False, "question": "q2", "targets": [], "coverage": []},
+    ]
+
+    class _Capturing(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            captured.append(messages)
+            return json.dumps(responses.pop(0))
+
+    app.dependency_overrides[get_llm] = lambda: _Capturing()
+
+    http_client.post(_URL, json=_request(turn=0))
+
+    assert len(captured) == 2
+    retry_instruction = captured[1][-1]["content"]
+    assert "done=false" in retry_instruction
+    assert "not about the rest" in retry_instruction
+
+
+def test_a_model_that_insists_on_finishing_still_gets_a_full_placement(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """The floor must never cost somebody their interview."""
+    http_client, _ = client
+    app.dependency_overrides[get_llm] = _stub(
+        {"done": True, "assessments": [{"key": "kotlin", "level": "advanced"}]}
+    )
+
+    response = http_client.post(_URL, json=_request(turn=0))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["done"] is True
+    assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}
+
+
+def test_an_unreachable_retry_falls_back_to_the_early_finish(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """A retry that can't reach the LLM must not turn a placement into a 503."""
+    http_client, _ = client
+    calls = {"n": 0}
+
+    class _FailsOnRetry(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise LLMUnavailableError("down")
+            return json.dumps(
+                {"done": True, "assessments": [{"key": "kotlin", "level": "beginner"}]}
+            )
+
+    app.dependency_overrides[get_llm] = lambda: _FailsOnRetry()
+
+    response = http_client.post(_URL, json=_request(turn=0))
+
+    assert response.status_code == 200
+    assert response.json()["done"] is True
+
+
+def test_a_late_turn_may_still_finish_on_its_own(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """The floor applies to early turns only -- it must not force a full-length
+    interview on somebody the model has genuinely finished placing."""
+    http_client, _ = client
+    calls = {"n": 0}
+
+    class _Counting(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            calls["n"] += 1
+            return json.dumps(
+                {"done": True, "assessments": [{"key": "kotlin", "level": "advanced"}]}
+            )
+
+    app.dependency_overrides[get_llm] = lambda: _Counting()
+
+    response = http_client.post(_URL, json=_request(turn=4))
+
+    assert response.json()["done"] is True
+    assert calls["n"] == 1, "a late finish must not trigger the retry"
+
+
+def test_must_finish_is_never_overridden_by_the_floor(
+    client: tuple[TestClient, StubLLMClient],
+):
+    http_client, _ = client
+    calls = {"n": 0}
+
+    class _Counting(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            calls["n"] += 1
+            return json.dumps({"done": True, "assessments": []})
+
+    app.dependency_overrides[get_llm] = lambda: _Counting()
+
+    response = http_client.post(_URL, json=_request(turn=0, must_finish=True))
+
+    assert response.json()["done"] is True
+    assert calls["n"] == 1
