@@ -317,3 +317,50 @@ def test_junior_transcript_skews_toward_lower_levels(
     levels = {a["key"]: a["level"] for a in response.json()["assessments"]}
     assert levels["kotlin"] == "beginner"
     assert levels["jpa-persistence"] == "beginner"
+
+
+def test_candidate_signal_reaches_the_interviewer_prompt(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """The consented involvement prior must actually be in front of the model."""
+    http_client, _ = client
+    captured: list[list[Message]] = []
+
+    class _Capturing(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            captured.append(messages)
+            return json.dumps(
+                {"done": False, "question": "q", "targets": [], "coverage": []}
+            )
+
+    app.dependency_overrides[get_llm] = lambda: _Capturing()
+
+    response = http_client.post(
+        "/api/v1/onboarding/assessment/turn",
+        json=_request(
+            candidate_signal={"signals": {"repo:owner/api": 9, "type:PULL_REQUEST": 9}}
+        ),
+    )
+
+    assert response.status_code == 200
+    user_message = captured[0][1]["content"]
+    assert "repo:owner/api: 9" in user_message
+    # Framed as a prior, not as evidence of skill -- the system prompt is what keeps the
+    # model from assessing a competency off involvement alone.
+    assert "weak prior only" in user_message
+    system_message = captured[0][0]["content"]
+    assert "NOT of proficiency" in system_message
+
+
+def test_candidate_signal_is_optional(client: tuple[TestClient, StubLLMClient]):
+    """A candidate who never consented still gets a normal interview."""
+    http_client, _ = client
+    app.dependency_overrides[get_llm] = _stub(
+        {"done": False, "question": "q", "targets": [], "coverage": []}
+    )
+
+    response = http_client.post("/api/v1/onboarding/assessment/turn", json=_request())
+
+    assert response.status_code == 200
