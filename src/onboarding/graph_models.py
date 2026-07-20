@@ -21,7 +21,13 @@ from pydantic import BaseModel, Field
 from onboarding.models import CitationRef
 
 CompetencyKind = Literal["SKILL", "CONCEPT"]
-EdgeKind = Literal["PREREQUISITE"]
+
+# Only PREREQUISITE gates a node: it says a hire cannot start `to_key` before
+# `to_key`'s dependency `from_key`. RELATED is structure without gating -- it
+# says two competencies belong near each other. Both exist in the backend's
+# ``EdgeKind``; keeping RELATED available is what lets the graph read as a
+# progression without lengthening the chain a hire must clear first.
+EdgeKind = Literal["PREREQUISITE", "RELATED"]
 
 ProposalStatus = Literal["proposed", "unchanged", "skipped"]
 
