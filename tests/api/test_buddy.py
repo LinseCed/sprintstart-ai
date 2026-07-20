@@ -15,6 +15,15 @@ from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
 
+def _draft_markers(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The `tool_use` markers that flag the hand-off ("draft the question") mode."""
+    return [
+        e
+        for e in events
+        if e["type"] == "tool_use" and e.get("name") == "draft_question"
+    ]
+
+
 @pytest.fixture
 def client() -> Generator[tuple[TestClient, StubLLMClient, StubVectorStore], Any, None]:
     llm = StubLLMClient()
@@ -90,9 +99,12 @@ def test_buddy_emits_citation_when_chunks_exist(
     assert citation_events[0]["start_line"] == 3
 
 
-def test_buddy_without_chunks_returns_fallback_without_llm_hallucination(
+def test_buddy_without_grounding_drafts_a_question_to_ask_a_human(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:
+    # No indexed chunks -> the buddy must not guess. It hands off: a `draft_question`
+    # marker so a client can tell the mode, the drafted text, then done. Nothing is
+    # grounded, so no citations follow.
     http_client, _, _ = client
 
     response = http_client.post(
@@ -102,12 +114,42 @@ def test_buddy_without_chunks_returns_fallback_without_llm_hallucination(
 
     assert response.status_code == 200
     events = parse_sse_events(response.text)
-    token_events = [e for e in events if e["type"] == "token"]
-    assert len(token_events) == 1
-    content = token_events[0]["content"]
-    assert isinstance(content, str)
-    assert "don't have any grounded evidence" in content
+    types = [e["type"] for e in events]
+
+    assert len(_draft_markers(events)) == 1
+    assert "token" in types
     assert [e for e in events if e["type"] == "citation"] == []
+    assert types[-1] == "done"
+
+
+def test_buddy_grounded_answer_is_not_a_handoff(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    # A strong match is answered from the corpus (with a citation), never handed off.
+    http_client, _, store = client
+    embedding = [1.0] + [0.0] * 767
+    app.dependency_overrides[get_llm] = lambda: StubLLMClient(embedding=embedding)
+    store.add(
+        [
+            Chunk(
+                id="chunk-1",
+                artifact_id="doc-1",
+                filename="onboarding.md",
+                text="New hires get a laptop on day one.",
+                embedding=embedding,
+                start_line=1,
+            )
+        ]
+    )
+
+    response = http_client.post(
+        "/api/v1/onboarding/buddy",
+        json={"question": "How do I get set up?"},
+    )
+
+    events = parse_sse_events(response.text)
+    assert _draft_markers(events) == []
+    assert len([e for e in events if e["type"] == "citation"]) == 1
     assert events[-1]["type"] == "done"
 
 
