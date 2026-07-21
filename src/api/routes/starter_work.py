@@ -1,12 +1,13 @@
-"""Starter-work pool APIs: mining candidates from open issues, and hire fit ranking.
+"""Starter-work pool API: mining candidate starter tasks from open issues.
 
 The AI service is stateless: ``/mine`` runs the batch mining job over the
 ingested corpus's open GitHub issues and returns candidate starter tasks for
 the backend to persist as proposals awaiting PM approval -- never
-auto-applied, mirroring ``api/routes/competency_graph.py``. ``/match`` ranks
-an already-approved pool against one hire's competencies; it makes no LLM
-generation call (only embeddings), so it has no 503 case tied to LLM
-unavailability the way generation endpoints do.
+auto-applied, mirroring ``api/routes/competency_graph.py``.
+
+Hire-to-pool ranking (the old ``/match``) has been retired: it moved into the
+backend in slice 4, because a hire is owed a plain-language reason a task fits
+and an embedding tie-break cannot give one (#32).
 """
 
 from typing import Annotated
@@ -15,14 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from api.schemas import (
-    MatchHireToPoolRequest,
     MineStarterWorkRequest,
     ValidationErrorResponse,
 )
 from ingestion.metadata_store import IngestionMetadataStore
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from onboarding.matching import HireCompetency, RankedStarterTask, match_hire_to_pool
 from onboarding.starter_work import StarterWorkOutcome, generate_starter_work_pool
 from store.base import VectorStore
 
@@ -77,26 +76,3 @@ def mine(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Starter-work mining failed: {exc}",
         ) from exc
-
-
-@router.post(
-    "/match",
-    response_model=list[RankedStarterTask],
-    summary="Rank the starter-work pool by fit against one hire's competencies",
-    description=(
-        "Ranks the given (already PM-approved) pool by fit against a hire's "
-        "freshly-built competencies. Deterministic: competency-key overlap is "
-        "the primary score, with embedding similarity only breaking ties -- no "
-        "LLM generation call is made, only embeddings."
-    ),
-)
-def match(
-    request: MatchHireToPoolRequest,
-    llm: Annotated[LLMClient, Depends(get_llm)],
-) -> list[RankedStarterTask]:
-    hire_competencies = [
-        HireCompetency(key=c.key, label=c.label, description=c.description)
-        for c in request.hire_competencies
-    ]
-    pool = [t.to_model() for t in request.pool]
-    return match_hire_to_pool(llm, hire_competencies, pool)
