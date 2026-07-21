@@ -5,8 +5,7 @@ from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
     from onboarding.graph_models import ActiveCompetency, ActiveEdge
-    from onboarding.models import Baseline, CitationRef
-    from onboarding.starter_work import ProposedStarterTask
+    from onboarding.models import Baseline
     from onboarding.verification import ArtifactEvidence
 
 
@@ -625,46 +624,14 @@ class GenerateCompetencyGraphRequest(BaseModel):
     )
 
 
-# ── Starter-work mining / matching ──────────────────────────────────────────
+# ── Starter-work mining ──────────────────────────────────────────────────────
 #
-# Request bodies get dedicated schemas + ``to_model()`` bridges, per this
-# file's convention (see ActiveCompetencySchema). Responses return the
-# ``onboarding.starter_work``/``onboarding.matching`` domain models directly
-# as ``response_model``, per ``api/routes/lessons.py`` and
-# ``api/routes/verification.py``'s convention -- there is no dedicated output
-# schema to keep in sync here.
-
-
-class CitationRefSchema(BaseModel):
-    filename: str
-    chunk_id: str
-    source_url: str | None = None
-
-    def to_model(self) -> "CitationRef":
-        from onboarding.models import CitationRef
-
-        return CitationRef(**self.model_dump())
-
-
-class ProposedStarterTaskSchema(BaseModel):
-    source_id: str
-    title: str
-    summary: str = ""
-    competency_keys: list[str] = Field(default_factory=list)
-    rationale: str = ""
-    citations: list[CitationRefSchema] = Field(default_factory=list[CitationRefSchema])
-
-    def to_model(self) -> "ProposedStarterTask":
-        from onboarding.starter_work import ProposedStarterTask
-
-        return ProposedStarterTask(
-            source_id=self.source_id,
-            title=self.title,
-            summary=self.summary,
-            competency_keys=self.competency_keys,
-            rationale=self.rationale,
-            citations=[c.to_model() for c in self.citations],
-        )
+# Mining's request body gets a dedicated schema, per this file's convention (see
+# ActiveCompetencySchema); its response returns the ``onboarding.starter_work``
+# domain model directly as ``response_model``. Hire-to-pool *ranking* used to
+# live here too (``/match``), but ranking moved into the backend in slice 4 --
+# an embedding tie-break cannot explain why a task fits, and a hire is owed that
+# reason -- so ``match_hire_to_pool`` and its request schemas are gone (#32).
 
 
 class MineStarterWorkRequest(BaseModel):
@@ -689,22 +656,6 @@ class MineStarterWorkRequest(BaseModel):
             "The corpus fingerprint recorded from the caller's previous "
             "mining run, if any."
         ),
-    )
-
-
-class HireCompetencySchema(BaseModel):
-    key: str = Field(description="Stable competency key from the graph.")
-    label: str
-    description: str = ""
-
-
-class MatchHireToPoolRequest(BaseModel):
-    hire_competencies: list[HireCompetencySchema] = Field(
-        default=[], description="The hire's freshly-built competencies (ledger)."
-    )
-    pool: list[ProposedStarterTaskSchema] = Field(
-        default=[],
-        description="The backend's current (PM-approved) starter-work pool.",
     )
 
 
