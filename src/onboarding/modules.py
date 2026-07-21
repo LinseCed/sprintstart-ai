@@ -19,6 +19,7 @@ Two properties are load-bearing and easy to lose:
 
 import json
 import logging
+from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import get_args
 
@@ -39,6 +40,7 @@ from onboarding.module_models import (
     ProposedModulePage,
     ProposedModuleVerification,
 )
+from onboarding.progress import ProgressEvent, ProgressStream, drain
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
 from store.base import VectorStore
@@ -234,7 +236,7 @@ def _resolve_verification(payload: _GenPayload) -> ProposedModuleVerification | 
     )
 
 
-def propose_module(
+def stream_module(
     llm: LLMClient,
     store: VectorStore,
     *,
@@ -243,26 +245,38 @@ def propose_module(
     competency_description: str = "",
     level: ModuleLevel = "beginner",
     last_fingerprint: str | None = None,
-) -> ModuleOutcome:
-    """Propose a shared module for one competency at one target level.
+) -> Generator[ProgressEvent, None, ModuleOutcome]:
+    """Propose a module, yielding live progress and returning the final outcome.
 
-    ``last_fingerprint`` is whatever fingerprint the caller recorded from the
-    previous run for this competency: idempotency is per module, not
-    corpus-wide, since the backend proposes modules one node at a time.
+    The single implementation: :func:`propose_module` drives it to completion for
+    the non-streaming path, and the streaming route relays its events — so the
+    module a PM watches assemble is exactly the module the batch call produces.
 
-    Takes no argument describing any individual hire, and that is intentional --
-    see the module docstring.
+    Pages are emitted as ``item`` events only after they clear the per-page
+    grounding gate (:data:`GROUNDED_PAGE_KINDS`), so an ungrounded page never
+    appears live; a dropped page is reported as a ``warning``.
     """
+    progress = ProgressStream("module")
     fingerprint = corpus_fingerprint(store)
 
     if last_fingerprint is not None and last_fingerprint == fingerprint:
-        return ModuleOutcome(
+        outcome = ModuleOutcome(
             status="unchanged", notes=["corpus unchanged since last proposal run"]
         )
+        yield progress.done(
+            "Nothing changed — the current module still stands", _dump(outcome)
+        )
+        return outcome
 
     if store.count() == 0:
-        return ModuleOutcome(status="skipped", notes=["corpus is empty"])
+        outcome = ModuleOutcome(status="skipped", notes=["corpus is empty"])
+        yield progress.warning("The project has no indexed material yet")
+        yield progress.done("No module could be proposed", _dump(outcome))
+        return outcome
 
+    yield progress.stage(
+        "retrieving", f"Searching the project for “{competency_label}”"
+    )
     query = f"{competency_label}: {competency_description}".strip(": ")
     chunks = hybrid_retrieve(
         question=query,
@@ -274,10 +288,16 @@ def propose_module(
         exclude_roles=GROUNDING_EXCLUDED_ROLES,
     )
     if not chunks:
-        return ModuleOutcome(
+        outcome = ModuleOutcome(
             status="skipped", notes=["no grounding evidence retrieved"]
         )
+        yield progress.warning("Nothing in the project grounds this competency")
+        yield progress.done("No module could be proposed", _dump(outcome))
+        return outcome
 
+    yield progress.stage(
+        "generating", f"Writing the module from {len(chunks)} source(s)"
+    )
     raw = llm.generate(
         _build_prompt(competency_label, competency_description, level, chunks),
         temperature=_TEMPERATURE,
@@ -288,21 +308,35 @@ def propose_module(
         logger.warning(
             "Module proposal failed for competency %r: %s", competency_key, exc
         )
-        return ModuleOutcome(
+        outcome = ModuleOutcome(
             status="skipped", chunks_retrieved=len(chunks), notes=[str(exc)]
         )
+        yield progress.warning("The generated module could not be read")
+        yield progress.done("No module could be proposed", _dump(outcome))
+        return outcome
 
+    yield progress.stage("grounding", "Checking every page cites its source")
     pages, dropped = _resolve_pages(payload, chunks)
+    for page in pages:
+        yield progress.item(page.model_dump(mode="json"), f"{page.kind}: {page.title}")
+    # A page dropped for lack of a source is a gap the watcher should see, unless
+    # every page went -- which the branch below states more directly.
+    if pages and dropped:
+        yield progress.warning(f"Dropped {dropped} page(s) with no source")
+
     if not pages:
-        return ModuleOutcome(
+        outcome = ModuleOutcome(
             status="skipped",
             chunks_retrieved=len(chunks),
             pages_dropped=dropped,
             notes=["no grounded pages in the generated module"],
         )
+        yield progress.warning("Every page was dropped for lack of a source")
+        yield progress.done("No module could be proposed", _dump(outcome))
+        return outcome
 
     notes = [f"dropped {dropped} ungrounded or unusable page(s)"] if dropped else []
-    return ModuleOutcome(
+    outcome = ModuleOutcome(
         status="proposed",
         module=ProposedModule(
             competency_key=competency_key,
@@ -321,4 +355,44 @@ def propose_module(
         chunks_retrieved=len(chunks),
         pages_dropped=dropped,
         notes=notes,
+    )
+    yield progress.done("Module ready for review", _dump(outcome))
+    return outcome
+
+
+def _dump(outcome: ModuleOutcome) -> dict[str, object]:
+    """The outcome as a JSON-safe dict for a ``done`` event's ``result``."""
+    return outcome.model_dump(mode="json")
+
+
+def propose_module(
+    llm: LLMClient,
+    store: VectorStore,
+    *,
+    competency_key: str,
+    competency_label: str,
+    competency_description: str = "",
+    level: ModuleLevel = "beginner",
+    last_fingerprint: str | None = None,
+) -> ModuleOutcome:
+    """Propose a shared module for one competency at one target level.
+
+    ``last_fingerprint`` is whatever fingerprint the caller recorded from the
+    previous run for this competency: idempotency is per module, not
+    corpus-wide, since the backend proposes modules one node at a time.
+
+    Takes no argument describing any individual hire, and that is intentional --
+    see the module docstring. Backed by :func:`stream_module` so the streaming and
+    non-streaming paths are the same computation.
+    """
+    return drain(
+        stream_module(
+            llm,
+            store,
+            competency_key=competency_key,
+            competency_label=competency_label,
+            competency_description=competency_description,
+            level=level,
+            last_fingerprint=last_fingerprint,
+        )
     )

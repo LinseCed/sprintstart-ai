@@ -9,6 +9,7 @@ from api.app import app
 from api.dependencies import get_llm, get_store
 from llm.errors import LLMUnavailableError
 from rag.types import Chunk
+from tests.conftest import parse_sse_events
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -108,3 +109,51 @@ def test_an_unavailable_llm_is_a_503_not_a_fabricated_packet() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 503
+
+
+def test_stream_yields_stages_items_and_a_done_matching_the_sync_endpoint(
+    client: TestClient,
+) -> None:
+    stream = client.post(f"{_URL}/stream", json={"task_title": _TITLE})
+    assert stream.status_code == 200, stream.text
+    assert stream.headers["content-type"].startswith("text/event-stream")
+
+    events = parse_sse_events(stream.text)
+    types = [e["type"] for e in events]
+    assert "stage" in types
+    assert "item" in types
+    assert types[-1] == "done"
+
+    # The stream is a view of the same computation: its final result equals what the
+    # non-streaming endpoint returns for the same request.
+    plain = client.post(_URL, json={"task_title": _TITLE}).json()
+    assert events[-1]["result"]["packet"] == plain["packet"]
+    assert events[-1]["result"]["status"] == plain["status"] == "assembled"
+
+
+def test_stream_needs_a_task_title(client: TestClient) -> None:
+    response = client.post(f"{_URL}/stream", json={"task_title": "  "})
+
+    assert response.status_code == 422
+
+
+def test_stream_turns_an_llm_outage_into_a_terminal_error_event() -> None:
+    class _Down(StubLLMClient):
+        def generate(self, messages: object, **kwargs: object) -> str:
+            raise LLMUnavailableError("ollama is down")
+
+    llm = _Down()
+    llm.embedding = _EMBED
+    app.dependency_overrides[get_llm] = lambda: llm
+    app.dependency_overrides[get_store] = _store
+    try:
+        response = TestClient(app).post(f"{_URL}/stream", json={"task_title": _TITLE})
+    finally:
+        app.dependency_overrides.clear()
+
+    # A mid-stream outage is a terminal `error` event on a 200 stream, not an HTTP
+    # error -- some stages already reached the client before the LLM was called.
+    assert response.status_code == 200
+    events = parse_sse_events(response.text)
+    assert events[-1]["type"] == "error"
+    assert "ollama is down" in events[-1]["message"]
