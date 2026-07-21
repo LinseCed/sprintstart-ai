@@ -1,9 +1,24 @@
 import json
+from collections.abc import Generator
 
-from onboarding.modules import propose_module
+from onboarding.modules import propose_module, stream_module
+from onboarding.progress import ProgressEvent
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
+
+
+def _collect[T](
+    generator: Generator[ProgressEvent, None, T],
+) -> tuple[list[ProgressEvent], T]:
+    """Drain a progress generator, keeping both the events and the returned value."""
+    events: list[ProgressEvent] = []
+    try:
+        while True:
+            events.append(next(generator))
+    except StopIteration as stop:
+        return events, stop.value
+
 
 _EMBED = [1.0] + [0.0] * 767
 _KEY = "deploy-runbook"
@@ -247,3 +262,68 @@ def test_empty_corpus_is_skipped() -> None:
     )
 
     assert outcome.status == "skipped"
+
+
+# --- streaming -----------------------------------------------------------------
+
+
+def test_stream_emits_stages_grounded_page_items_and_a_done() -> None:
+    store = _store("deploy runbook rollback release process")
+    llm = _llm(
+        _payload(
+            _page("CONTEXT", "Why deploys are gated", ["c1"]),
+            _page("LESSON", "How the pipeline works", ["c1"]),
+            _page("TASK", "Deploy to staging"),
+        )
+    )
+
+    events, outcome = _collect(
+        stream_module(llm, store, competency_key=_KEY, competency_label=_LABEL)
+    )
+
+    stages = [e.get("stage") for e in events if e["type"] == "stage"]
+    assert "retrieving" in stages and "generating" in stages and "grounding" in stages
+    items = [e for e in events if e["type"] == "item"]
+    assert [i["item"]["kind"] for i in items] == ["CONTEXT", "LESSON", "TASK"]  # type: ignore[index]
+    assert [e["seq"] for e in events] == list(range(len(events)))
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"] == outcome.model_dump(mode="json")
+    assert outcome.status == "proposed"
+
+
+def test_stream_never_emits_an_ungrounded_page_as_an_item() -> None:
+    store = _store("deploy runbook rollback")
+    llm = _llm(
+        _payload(
+            _page("LESSON", "Grounded", ["c1"]),
+            _page("WALKTHROUGH", "Invented", ["nope"]),
+        )
+    )
+
+    events, _ = _collect(
+        stream_module(llm, store, competency_key=_KEY, competency_label=_LABEL)
+    )
+
+    items = [e for e in events if e["type"] == "item"]
+    assert [i["item"]["title"] for i in items] == ["Grounded"]  # type: ignore[index]
+    assert "warning" in [e["type"] for e in events]
+
+
+def test_streaming_result_equals_the_non_streaming_module() -> None:
+    store = _store("deploy runbook rollback release process")
+    payload = _payload(
+        _page("CONTEXT", "Why deploys are gated", ["c1"]),
+        _page("LESSON", "How the pipeline works", ["c1"]),
+    )
+
+    _, streamed = _collect(
+        stream_module(
+            _llm(payload), store, competency_key=_KEY, competency_label=_LABEL
+        )
+    )
+    synchronous = propose_module(
+        _llm(payload), store, competency_key=_KEY, competency_label=_LABEL
+    )
+
+    assert streamed.status == synchronous.status
+    assert streamed.model_dump()["module"] == synchronous.model_dump()["module"]

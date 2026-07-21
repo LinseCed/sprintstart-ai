@@ -1,9 +1,25 @@
 import json
+from collections.abc import Generator
 
-from onboarding.orientation import assemble_orientation
+from onboarding.orientation import assemble_orientation, stream_orientation
+from onboarding.orientation_models import OrientationOutcome
+from onboarding.progress import ProgressEvent
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
+
+
+def _collect[T](
+    generator: Generator[ProgressEvent, None, T],
+) -> tuple[list[ProgressEvent], T]:
+    """Drain a progress generator, keeping both the events and the returned value."""
+    events: list[ProgressEvent] = []
+    try:
+        while True:
+            events.append(next(generator))
+    except StopIteration as stop:
+        return events, stop.value
+
 
 _EMBED = [1.0] + [0.0] * 767
 _TITLE = "Fix the stale cache header on /api/v1/reports"
@@ -303,3 +319,83 @@ def test_takes_nothing_about_the_hire() -> None:
     params = set(inspect.signature(assemble_orientation).parameters)
 
     assert not {p for p in params if "user" in p or "hire" in p}
+
+
+# --- streaming -----------------------------------------------------------------
+
+
+def test_stream_emits_per_step_stages_grounded_items_and_a_done() -> None:
+    store = _store(
+        "run make dev to start the service locally with the reports cache",
+        "pull requests need one review and a green pipeline before merge",
+    )
+    llm = _llm(
+        _payload(
+            _section("SET_UP", "Run it locally", ["c1"]),
+            _section("OPEN_THE_PR", "How review works here", ["c2"]),
+        )
+    )
+
+    events, outcome = _collect(stream_orientation(llm, store, task_title=_TITLE))
+
+    # One retrieval stage per step of the path to a PR.
+    retrieving = [e for e in events if e.get("stage") == "retrieving"]
+    assert len(retrieving) == 5
+    # An item per grounded section, in step order, each carrying the real section.
+    items = [e for e in events if e["type"] == "item"]
+    assert [i["item"]["step"] for i in items] == ["SET_UP", "OPEN_THE_PR"]  # type: ignore[index]
+    # seq is monotonic across the whole stream.
+    assert [e["seq"] for e in events] == list(range(len(events)))
+    # The terminal event carries the whole outcome, and it is the returned one.
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"] == outcome.model_dump(mode="json")
+    assert outcome.status == "assembled"
+
+
+def test_stream_never_emits_an_ungrounded_section_as_an_item() -> None:
+    # A section citing nothing is dropped, so it must never appear as a live item --
+    # that is the whole promise of an `item` event.
+    store = _store("run make dev to start the service locally")
+    llm = _llm(
+        _payload(
+            _section("SET_UP", "Run it locally", ["c1"]),
+            _section("MAKE_THE_CHANGE", "Ungrounded advice", []),
+        )
+    )
+
+    events, _ = _collect(stream_orientation(llm, store, task_title=_TITLE))
+
+    items = [e for e in events if e["type"] == "item"]
+    assert [i["item"]["step"] for i in items] == ["SET_UP"]  # type: ignore[index]
+
+
+def test_streaming_result_equals_the_non_streaming_packet() -> None:
+    # The stream is a view of the same computation: its final packet must be what
+    # the plain call returns (provenance timestamps aside).
+    store = _store(
+        "run make dev to start the service locally with the reports cache",
+        "the reports module lives in src/api/reports.py",
+    )
+    payload = _payload(
+        _section("SET_UP", "Run it locally", ["c1"]),
+        _section("FIND_THE_CODE", "Where it lives", ["c2"]),
+    )
+
+    _, streamed = _collect(stream_orientation(_llm(payload), store, task_title=_TITLE))
+    synchronous: OrientationOutcome = assemble_orientation(
+        _llm(payload), store, task_title=_TITLE
+    )
+
+    assert streamed.status == synchronous.status
+    assert streamed.model_dump()["packet"] == synchronous.model_dump()["packet"]
+
+
+def test_an_empty_corpus_streams_a_skipped_done_not_an_error() -> None:
+    events, outcome = _collect(
+        stream_orientation(_llm(_payload()), StubVectorStore(), task_title=_TITLE)
+    )
+
+    assert outcome.status == "skipped"
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"]["status"] == "skipped"  # type: ignore[index]
+    assert "error" not in [e["type"] for e in events]

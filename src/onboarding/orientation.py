@@ -23,6 +23,7 @@ Three mechanics carry that guarantee:
 
 import json
 import logging
+from collections.abc import Generator
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, ValidationError
@@ -41,6 +42,7 @@ from onboarding.orientation_models import (
     OrientationSource,
     OrientationStep,
 )
+from onboarding.progress import ProgressEvent, ProgressStream, drain
 from onboarding.similarity import OVERLAP_THRESHOLD, text_overlap
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
@@ -81,6 +83,17 @@ _STEP_QUERIES: dict[OrientationStep, str] = {
         "contributing guide pull request process branch naming commit message "
         "code review expectations"
     ),
+}
+
+# Short human labels for the live progress stream — what the watcher sees a step
+# called while it is searched / grounded. Distinct from `_STEP_GUIDE` (prompt text)
+# and `_STEP_QUERIES` (retrieval text): this is display only.
+_STEP_LABEL: dict[OrientationStep, str] = {
+    "SET_UP": "setting up",
+    "FIND_THE_CODE": "finding the code",
+    "MAKE_THE_CHANGE": "making the change",
+    "CHECK_LOCALLY": "checking locally",
+    "OPEN_THE_PR": "opening the PR",
 }
 
 # What the model is told each step is *for*, in the packet the hire reads.
@@ -134,35 +147,6 @@ def _collapse_duplicates(chunks: list[ScoredChunk]) -> tuple[list[ScoredChunk], 
             continue
         kept.append(chunk)
     return kept, collapsed
-
-
-def _gather_evidence(
-    llm: LLMClient,
-    store: VectorStore,
-    *,
-    task_query: str,
-) -> tuple[list[ScoredChunk], int]:
-    """Retrieve once per step, union by chunk id, then collapse restatements."""
-    bm25_cache = BM25IndexCache()
-    by_id: dict[str, ScoredChunk] = {}
-
-    for step in STEP_ORDER:
-        for chunk in hybrid_retrieve(
-            question=f"{task_query} {_STEP_QUERIES[step]}",
-            llm=llm,
-            store=store,
-            top_k=_TOP_K_PER_STEP,
-            min_score=_MIN_SCORE,
-            bm25_cache=bm25_cache,
-            exclude_roles=GROUNDING_EXCLUDED_ROLES,
-        ):
-            # A chunk retrieved for two steps keeps its better score; the model
-            # decides which step it belongs under, and it appears once either way.
-            existing = by_id.get(chunk.id)
-            if existing is None or chunk.score > existing.score:
-                by_id[chunk.id] = chunk
-
-    return _collapse_duplicates(list(by_id.values()))
 
 
 def _evidence_line(chunk: ScoredChunk) -> str:
@@ -316,6 +300,157 @@ def _sources_drawn_on(
 # --- job -----------------------------------------------------------------------
 
 
+def stream_orientation(
+    llm: LLMClient,
+    store: VectorStore,
+    *,
+    task_title: str,
+    task_body: str = "",
+    labels: list[str] | None = None,
+    touched_paths: list[str] | None = None,
+    last_fingerprint: str | None = None,
+) -> Generator[ProgressEvent, None, OrientationOutcome]:
+    """Assemble a packet, yielding live progress and returning the final outcome.
+
+    This is the single implementation: :func:`assemble_orientation` drives it to
+    completion for the non-streaming path, and the streaming route relays its
+    events. So the packet a hire watches assemble is byte-for-byte the packet the
+    cached call would have produced — the stream is a view, never a second answer.
+
+    Retrieval runs once per step (set up → find the code → … → open the PR), each
+    announced as a ``stage``. Sections are emitted as ``item`` events only after
+    they clear the per-section grounding gate, so nothing ungrounded is ever shown.
+    """
+    progress = ProgressStream("orientation")
+    fingerprint = corpus_fingerprint(store)
+
+    if last_fingerprint is not None and last_fingerprint == fingerprint:
+        outcome = OrientationOutcome(
+            status="unchanged", notes=["corpus unchanged since the cached packet"]
+        )
+        yield progress.done(
+            "Nothing changed — the cached packet is current", _dump(outcome)
+        )
+        return outcome
+
+    if store.count() == 0:
+        outcome = OrientationOutcome(status="skipped", notes=["corpus is empty"])
+        yield progress.warning("The project has no indexed material yet")
+        yield progress.done("No orientation could be assembled", _dump(outcome))
+        return outcome
+
+    task_query = _task_query(task_title, task_body, labels or [], touched_paths or [])
+    bm25_cache = BM25IndexCache()
+    by_id: dict[str, ScoredChunk] = {}
+    for step in STEP_ORDER:
+        yield progress.stage(
+            "retrieving", f"Searching the project: {_STEP_LABEL[step]}"
+        )
+        for chunk in hybrid_retrieve(
+            question=f"{task_query} {_STEP_QUERIES[step]}",
+            llm=llm,
+            store=store,
+            top_k=_TOP_K_PER_STEP,
+            min_score=_MIN_SCORE,
+            bm25_cache=bm25_cache,
+            exclude_roles=GROUNDING_EXCLUDED_ROLES,
+        ):
+            # A chunk retrieved for two steps keeps its better score; the model
+            # decides which step it belongs under, and it appears once either way.
+            existing = by_id.get(chunk.id)
+            if existing is None or chunk.score > existing.score:
+                by_id[chunk.id] = chunk
+    chunks, collapsed = _collapse_duplicates(list(by_id.values()))
+
+    if not chunks:
+        outcome = OrientationOutcome(
+            status="skipped", notes=["no grounding evidence retrieved for this task"]
+        )
+        yield progress.warning(
+            "Nothing in the project matched this task closely enough"
+        )
+        yield progress.done("No orientation could be assembled", _dump(outcome))
+        return outcome
+
+    yield progress.stage(
+        "generating", f"Writing the packet from {len(chunks)} source(s)"
+    )
+    raw = llm.generate(
+        _build_prompt(task_title, task_body, labels or [], touched_paths or [], chunks),
+        temperature=_TEMPERATURE,
+    )
+    try:
+        payload = _parse_payload(raw)
+    except AssemblyError as exc:
+        logger.warning("Orientation assembly failed for task %r: %s", task_title, exc)
+        outcome = OrientationOutcome(
+            status="skipped",
+            chunks_retrieved=len(chunks),
+            chunks_collapsed=collapsed,
+            notes=[str(exc)],
+        )
+        yield progress.warning("The generated packet could not be read")
+        yield progress.done("No orientation could be assembled", _dump(outcome))
+        return outcome
+
+    yield progress.stage("grounding", "Checking every section cites its source")
+    sections, dropped = _resolve_sections(payload, chunks)
+    for section in sections:
+        yield progress.item(
+            section.model_dump(mode="json"),
+            f"{_STEP_LABEL[section.step]}: {section.title}",
+        )
+    # A dropped section is a gap the watcher should see, not a silent omission --
+    # unless every section went, which the branch below states more directly.
+    if sections and dropped:
+        yield progress.warning(f"Dropped {dropped} section(s) with no source")
+
+    if not sections:
+        outcome = OrientationOutcome(
+            status="skipped",
+            chunks_retrieved=len(chunks),
+            chunks_collapsed=collapsed,
+            sections_dropped=dropped,
+            notes=["no grounded sections in the assembled packet"],
+        )
+        yield progress.warning("Every section was dropped for lack of a source")
+        yield progress.done("No orientation could be assembled", _dump(outcome))
+        return outcome
+
+    notes: list[str] = []
+    if collapsed:
+        notes.append(f"collapsed {collapsed} redundant source chunk(s)")
+    if dropped:
+        notes.append(f"dropped {dropped} ungrounded or duplicate section(s)")
+
+    outcome = OrientationOutcome(
+        status="assembled",
+        packet=OrientationPacket(
+            task_title=task_title,
+            summary=payload.summary.strip(),
+            sections=sections,
+            sources=_sources_drawn_on(sections, chunks),
+        ),
+        provenance=OrientationProvenance(
+            corpus_fingerprint=fingerprint,
+            generated_at=datetime.now(UTC).isoformat(),
+            model=llm.model_name,
+            notes=notes,
+        ),
+        chunks_retrieved=len(chunks),
+        chunks_collapsed=collapsed,
+        sections_dropped=dropped,
+        notes=notes,
+    )
+    yield progress.done("Orientation ready", _dump(outcome))
+    return outcome
+
+
+def _dump(outcome: OrientationOutcome) -> dict[str, object]:
+    """The outcome as a JSON-safe dict for a ``done`` event's ``result``."""
+    return outcome.model_dump(mode="json")
+
+
 def assemble_orientation(
     llm: LLMClient,
     store: VectorStore,
@@ -336,76 +471,18 @@ def assemble_orientation(
     Takes nothing about the individual hire, deliberately — orientation is a
     property of the task, so two people claiming the same task read the same
     packet and can talk about it.
+
+    Backed by :func:`stream_orientation` so the non-streaming and streaming paths
+    are the same computation.
     """
-    fingerprint = corpus_fingerprint(store)
-
-    if last_fingerprint is not None and last_fingerprint == fingerprint:
-        return OrientationOutcome(
-            status="unchanged", notes=["corpus unchanged since the cached packet"]
-        )
-
-    if store.count() == 0:
-        return OrientationOutcome(status="skipped", notes=["corpus is empty"])
-
-    chunks, collapsed = _gather_evidence(
-        llm,
-        store,
-        task_query=_task_query(
-            task_title, task_body, labels or [], touched_paths or []
-        ),
-    )
-    if not chunks:
-        return OrientationOutcome(
-            status="skipped", notes=["no grounding evidence retrieved for this task"]
-        )
-
-    raw = llm.generate(
-        _build_prompt(task_title, task_body, labels or [], touched_paths or [], chunks),
-        temperature=_TEMPERATURE,
-    )
-    try:
-        payload = _parse_payload(raw)
-    except AssemblyError as exc:
-        logger.warning("Orientation assembly failed for task %r: %s", task_title, exc)
-        return OrientationOutcome(
-            status="skipped",
-            chunks_retrieved=len(chunks),
-            chunks_collapsed=collapsed,
-            notes=[str(exc)],
-        )
-
-    sections, dropped = _resolve_sections(payload, chunks)
-    if not sections:
-        return OrientationOutcome(
-            status="skipped",
-            chunks_retrieved=len(chunks),
-            chunks_collapsed=collapsed,
-            sections_dropped=dropped,
-            notes=["no grounded sections in the assembled packet"],
-        )
-
-    notes: list[str] = []
-    if collapsed:
-        notes.append(f"collapsed {collapsed} redundant source chunk(s)")
-    if dropped:
-        notes.append(f"dropped {dropped} ungrounded or duplicate section(s)")
-
-    return OrientationOutcome(
-        status="assembled",
-        packet=OrientationPacket(
+    return drain(
+        stream_orientation(
+            llm,
+            store,
             task_title=task_title,
-            summary=payload.summary.strip(),
-            sections=sections,
-            sources=_sources_drawn_on(sections, chunks),
-        ),
-        provenance=OrientationProvenance(
-            corpus_fingerprint=fingerprint,
-            generated_at=datetime.now(UTC).isoformat(),
-            model=llm.model_name,
-            notes=notes,
-        ),
-        chunks_retrieved=len(chunks),
-        chunks_collapsed=collapsed,
-        sections_dropped=dropped,
-        notes=notes,
+            task_body=task_body,
+            labels=labels,
+            touched_paths=touched_paths,
+            last_fingerprint=last_fingerprint,
+        )
     )
