@@ -9,6 +9,7 @@ request so proposals can be deduplicated against what already exists.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_llm, get_store
 from api.schemas import (
@@ -16,9 +17,13 @@ from api.schemas import (
     GraphProposalOutcomeSchema,
     ValidationErrorResponse,
 )
+from api.sse import stream_progress
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from onboarding.graph_generation import generate_competency_graph
+from onboarding.graph_generation import (
+    generate_competency_graph,
+    stream_competency_graph,
+)
 from store.base import VectorStore
 
 router = APIRouter(
@@ -73,3 +78,37 @@ def propose(
             detail=f"Competency graph proposal failed: {exc}",
         ) from exc
     return GraphProposalOutcomeSchema(**outcome.model_dump())
+
+
+@router.post(
+    "/propose/stream",
+    response_class=StreamingResponse,
+    summary="Propose competency graph nodes/edges from the corpus (streaming)",
+    description=(
+        "The same proposal job as `POST /onboarding/competency-graph/propose`, "
+        "streamed as Server-Sent Events so a PM can watch the graph assemble: a "
+        "`stage` per pass (retrieving → grounding → linking), an `item` per "
+        "competency as it clears grounding and then per accepted edge, and a "
+        "terminal `done` carrying the whole outcome. The `done` result is "
+        "identical to what the non-streaming endpoint returns -- the stream is a "
+        "view of the same computation, never a second answer. An LLM outage "
+        "arrives as a terminal `error` event, not an HTTP error."
+    ),
+    responses={422: {"model": ValidationErrorResponse}},
+)
+def propose_stream(
+    request: GenerateCompetencyGraphRequest,
+    store: Annotated[VectorStore, Depends(get_store)],
+    llm: Annotated[LLMClient, Depends(get_llm)],
+) -> StreamingResponse:
+    events = stream_competency_graph(
+        llm,
+        store,
+        active_competencies=[c.to_model() for c in request.active_competencies],
+        active_edges=[e.to_model() for e in request.active_edges],
+        last_fingerprint=request.last_fingerprint,
+    )
+    return StreamingResponse(
+        stream_progress(events, operation="competency_graph"),
+        media_type="text/event-stream",
+    )

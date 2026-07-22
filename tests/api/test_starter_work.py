@@ -9,6 +9,7 @@ from api.app import app
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from rag.types import Chunk
+from tests.conftest import parse_sse_events
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -103,3 +104,21 @@ def test_mine_skips_already_pooled_issue(
     body = response.json()
     assert body["status"] == "skipped"
     assert body["tasks"] == []
+
+
+def test_mine_stream_yields_a_task_item_and_a_done_matching_the_sync_endpoint(
+    mine_client: tuple[TestClient, StubLLMClient],
+) -> None:
+    http, _ = mine_client
+
+    stream = http.post(f"{_BASE}/mine/stream", json={})
+    assert stream.status_code == 200, stream.text
+    assert stream.headers["content-type"].startswith("text/event-stream")
+
+    events = parse_sse_events(stream.text)
+    types = [e["type"] for e in events]
+    assert "stage" in types
+    assert "item" in types
+    assert types[-1] == "done"
+    assert events[-1]["result"]["tasks"][0]["source_id"] == "github:org/repo:ISSUE:1"
+    assert events[-1]["result"]["status"] == "proposed"

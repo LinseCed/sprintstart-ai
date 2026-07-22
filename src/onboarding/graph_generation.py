@@ -36,6 +36,7 @@ since there is no "active proposal" object here to carry it the way
 import json
 import logging
 import re
+from collections.abc import Generator
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, ValidationError
@@ -54,6 +55,7 @@ from onboarding.graph_models import (
     ProposedEdge,
 )
 from onboarding.models import CitationRef
+from onboarding.progress import ProgressEvent, ProgressStream, drain
 from onboarding.similarity import SIMILARITY_THRESHOLD, cosine_similarity, step_text
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.types import ScoredChunk
@@ -381,6 +383,134 @@ def _propose_edges(
 # --- job -----------------------------------------------------------------------
 
 
+def stream_competency_graph(
+    llm: LLMClient,
+    store: VectorStore,
+    *,
+    active_competencies: list[ActiveCompetency] | None = None,
+    active_edges: list[ActiveEdge] | None = None,
+    last_fingerprint: str | None = None,
+) -> Generator[ProgressEvent, None, GraphProposalOutcome]:
+    """Propose the graph, yielding live progress and returning the final outcome.
+
+    This is the single implementation: :func:`generate_competency_graph` drives it
+    to completion for the non-streaming path, and the streaming route relays its
+    events. So the proposal a PM watches assemble is byte-for-byte the proposal the
+    batch call would have produced — the stream is a view, never a second answer.
+
+    The graph literally builds: the node pass emits each grounded, deduped
+    competency as an ``item`` the instant it clears its gate, then the dedicated
+    edge pass emits each accepted relationship. An ``item`` is a promise of
+    validation — if it was streamed, it is in the persisted proposal.
+    """
+    progress = ProgressStream("competency_graph")
+    active = active_competencies or []
+    active_edge_list = active_edges or []
+    fingerprint = corpus_fingerprint(store)
+    notes: list[str] = []
+
+    if store.count() == 0:
+        outcome = GraphProposalOutcome(status="skipped", notes=["corpus is empty"])
+        yield progress.warning("The project has no indexed material yet")
+        yield progress.done("No competencies could be proposed", _dump(outcome))
+        return outcome
+
+    # An unchanged corpus can hold no *new* nodes, but the relationships between
+    # the nodes already in the graph are not a function of the corpus -- a graph
+    # generated before the dedicated edge pass existed is exactly the case that
+    # needs re-running. So the fingerprint short-circuits the node pass only.
+    corpus_unchanged = last_fingerprint is not None and last_fingerprint == fingerprint
+    proposed_competencies: list[ProposedCompetency] = []
+    chunks: list[ScoredChunk] = []
+
+    if corpus_unchanged:
+        notes.append("corpus unchanged since last proposal run; nodes not re-proposed")
+        yield progress.stage(
+            "retrieving", "Corpus unchanged — proposing relationships only"
+        )
+    else:
+        yield progress.stage("retrieving", "Searching the corpus for competencies")
+        chunks = hybrid_retrieve(
+            question=_QUERY,
+            llm=llm,
+            store=store,
+            top_k=_TOP_K,
+            min_score=_MIN_SCORE,
+            bm25_cache=BM25IndexCache(),
+            exclude_roles=GROUNDING_EXCLUDED_ROLES,
+        )
+        if not chunks:
+            outcome = GraphProposalOutcome(
+                status="skipped", notes=["no grounding evidence retrieved"]
+            )
+            yield progress.warning("Nothing in the corpus grounded a competency")
+            yield progress.done("No competencies could be proposed", _dump(outcome))
+            return outcome
+        yield progress.stage(
+            "grounding", f"Proposing competencies from {len(chunks)} source(s)"
+        )
+        try:
+            proposed_competencies = _propose_competencies(llm, chunks, active)
+        except GenerationError as exc:
+            logger.warning("Graph proposal generation failed: %s", exc)
+            outcome = GraphProposalOutcome(status="skipped", notes=[str(exc)])
+            yield progress.warning("The proposed competencies could not be read")
+            yield progress.done("No competencies could be proposed", _dump(outcome))
+            return outcome
+        for competency in proposed_competencies:
+            yield progress.item(
+                competency.model_dump(mode="json"),
+                f"Competency: {competency.label}",
+            )
+
+    yield progress.stage("linking", "Working out how the competencies relate")
+    proposed_edges, edge_notes = _propose_edges(
+        llm,
+        active=active,
+        proposed=proposed_competencies,
+        active_edges=active_edge_list,
+    )
+    for edge in proposed_edges:
+        yield progress.item(
+            edge.model_dump(mode="json"),
+            f"{edge.from_key} → {edge.to_key} ({edge.kind})",
+        )
+    notes.extend(edge_notes)
+
+    if not proposed_competencies and not proposed_edges:
+        outcome = GraphProposalOutcome(
+            status="unchanged" if corpus_unchanged else "skipped",
+            chunks_retrieved=len(chunks),
+            notes=notes or ["no grounded, non-duplicate competencies proposed"],
+        )
+        yield progress.done("Nothing new to propose", _dump(outcome))
+        return outcome
+
+    outcome = GraphProposalOutcome(
+        status="proposed",
+        competencies=proposed_competencies,
+        edges=proposed_edges,
+        provenance=GraphProvenance(
+            corpus_fingerprint=fingerprint,
+            generated_at=datetime.now(UTC).isoformat(),
+            model=llm.model_name,
+        ),
+        chunks_retrieved=len(chunks),
+        notes=notes,
+    )
+    yield progress.done(
+        f"Proposed {len(proposed_competencies)} competency/-ies "
+        f"and {len(proposed_edges)} relationship(s)",
+        _dump(outcome),
+    )
+    return outcome
+
+
+def _dump(outcome: GraphProposalOutcome) -> dict[str, object]:
+    """The outcome as a JSON-safe dict for a ``done`` event's ``result``."""
+    return outcome.model_dump(mode="json")
+
+
 def generate_competency_graph(
     llm: LLMClient,
     store: VectorStore,
@@ -395,71 +525,18 @@ def generate_competency_graph(
     they drive dedup (never re-propose an existing key) and are valid edge
     endpoints. ``last_fingerprint`` is whatever fingerprint the caller recorded
     from the previous run (idempotency); this service holds no state of its own.
+
+    Backed by :func:`stream_competency_graph` so the non-streaming and streaming
+    paths are the same computation.
     """
-    active = active_competencies or []
-    active_edge_list = active_edges or []
-    fingerprint = corpus_fingerprint(store)
-    notes: list[str] = []
-
-    if store.count() == 0:
-        return GraphProposalOutcome(status="skipped", notes=["corpus is empty"])
-
-    # An unchanged corpus can hold no *new* nodes, but the relationships between
-    # the nodes already in the graph are not a function of the corpus -- a graph
-    # generated before the dedicated edge pass existed is exactly the case that
-    # needs re-running. So the fingerprint short-circuits the node pass only.
-    corpus_unchanged = last_fingerprint is not None and last_fingerprint == fingerprint
-    proposed_competencies: list[ProposedCompetency] = []
-    chunks: list[ScoredChunk] = []
-
-    if corpus_unchanged:
-        notes.append("corpus unchanged since last proposal run; nodes not re-proposed")
-    else:
-        chunks = hybrid_retrieve(
-            question=_QUERY,
-            llm=llm,
-            store=store,
-            top_k=_TOP_K,
-            min_score=_MIN_SCORE,
-            bm25_cache=BM25IndexCache(),
-            exclude_roles=GROUNDING_EXCLUDED_ROLES,
+    return drain(
+        stream_competency_graph(
+            llm,
+            store,
+            active_competencies=active_competencies,
+            active_edges=active_edges,
+            last_fingerprint=last_fingerprint,
         )
-        if not chunks:
-            return GraphProposalOutcome(
-                status="skipped", notes=["no grounding evidence retrieved"]
-            )
-        try:
-            proposed_competencies = _propose_competencies(llm, chunks, active)
-        except GenerationError as exc:
-            logger.warning("Graph proposal generation failed: %s", exc)
-            return GraphProposalOutcome(status="skipped", notes=[str(exc)])
-
-    proposed_edges, edge_notes = _propose_edges(
-        llm,
-        active=active,
-        proposed=proposed_competencies,
-        active_edges=active_edge_list,
-    )
-    notes.extend(edge_notes)
-
-    if not proposed_competencies and not proposed_edges:
-        return GraphProposalOutcome(
-            status="unchanged" if corpus_unchanged else "skipped",
-            chunks_retrieved=len(chunks),
-            notes=notes or ["no grounded, non-duplicate competencies proposed"],
-        )
-
-    return GraphProposalOutcome(
-        status="proposed",
-        competencies=proposed_competencies,
-        edges=proposed_edges,
-        provenance=GraphProvenance(
-            corpus_fingerprint=fingerprint,
-            generated_at=datetime.now(UTC).isoformat(),
-            model=llm.model_name,
-        ),
-        chunks_retrieved=len(chunks),
-        notes=notes,
     )
 
 

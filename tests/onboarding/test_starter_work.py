@@ -1,13 +1,30 @@
 import json
+from collections.abc import Generator
 
 from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from onboarding.generation import corpus_fingerprint
-from onboarding.starter_work import generate_starter_work_pool
+from onboarding.progress import ProgressEvent
+from onboarding.starter_work import (
+    generate_starter_work_pool,
+    stream_starter_work_pool,
+)
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
 _EMBED = [1.0] + [0.0] * 767
+
+
+def _collect[T](
+    generator: Generator[ProgressEvent, None, T],
+) -> tuple[list[ProgressEvent], T]:
+    """Drain a progress generator, keeping both the events and the returned value."""
+    events: list[ProgressEvent] = []
+    try:
+        while True:
+            events.append(next(generator))
+    except StopIteration as stop:
+        return events, stop.value
 
 
 def _metadata_store() -> IngestionMetadataStore:
@@ -238,3 +255,87 @@ def test_issue_without_indexed_chunks_is_excluded() -> None:
     outcome = generate_starter_work_pool(llm, store, metadata_store)
 
     assert [t.source_id for t in outcome.tasks] == ["github:org/repo:ISSUE:2"]
+
+
+# --- streaming -----------------------------------------------------------------
+
+
+def _two_open_issues() -> tuple[IngestionMetadataStore, StubVectorStore]:
+    metadata_store = _metadata_store()
+    metadata_store.save_artifact(
+        _issue_artifact(id="a1", source_id="github:org/repo:ISSUE:1")
+    )
+    metadata_store.save_artifact(
+        _issue_artifact(id="a2", source_id="github:org/repo:ISSUE:2")
+    )
+    store = StubVectorStore()
+    _add_issue_chunk(store, "a1", "Fix typo in README", "The install section typo.")
+    _add_issue_chunk(store, "a2", "Add a unit test", "Cover the date formatter.")
+    return metadata_store, store
+
+
+def test_stream_emits_a_scoped_task_as_an_item_and_a_done() -> None:
+    metadata_store, store = _two_open_issues()
+    llm = _llm(
+        [
+            {
+                "source_id": "github:org/repo:ISSUE:1",
+                "safely_scoped": True,
+                "summary": "Fix a typo.",
+                "competency_keys": [],
+                "rationale": "Small, contained.",
+            },
+            {
+                "source_id": "github:org/repo:ISSUE:2",
+                "safely_scoped": False,
+                "summary": "",
+                "competency_keys": [],
+                "rationale": "Needs discussion.",
+            },
+        ]
+    )
+
+    events, outcome = _collect(stream_starter_work_pool(llm, store, metadata_store))
+
+    # Only the safely-scoped issue is emitted as an item -- the rejected one never
+    # appears, which is the whole promise of an `item` event.
+    items = [e for e in events if e["type"] == "item"]
+    assert [i["item"]["source_id"] for i in items] == [  # type: ignore[index]
+        "github:org/repo:ISSUE:1"
+    ]
+    # seq is monotonic across the whole stream.
+    assert [e["seq"] for e in events] == list(range(len(events)))
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"] == outcome.model_dump(mode="json")
+    assert outcome.status == "proposed"
+
+
+def test_streaming_result_equals_the_non_streaming_pool() -> None:
+    metadata_store, store = _two_open_issues()
+    tasks: list[dict[str, object]] = [
+        {
+            "source_id": "github:org/repo:ISSUE:1",
+            "safely_scoped": True,
+            "summary": "Fix a typo.",
+            "competency_keys": [],
+            "rationale": "Small, contained.",
+        }
+    ]
+
+    _, streamed = _collect(stream_starter_work_pool(_llm(tasks), store, metadata_store))
+    synchronous = generate_starter_work_pool(_llm(tasks), store, metadata_store)
+
+    assert streamed.status == synchronous.status
+    assert [t.source_id for t in streamed.tasks] == [
+        t.source_id for t in synchronous.tasks
+    ]
+
+
+def test_an_empty_corpus_streams_a_skipped_done_not_an_error() -> None:
+    events, outcome = _collect(
+        stream_starter_work_pool(_llm([]), StubVectorStore(), _metadata_store())
+    )
+
+    assert outcome.status == "skipped"
+    assert events[-1]["type"] == "done"
+    assert "error" not in [e["type"] for e in events]
