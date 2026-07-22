@@ -26,6 +26,7 @@ from llm.errors import LLMUnavailableError
 from rag.citation import build_citations
 from rag.retriever import retrieve
 from rag.source_filter import SourceExclusions
+from rag.source_kind import is_test_source
 from rag.types import Citation, ScoredChunk
 from store.base import VectorStore
 
@@ -51,6 +52,12 @@ _PERSONA = (
     "sources or `search_docs` citations. If the tools don't cover it, say so "
     "honestly rather than inventing an answer; offer `flag_to_pm` as the last "
     "resort.\n"
+    "- Some retrieved files are test, fixture, or sample-data files -- a search "
+    "result is marked `(test/fixture file ...)` when it is. Their contents are "
+    "examples, not the team's real documentation or process, so never present "
+    "them as authoritative: if an answer would lean on one, either find a "
+    "non-test source or tell the hire it comes from an example/test file and may "
+    "not reflect the real process.\n"
     "- Turn work into record: when the hire has done what a module's check asks, "
     "offer to submit their answer with `submit_verification` -- you relay the "
     "verdict, you never grade the work yourself. When they pick a suggested task, "
@@ -184,10 +191,21 @@ def _tool_result_message(call_id: str, content: str) -> Message:
     return Message(role="tool", content=content, tool_call_id=call_id)
 
 
+def _chunk_header(filename: str) -> str:
+    # Mark test/fixture/sample files inline so the model treats their contents as
+    # examples, not the team's real docs or process (see the persona rule).
+    if is_test_source(filename):
+        return (
+            f"[{filename}] (test/fixture file -- example or sample data, "
+            "not the team's real documentation or process)"
+        )
+    return f"[{filename}]"
+
+
 def _format_chunks(chunks: list[ScoredChunk]) -> str:
     if not chunks:
         return "No indexed material matched this search."
-    parts = [f"[{chunk.filename}]\n{chunk.text}" for chunk in chunks]
+    parts = [f"{_chunk_header(chunk.filename)}\n{chunk.text}" for chunk in chunks]
     return "\n\n---\n\n".join(parts)
 
 
