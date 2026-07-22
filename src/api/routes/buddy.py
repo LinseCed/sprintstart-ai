@@ -81,6 +81,8 @@ def buddy_agent(
             llm,
             store,
             exclusions=source_state.get_exclusions(),
+            prior_summary=body.prior_summary,
+            summarize_upto=body.summarize_upto,
         )
     except LLMUnavailableError as exc:
         raise HTTPException(
@@ -105,4 +107,5 @@ def buddy_agent(
             )
             for cit in result.citations
         ],
+        updated_summary=result.updated_summary,
     )

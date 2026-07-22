@@ -325,6 +325,21 @@ class BuddyAgentRequest(BaseModel):
             "about them and hands their calls back rather than running them."
         ),
     )
+    prior_summary: str | None = Field(
+        default=None,
+        description=(
+            "The session's running summary of everything older than `messages` — "
+            "the conversation the window no longer carries. First hop of a turn only."
+        ),
+    )
+    summarize_upto: int | None = Field(
+        default=None,
+        description=(
+            "When set, fold the first this-many messages of `messages` into the "
+            "summary and return it as `updated_summary`. How the backend bounds an "
+            "unbounded transcript."
+        ),
+    )
 
 
 class BuddyAgentResponse(BaseModel):
@@ -348,6 +363,14 @@ class BuddyAgentResponse(BaseModel):
     citations: list[BuddyCitationSchema] = Field(
         default_factory=list[BuddyCitationSchema],
         description="Sources the grounded searches drew on.",
+    )
+    updated_summary: str | None = Field(
+        default=None,
+        description=(
+            "The accreted summary when the request asked for compaction "
+            "(`summarize_upto`): covers the prior summary plus the folded messages. "
+            "The backend persists it and advances its cursor."
+        ),
     )
 
 
