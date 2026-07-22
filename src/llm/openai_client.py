@@ -17,6 +17,7 @@ from openai.types.chat.chat_completion_chunk import ChoiceDelta
 
 from llm.base import ChatResult, LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+from llm.tool_call_recovery import recover_tool_calls
 
 
 def _to_openai_tools(tools: list[ToolSpec]) -> list[ChatCompletionToolParam]:
@@ -179,7 +180,17 @@ class OpenAIClient(LLMClient):
                     arguments=_loads_arguments(call.function.arguments),
                 )
             )
-        return ChatResult(text=message.content or "", tool_calls=calls)
+        text = message.content or ""
+        # Some models (e.g. DeepSeek via OpenRouter) write tool calls as markup in
+        # the content instead of returning them structurally; the endpoint doesn't
+        # lift them out, so they leak into the answer. Recover them when the API
+        # gave us no structured calls, so the agent runs the tool instead of
+        # showing a hire the raw markup.
+        if not calls:
+            recovered, cleaned = recover_tool_calls(text)
+            if recovered:
+                return ChatResult(text=cleaned, tool_calls=recovered)
+        return ChatResult(text=text, tool_calls=calls)
 
     def generate(
         self, messages: list[Message], *, temperature: float | None = None

@@ -7,6 +7,7 @@ import ollama
 
 from llm.base import ChatResult, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+from llm.tool_call_recovery import recover_tool_calls
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,15 @@ def _from_ollama_response(response: ollama.ChatResponse) -> ChatResult:
         )
         for call in message.tool_calls or []
     ]
-    return ChatResult(text=message.content or "", tool_calls=calls)
+    text = message.content or ""
+    # A local model may also emit tool calls as markup in the content instead of
+    # returning them structurally; recover them when none came through the API so
+    # the agent runs the tool rather than showing the hire the raw markup.
+    if not calls:
+        recovered, cleaned = recover_tool_calls(text)
+        if recovered:
+            return ChatResult(text=cleaned, tool_calls=recovered)
+    return ChatResult(text=text, tool_calls=calls)
 
 
 class OllamaBackend(Protocol):
