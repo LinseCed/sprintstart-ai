@@ -628,10 +628,7 @@ class GenerateCompetencyGraphRequest(BaseModel):
 #
 # Mining's request body gets a dedicated schema, per this file's convention (see
 # ActiveCompetencySchema); its response returns the ``onboarding.starter_work``
-# domain model directly as ``response_model``. Hire-to-pool *ranking* used to
-# live here too (``/match``), but ranking moved into the backend in slice 4 --
-# an embedding tie-break cannot explain why a task fits, and a hire is owed that
-# reason -- so ``match_hire_to_pool`` and its request schemas are gone (#32).
+# domain model directly as ``response_model``.
 
 
 class MineStarterWorkRequest(BaseModel):
