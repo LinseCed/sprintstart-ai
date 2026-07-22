@@ -2,7 +2,7 @@ import pytest
 
 from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
-from onboarding.buddy_agent import SEARCH_DOCS, run_agent_turn
+from onboarding.buddy_agent import SEARCH_DOCS, _format_chunks, run_agent_turn
 from rag.types import ScoredChunk
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
@@ -71,6 +71,25 @@ def test_resumes_with_a_tool_result_and_answers() -> None:
 
     assert result.final is True
     assert "52 hours" in result.text
+
+
+def _chunk(filename: str) -> ScoredChunk:
+    return ScoredChunk(
+        id="c1", artifact_id="a1", filename=filename, text="Some content.", score=0.9
+    )
+
+
+def test_marks_a_test_fixture_chunk_so_the_model_knows_it_is_not_real_process() -> None:
+    formatted = _format_chunks([_chunk("tests/rag/demo-corpus/process.md")])
+
+    assert "test/fixture file" in formatted
+    assert "tests/rag/demo-corpus/process.md" in formatted
+
+
+def test_does_not_mark_a_real_source_chunk() -> None:
+    formatted = _format_chunks([_chunk("docs/process.md")])
+
+    assert "test/fixture file" not in formatted
 
 
 def test_runs_search_docs_locally_and_collects_citations(
