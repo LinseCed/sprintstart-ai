@@ -268,6 +268,89 @@ class ChatRequest(BaseModel):
         return updated
 
 
+class BuddyToolCallSchema(BaseModel):
+    id: str = Field(
+        description="Provider-assigned id of this tool call; its result must echo it."
+    )
+    name: str = Field(description="Name of the tool the model wants to run.")
+    arguments: dict[str, object] = Field(
+        default_factory=dict, description="Arguments the model passed to the tool."
+    )
+
+
+class BuddyAgentMessageSchema(BaseModel):
+    role: str = Field(description="One of system | user | assistant | tool.")
+    content: str = Field(
+        default="", description="Text content; empty for a pure tool-call turn."
+    )
+    tool_calls: list[BuddyToolCallSchema] = Field(
+        default_factory=list[BuddyToolCallSchema],
+        description="Tool calls made on an assistant turn.",
+    )
+    tool_call_id: str | None = Field(
+        default=None,
+        description="On a tool-result turn, the id of the call it answers.",
+    )
+
+
+class BuddyToolSpecSchema(BaseModel):
+    name: str = Field(description="Tool name the model refers to when calling it.")
+    description: str = Field(
+        description="What the tool does, so the model knows when to use it."
+    )
+    parameters: dict[str, object] = Field(
+        default_factory=dict, description="JSON-schema of the tool's arguments."
+    )
+
+
+class BuddyCitationSchema(BaseModel):
+    artifact_id: str
+    start_line: int | None = None
+    start_page: int | None = None
+
+
+class BuddyAgentRequest(BaseModel):
+    messages: list[BuddyAgentMessageSchema] = Field(
+        default_factory=list[BuddyAgentMessageSchema],
+        description=(
+            "The running conversation, oldest first. First turn: the hire's history "
+            "plus their new question. Resume turn: everything the previous response "
+            "returned, with the backend's tool-result messages appended."
+        ),
+    )
+    backend_tools: list[BuddyToolSpecSchema] = Field(
+        default_factory=list[BuddyToolSpecSchema],
+        description=(
+            "Tools only the backend can execute (e.g. get_my_metrics). The AI reasons "
+            "about them and hands their calls back rather than running them."
+        ),
+    )
+
+
+class BuddyAgentResponse(BaseModel):
+    final: bool = Field(
+        description=(
+            "True when `text` is the answer; false when `pending_tool_calls` run first."
+        )
+    )
+    text: str = Field(
+        default="", description="The answer to show the hire, when `final`."
+    )
+    messages: list[BuddyAgentMessageSchema] = Field(
+        description="The full running conversation to carry back verbatim on a resume."
+    )
+    pending_tool_calls: list[BuddyToolCallSchema] = Field(
+        default_factory=list[BuddyToolCallSchema],
+        description=(
+            "Backend tools to run; append each result as a `tool`, then re-call."
+        ),
+    )
+    citations: list[BuddyCitationSchema] = Field(
+        default_factory=list[BuddyCitationSchema],
+        description="Sources the grounded searches drew on.",
+    )
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     detail: str | None = None
