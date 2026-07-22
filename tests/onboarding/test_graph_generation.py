@@ -1,12 +1,30 @@
 import json
+from collections.abc import Generator
 
 from llm.base import Message
 from onboarding.generation import corpus_fingerprint
-from onboarding.graph_generation import generate_competency_graph
+from onboarding.graph_generation import (
+    generate_competency_graph,
+    stream_competency_graph,
+)
 from onboarding.graph_models import ActiveCompetency, ActiveEdge
+from onboarding.progress import ProgressEvent
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
+
+
+def _collect[T](
+    generator: Generator[ProgressEvent, None, T],
+) -> tuple[list[ProgressEvent], T]:
+    """Drain a progress generator, keeping both the events and the returned value."""
+    events: list[ProgressEvent] = []
+    try:
+        while True:
+            events.append(next(generator))
+    except StopIteration as stop:
+        return events, stop.value
+
 
 _EMBED = [1.0] + [0.0] * 767
 _OTHER_EMBED = [0.0, 1.0] + [0.0] * 766
@@ -538,3 +556,116 @@ def test_failed_edge_pass_still_keeps_the_node_proposals() -> None:
     assert outcome.status == "proposed"
     assert [c.key for c in outcome.competencies] == ["kotlin"]
     assert outcome.edges == []
+
+
+# --- streaming -----------------------------------------------------------------
+
+
+def test_stream_emits_nodes_then_edges_as_items_and_a_done() -> None:
+    store = _store("Kotlin is the primary backend language for our domain model")
+    llm = _llm(
+        [
+            {"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]},
+            {
+                "key": "our-domain-model",
+                "label": "Our Domain Model",
+                "kind": "CONCEPT",
+                "chunk_ids": ["c1"],
+            },
+        ],
+        edges=[
+            {
+                "from_key": "kotlin",
+                "to_key": "our-domain-model",
+                "kind": "PREREQUISITE",
+                "rationale": "Domain model is written in Kotlin",
+            }
+        ],
+    )
+
+    # Distinct embeddings so the dedup gate doesn't collapse the two new nodes.
+    def _embed(text: str) -> list[float]:
+        return _OTHER_EMBED if "Domain" in text else _EMBED
+
+    llm.embed_fn = _embed
+
+    events, outcome = _collect(stream_competency_graph(llm, store))
+
+    # Items land nodes first, then edges -- the graph assembles in that order.
+    item_types: list[str] = [
+        "edge" if "from_key" in e["item"] else "node"  # type: ignore[operator]
+        for e in events
+        if e["type"] == "item"
+    ]
+    assert item_types == ["node", "node", "edge"]
+    # seq is monotonic across the whole stream.
+    assert [e["seq"] for e in events] == list(range(len(events)))
+    # The terminal event carries the whole outcome, and it is the returned one.
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"] == outcome.model_dump(mode="json")
+    assert outcome.status == "proposed"
+
+
+def test_stream_never_emits_an_ungrounded_competency_as_an_item() -> None:
+    # A competency citing nothing is dropped, so it must never appear as a live
+    # item -- that is the whole promise of an `item` event.
+    store = _store("Kotlin is the primary backend language")
+    llm = _llm(
+        [
+            {"key": "kotlin", "label": "Kotlin", "kind": "SKILL", "chunk_ids": ["c1"]},
+            {
+                "key": "invented",
+                "label": "Invented",
+                "kind": "SKILL",
+                "chunk_ids": ["nonexistent"],
+            },
+        ]
+    )
+
+    events, _ = _collect(stream_competency_graph(llm, store))
+
+    node_labels: list[object] = [
+        e["item"]["label"]  # type: ignore[index]
+        for e in events
+        if e["type"] == "item" and "from_key" not in e["item"]  # type: ignore[operator]
+    ]
+    assert node_labels == ["Kotlin"]
+
+
+def test_streaming_result_equals_the_non_streaming_proposal() -> None:
+    # The stream is a view of the same computation: its final outcome must be what
+    # the plain call returns (provenance timestamps aside).
+    store = _store("Kotlin is the primary backend language for our domain model")
+
+    def _fresh() -> _TwoPassLLM:
+        llm = _llm(
+            [
+                {
+                    "key": "kotlin",
+                    "label": "Kotlin",
+                    "kind": "SKILL",
+                    "chunk_ids": ["c1"],
+                }
+            ]
+        )
+        return llm
+
+    _, streamed = _collect(stream_competency_graph(_fresh(), store))
+    synchronous = generate_competency_graph(_fresh(), store)
+
+    assert streamed.status == synchronous.status
+    assert [c.key for c in streamed.competencies] == [
+        c.key for c in synchronous.competencies
+    ]
+    assert [(e.from_key, e.to_key) for e in streamed.edges] == [
+        (e.from_key, e.to_key) for e in synchronous.edges
+    ]
+
+
+def test_an_empty_corpus_streams_a_skipped_done_not_an_error() -> None:
+    events, outcome = _collect(stream_competency_graph(_llm([]), StubVectorStore()))
+
+    assert outcome.status == "skipped"
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"]["status"] == "skipped"  # type: ignore[index]
+    assert "error" not in [e["type"] for e in events]

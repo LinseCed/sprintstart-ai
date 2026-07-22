@@ -30,6 +30,7 @@ Deferred rather than guessed at.
 
 import json
 import logging
+from collections.abc import Generator
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, ValidationError
@@ -40,6 +41,7 @@ from llm.parsing import extract_json_object
 from onboarding.generation import corpus_fingerprint
 from onboarding.graph_models import ProposalStatus
 from onboarding.models import CitationRef
+from onboarding.progress import ProgressEvent, ProgressStream, drain
 from rag.types import Chunk
 from store.base import VectorStore
 
@@ -220,7 +222,7 @@ def _load_candidates(
 # --- job -----------------------------------------------------------------------
 
 
-def generate_starter_work_pool(
+def stream_starter_work_pool(
     llm: LLMClient,
     store: VectorStore,
     metadata_store: IngestionMetadataStore,
@@ -228,46 +230,59 @@ def generate_starter_work_pool(
     active_source_ids: list[str] | None = None,
     active_competency_keys: list[str] | None = None,
     last_fingerprint: str | None = None,
-) -> StarterWorkOutcome:
-    """Propose safely-scoped starter tasks from open GitHub issues.
+) -> Generator[ProgressEvent, None, StarterWorkOutcome]:
+    """Mine the pool, yielding live progress and returning the final outcome.
 
-    ``active_source_ids`` are issues already in the backend's starter-work
-    pool (proposed or approved) -- drives dedup, an issue already pooled is
-    never re-proposed. ``active_competency_keys`` are the backend's live
-    competency graph keys; a proposed task's competency tags are grounded
-    against this set (dropped, not invented, when the tag falls outside it) --
-    when no keys are supplied there is nothing to validate against, so tags
-    are kept as the LLM proposed them. ``last_fingerprint`` mirrors
-    :func:`onboarding.graph_generation.generate_competency_graph`'s
-    corpus-wide idempotency.
+    This is the single implementation: :func:`generate_starter_work_pool` drives
+    it to completion for the non-streaming path, and the streaming route relays
+    its events — so a PM watching the pool fill sees exactly what the batch call
+    would have produced. Each task is emitted as an ``item`` the instant it clears
+    the scope-safety judgement, so nothing unsafe is ever shown, and an ``item``
+    is a promise the task is in the persisted pool.
     """
+    progress = ProgressStream("starter_work")
     fingerprint = corpus_fingerprint(store)
     if last_fingerprint is not None and last_fingerprint == fingerprint:
-        return StarterWorkOutcome(
+        outcome = StarterWorkOutcome(
             status="unchanged", notes=["corpus unchanged since last mining run"]
         )
+        yield progress.done("Nothing changed since the last mining run", _dump(outcome))
+        return outcome
 
     if store.count() == 0:
-        return StarterWorkOutcome(status="skipped", notes=["corpus is empty"])
+        outcome = StarterWorkOutcome(status="skipped", notes=["corpus is empty"])
+        yield progress.warning("The project has no indexed material yet")
+        yield progress.done("No starter tasks could be mined", _dump(outcome))
+        return outcome
 
+    yield progress.stage("retrieving", "Collecting open issues from the corpus")
     candidates = _load_candidates(
         store, metadata_store, exclude_source_ids=set(active_source_ids or [])
     )
     if not candidates:
-        return StarterWorkOutcome(
+        outcome = StarterWorkOutcome(
             status="skipped", notes=["no open, unpooled issues found"]
         )
+        yield progress.warning("No open, unpooled issues to mine")
+        yield progress.done("No starter tasks could be mined", _dump(outcome))
+        return outcome
 
+    yield progress.stage(
+        "grounding", f"Judging {len(candidates)} open issue(s) for scope safety"
+    )
     raw = llm.generate(_build_prompt(candidates, active_competency_keys or []))
     try:
         payload = _parse_payload(raw)
     except GenerationError as exc:
         logger.warning("Starter-work mining generation failed: %s", exc)
-        return StarterWorkOutcome(
+        outcome = StarterWorkOutcome(
             status="skipped",
             candidates_considered=len(candidates),
             notes=[str(exc)],
         )
+        yield progress.warning("The mined tasks could not be read")
+        yield progress.done("No starter tasks could be mined", _dump(outcome))
+        return outcome
 
     candidates_by_id = {c.source_id: c for c in candidates}
     known_keys = set(active_competency_keys) if active_competency_keys else None
@@ -290,25 +305,27 @@ def generate_starter_work_pool(
             chunk_id=candidate.source_id,
             source_url=candidate.source_url,
         )
-        tasks.append(
-            ProposedStarterTask(
-                source_id=candidate.source_id,
-                title=candidate.title,
-                summary=item.summary or candidate.title,
-                competency_keys=keys,
-                rationale=item.rationale,
-                citations=[citation],
-            )
+        task = ProposedStarterTask(
+            source_id=candidate.source_id,
+            title=candidate.title,
+            summary=item.summary or candidate.title,
+            competency_keys=keys,
+            rationale=item.rationale,
+            citations=[citation],
         )
+        tasks.append(task)
+        yield progress.item(task.model_dump(mode="json"), f"Task: {task.title}")
 
     if not tasks:
-        return StarterWorkOutcome(
+        outcome = StarterWorkOutcome(
             status="skipped",
             candidates_considered=len(candidates),
             notes=["no candidate judged safely scoped"],
         )
+        yield progress.done("No issue was judged safely scoped", _dump(outcome))
+        return outcome
 
-    return StarterWorkOutcome(
+    outcome = StarterWorkOutcome(
         status="proposed",
         tasks=tasks,
         provenance=StarterWorkProvenance(
@@ -317,4 +334,47 @@ def generate_starter_work_pool(
             model=llm.model_name,
         ),
         candidates_considered=len(candidates),
+    )
+    yield progress.done(f"Proposed {len(tasks)} starter task(s)", _dump(outcome))
+    return outcome
+
+
+def _dump(outcome: StarterWorkOutcome) -> dict[str, object]:
+    """The outcome as a JSON-safe dict for a ``done`` event's ``result``."""
+    return outcome.model_dump(mode="json")
+
+
+def generate_starter_work_pool(
+    llm: LLMClient,
+    store: VectorStore,
+    metadata_store: IngestionMetadataStore,
+    *,
+    active_source_ids: list[str] | None = None,
+    active_competency_keys: list[str] | None = None,
+    last_fingerprint: str | None = None,
+) -> StarterWorkOutcome:
+    """Propose safely-scoped starter tasks from open GitHub issues.
+
+    ``active_source_ids`` are issues already in the backend's starter-work
+    pool (proposed or approved) -- drives dedup, an issue already pooled is
+    never re-proposed. ``active_competency_keys`` are the backend's live
+    competency graph keys; a proposed task's competency tags are grounded
+    against this set (dropped, not invented, when the tag falls outside it) --
+    when no keys are supplied there is nothing to validate against, so tags
+    are kept as the LLM proposed them. ``last_fingerprint`` mirrors
+    :func:`onboarding.graph_generation.generate_competency_graph`'s
+    corpus-wide idempotency.
+
+    Backed by :func:`stream_starter_work_pool` so the non-streaming and streaming
+    paths are the same computation.
+    """
+    return drain(
+        stream_starter_work_pool(
+            llm,
+            store,
+            metadata_store,
+            active_source_ids=active_source_ids,
+            active_competency_keys=active_competency_keys,
+            last_fingerprint=last_fingerprint,
+        )
     )
