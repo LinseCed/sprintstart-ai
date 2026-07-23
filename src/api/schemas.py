@@ -374,6 +374,42 @@ class BuddyAgentResponse(BaseModel):
     )
 
 
+class BuddyOpenRequest(BaseModel):
+    memory: str | None = Field(
+        default=None,
+        description="The mentor's durable memory note about this hire; empty on the first visit.",
+    )
+    recent: list[BuddyAgentMessageSchema] = Field(
+        default_factory=list[BuddyAgentMessageSchema],
+        description=(
+            "Messages since the memory was last updated (the previous visit), to be "
+            "folded into the memory. May be empty."
+        ),
+    )
+    state: str = Field(
+        default="",
+        description=(
+            "A plain-text snapshot of the hire's current state (pull requests, tasks, "
+            "competencies) for the greeting to ground itself in."
+        ),
+    )
+
+
+class BuddyOpenActionSchema(BaseModel):
+    label: str = Field(description="Short button text for the suggested next step.")
+    question: str = Field(description="The message sent to the buddy when the hire clicks it.")
+
+
+class BuddyOpenResponse(BaseModel):
+    memory: str = Field(
+        description="The refreshed memory note to persist; the prior memory if nothing changed."
+    )
+    greeting: str = Field(description="The warm, proactive opener to show the hire.")
+    action: BuddyOpenActionSchema | None = Field(
+        default=None, description="One optional suggested next step, or null."
+    )
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     detail: str | None = None

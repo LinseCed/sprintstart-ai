@@ -6,6 +6,9 @@ from api.schemas import (
     BuddyAgentRequest,
     BuddyAgentResponse,
     BuddyCitationSchema,
+    BuddyOpenActionSchema,
+    BuddyOpenRequest,
+    BuddyOpenResponse,
     BuddyToolCallSchema,
     BuddyToolSpecSchema,
     ValidationErrorResponse,
@@ -14,6 +17,7 @@ from ingestion.source_state_store import SourceStateStore
 from llm.base import LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
 from onboarding.buddy_agent import run_agent_turn
+from onboarding.buddy_open import open_session
 from store.base import VectorStore
 
 router = APIRouter()
@@ -108,4 +112,36 @@ def buddy_agent(
             for cit in result.citations
         ],
         updated_summary=result.updated_summary,
+    )
+
+
+@router.post(
+    "/onboarding/buddy/open",
+    response_model=BuddyOpenResponse,
+    summary="Open a buddy visit: refresh the mentor's memory and greet the hire",
+    tags=["onboarding-buddy"],
+    responses={422: {"model": ValidationErrorResponse}},
+)
+def buddy_open(
+    body: BuddyOpenRequest,
+    llm: LLMClient = Depends(get_llm),
+) -> BuddyOpenResponse:
+    """Fold the previous visit into the mentor's memory and write a proactive greeting.
+
+    Degrades to the prior memory and a plain welcome rather than erroring — opening
+    the buddy must never fail the page.
+    """
+    opening = open_session(
+        memory=body.memory,
+        recent=[_to_message(m) for m in body.recent],
+        state=body.state,
+        llm=llm,
+    )
+    action = (
+        BuddyOpenActionSchema(label=opening.action_label, question=opening.action_question)
+        if opening.action_label and opening.action_question
+        else None
+    )
+    return BuddyOpenResponse(
+        memory=opening.memory, greeting=opening.greeting, action=action
     )
