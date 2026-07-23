@@ -187,14 +187,15 @@ def test_unknown_level_is_normalized_to_beginner(
     }
     app.dependency_overrides[get_llm] = _stub(payload)
 
-    response = http_client.post(_URL, json=_request())
+    # Past MIN_ASSESSMENT_TURNS so this exercises normalization, not the coverage floor.
+    response = http_client.post(_URL, json=_request(turn=3))
 
     assert response.status_code == 200
     kotlin = next(a for a in response.json()["assessments"] if a["key"] == "kotlin")
     assert kotlin["level"] == "beginner"
 
 
-def test_invalid_json_degrades_to_finalize_with_defaults(
+def test_invalid_json_degrades_to_finalize_with_defaults_once_finishing_is_valid(
     client: tuple[TestClient, StubLLMClient],
 ):
     http_client, _ = client
@@ -207,7 +208,7 @@ def test_invalid_json_degrades_to_finalize_with_defaults(
 
     app.dependency_overrides[get_llm] = lambda: GarbageLLM()
 
-    response = http_client.post(_URL, json=_request())
+    response = http_client.post(_URL, json=_request(turn=6, must_finish=True))
 
     assert response.status_code == 200
     body = response.json()
@@ -217,6 +218,26 @@ def test_invalid_json_degrades_to_finalize_with_defaults(
         a["level"] == "beginner" and a["evidence"] == "no signal"
         for a in body["assessments"]
     )
+
+
+def test_invalid_json_this_early_returns_503_rather_than_a_fabricated_placement(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """A garbled response on turn 0 can't be told apart from "the model tried to
+    finish" -- both must be retryable, not a placement backed by nothing."""
+    http_client, _ = client
+
+    class GarbageLLM(StubLLMClient):
+        def generate(
+            self, messages: list[Message], *, temperature: float | None = None
+        ) -> str:
+            return "not json at all"
+
+    app.dependency_overrides[get_llm] = lambda: GarbageLLM()
+
+    response = http_client.post(_URL, json=_request(turn=0))
+
+    assert response.status_code == 503
 
 
 def test_llm_failure_returns_503(client: tuple[TestClient, StubLLMClient]):
@@ -269,7 +290,9 @@ def test_senior_transcript_skews_toward_higher_levels(
                 {"role": "assistant", "content": "Walk me through adding a field."},
                 {"role": "user", "content": senior_answer},
             ],
-            turn=1,
+            # Past MIN_ASSESSMENT_TURNS so this exercises level skew, not the
+            # coverage floor.
+            turn=3,
         ),
     )
 
@@ -309,7 +332,9 @@ def test_junior_transcript_skews_toward_lower_levels(
                 {"role": "assistant", "content": "Walk me through adding a field."},
                 {"role": "user", "content": "I'm not sure, I'd probably look it up."},
             ],
-            turn=1,
+            # Past MIN_ASSESSMENT_TURNS so this exercises level skew, not the
+            # coverage floor.
+            turn=3,
         ),
     )
 
@@ -439,10 +464,13 @@ def test_the_retry_tells_the_model_a_weak_answer_is_not_grounds_to_finish(
     assert "not about the rest" in retry_instruction
 
 
-def test_a_model_that_insists_on_finishing_still_gets_a_full_placement(
+def test_a_model_that_insists_on_finishing_returns_503_instead_of_a_hollow_placement(
     client: tuple[TestClient, StubLLMClient],
 ):
-    """The floor must never cost somebody their interview."""
+    """A model that still says done=true after being told explicitly not to is
+    exactly the failure mode the coverage floor exists to catch -- accepting it would
+    place every unprobed candidate off zero evidence (turn 0 has no coverage
+    history yet, so nothing here was ever asked about). Retryable, not fabricated."""
     http_client, _ = client
     app.dependency_overrides[get_llm] = _stub(
         {"done": True, "assessments": [{"key": "kotlin", "level": "advanced"}]}
@@ -450,16 +478,17 @@ def test_a_model_that_insists_on_finishing_still_gets_a_full_placement(
 
     response = http_client.post(_URL, json=_request(turn=0))
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["done"] is True
-    assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}
+    assert response.status_code == 503
 
 
-def test_an_unreachable_retry_falls_back_to_the_early_finish(
+def test_an_unreachable_retry_returns_503_rather_than_a_fabricated_placement(
     client: tuple[TestClient, StubLLMClient],
 ):
-    """A retry that can't reach the LLM must not turn a placement into a 503."""
+    """The live failure this fixes: the model tries to finish on turn 0, the
+    coverage-floor retry can't reach the LLM, and the old fallback silently accepted
+    the early finish -- a "placement" backed by nothing, surfaced to the caller as a
+    500/502 anyway since there was no question to return. Must be a clean, retryable
+    503 instead."""
     http_client, _ = client
     calls = {"n": 0}
 
@@ -478,8 +507,7 @@ def test_an_unreachable_retry_falls_back_to_the_early_finish(
 
     response = http_client.post(_URL, json=_request(turn=0))
 
-    assert response.status_code == 200
-    assert response.json()["done"] is True
+    assert response.status_code == 503
 
 
 def test_a_late_turn_may_still_finish_on_its_own(

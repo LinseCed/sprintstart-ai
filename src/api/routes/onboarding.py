@@ -272,9 +272,12 @@ def _finalize_with_defaults(
         "placement rather than defaulted, since 'not asked' is not 'asked and saw "
         "nothing'.\n\n"
         "Robustness: never emits a competency key outside 'candidate_competencies'; "
-        "an unparseable model response, or must_finish=true with a model that still "
-        "wants to continue, forces a finalized response with safe defaults "
-        "(level='beginner', confidence=0.0, evidence='no signal') instead of failing."
+        "must_finish=true with a model that still wants to continue forces a "
+        "finalized response with safe defaults (level='beginner', confidence=0.0, "
+        "evidence='no signal') instead of failing. An unparseable response, or a "
+        "model that will not stop trying to finish early, raises 503 while it is "
+        "still too early to legitimately end the interview -- the caller should "
+        "retry rather than receive a placement nothing actually backed."
     ),
     responses={
         503: {
@@ -294,6 +297,22 @@ def assessment_turn(
 ) -> AssessmentTurnResponse:
     valid_keys = {c.key for c in body.candidate_competencies}
 
+    # Completion is gated on coverage, not on a turn count: the interview may not end
+    # while a candidate competency has never been asked about. A model that finishes on
+    # turn 0 is being compliant, not broken -- one "I don't know" reads as both "a
+    # defensible estimate" and "further turns have marginal value" -- so prompt wording
+    # alone can't hold the line. `must_finish` (the caller's turn ceiling) always wins,
+    # so a large candidate set can't produce an endless interview. Computed from `body`
+    # alone, ahead of the LLM call, so a transient failure below can tell "too early to
+    # legitimately end" apart from "ending now would have been fine anyway".
+    coverage_known = bool(body.targets)
+    too_early = (
+        bool(_unprobed_keys(body))
+        if coverage_known
+        else body.turn < MIN_ASSESSMENT_TURNS
+    )
+    finishing_now_is_valid = not too_early or body.must_finish
+
     try:
         raw = llm.generate(_build_assessment_prompt(body), temperature=0.2)
     except LLMUnavailableError as exc:
@@ -303,26 +322,30 @@ def assessment_turn(
         payload = _TurnPayload.model_validate_json(extract_json_object(raw))
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         logger.warning("Could not parse assessment-turn output: %s", exc)
+        # A parse failure this early can't be told apart from "the model tried to
+        # finish" -- so it gets the same treatment: only acceptable once ending now
+        # would have been legitimate anyway. Fabricating a placement nobody backed,
+        # this early, would silently end the interview on zero evidence (the bug this
+        # whole gate exists to prevent) instead of surfacing a retryable failure.
+        if not finishing_now_is_valid:
+            raise HTTPException(
+                status_code=503,
+                detail="Could not parse the interviewer's response, please retry",
+            ) from exc
         return _finalize_with_defaults(body.candidate_competencies, [])
 
-    # Completion is gated on coverage, not on a turn count: the interview may not end
-    # while a candidate competency has never been asked about. A model that finishes on
-    # turn 0 is being compliant, not broken -- one "I don't know" reads as both "a
-    # defensible estimate" and "further turns have marginal value" -- so prompt wording
-    # alone can't hold the line. Falls through to finalize if it still won't continue: a
-    # short interview beats a failed one, and `must_finish` (the caller's turn ceiling)
-    # always wins, so a large candidate set can't produce an endless interview.
-    coverage_known = bool(body.targets)
-    too_early = (
-        bool(_unprobed_keys(body))
-        if coverage_known
-        else body.turn < MIN_ASSESSMENT_TURNS
-    )
-
-    if payload.done and not body.must_finish and too_early:
+    if payload.done and not finishing_now_is_valid:
         retried = _retry_without_finishing(body, llm)
-        if retried is not None:
-            payload = retried
+        if retried is None:
+            # The model would not stop trying to finish early, or the retry itself was
+            # unreachable/unparseable -- accepting the original finish here is exactly
+            # how a hire ended up with a "placement" that probed nothing. Surfacing this
+            # as retryable (rather than a fabricated empty completion) is the fix.
+            raise HTTPException(
+                status_code=503,
+                detail="Interviewer could not continue the interview, please retry",
+            )
+        payload = retried
 
     if payload.done or body.must_finish:
         return _finalize_with_defaults(
