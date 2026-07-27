@@ -93,6 +93,7 @@ def buddy_agent(
                 contribution_noun_plural=body.vocabulary.contribution_noun_plural,
                 contribution_verb_past=body.vocabulary.contribution_verb_past,
             ),
+            project_ids=frozenset(body.project_ids) or None,
         )
     except LLMUnavailableError as exc:
         raise HTTPException(

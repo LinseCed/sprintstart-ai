@@ -179,6 +179,53 @@ def test_runs_search_docs_locally_and_collects_citations(
     assert [cit.artifact_id for cit in result.citations] == ["a1"]
 
 
+def test_search_is_scoped_to_the_project_the_hire_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wiring that stops project scoping being a field nobody sets.
+
+    Without it the mentor searches every project indexed and can quote another
+    team's process as this team's.
+    """
+    seen: list[object] = []
+
+    def _fake_retrieve(*args: object, **kwargs: object) -> list[ScoredChunk]:
+        seen.append(kwargs.get("filters"))
+        return []
+
+    monkeypatch.setattr("onboarding.buddy_agent.retrieve", _fake_retrieve)
+    llm = ScriptedLLMClient(turns=[[(SEARCH_DOCS, {"query": "how do we deploy"})], []])
+
+    run_agent_turn(
+        [_user("how do we deploy?")],
+        [],
+        llm,
+        StubVectorStore(),
+        project_ids=frozenset({"project-a"}),
+    )
+
+    assert [getattr(f, "project_ids", None) for f in seen] == [frozenset({"project-a"})]
+
+
+def test_a_deployment_serving_one_project_scopes_to_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[object] = []
+
+    def _fake_retrieve(*args: object, **kwargs: object) -> list[ScoredChunk]:
+        seen.append(kwargs.get("filters"))
+        return []
+
+    monkeypatch.setattr("onboarding.buddy_agent.retrieve", _fake_retrieve)
+    llm = ScriptedLLMClient(turns=[[(SEARCH_DOCS, {"query": "how do we deploy"})], []])
+
+    run_agent_turn([_user("how?")], [], llm, StubVectorStore())
+
+    # No project passed means no narrowing, so a single-project deployment is
+    # unaffected by any of this.
+    assert [getattr(f, "project_ids", None) for f in seen] == [None]
+
+
 def test_unknown_tool_is_answered_as_such_and_does_not_stall() -> None:
     llm = ScriptedLLMClient(turns=[[("does_not_exist", {})], []], answer="done")
     result = run_agent_turn([_user("hi")], [_GET_MY_METRICS], llm, StubVectorStore())
