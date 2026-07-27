@@ -878,6 +878,28 @@ class AssembleOrientationRequest(BaseModel):
     )
 
 
+class AssembleDiagramRequest(BaseModel):
+    subject: str = Field(
+        description=(
+            "The question the diagram answers -- 'how a request reaches the "
+            "database'. This is the one part of a diagram a model chooses, and "
+            "it only aims retrieval: every part that comes back is derived from "
+            "the corpus and cited, so a subject nothing supports yields "
+            "`skipped` rather than an invention."
+        )
+    )
+    last_fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "The corpus fingerprint recorded when this subject was last drawn, "
+            "if any. Idempotency is per subject: an unchanged corpus yields "
+            "`unchanged` so a cached diagram can be served without a generation "
+            "-- which is what keeps a card that hydrates on every board load "
+            "from costing an LLM call every time."
+        ),
+    )
+
+
 class ArtifactEvidenceSchema(BaseModel):
     pr_title: str = ""
     pr_body: str = ""
