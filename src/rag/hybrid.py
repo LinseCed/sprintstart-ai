@@ -198,7 +198,7 @@ def hybrid_retrieve(
                 # `where_filter_for_chroma`), so it must trigger the over-fetch
                 # or a project that is a small share of the corpus retrieves
                 # nothing at all.
-                or filters.project_id is not None
+                or bool(filters.project_ids)
             )
         )
     )

@@ -110,14 +110,31 @@ def _chunk(project_ids: tuple[str, ...] = ()) -> Chunk:
 def test_material_from_another_project_is_not_searchable() -> None:
     assert not matches_retrieval_filters(
         _chunk(("project-b",)),
-        RetrievalFilters(project_id="project-a"),
+        RetrievalFilters(project_ids=frozenset({"project-a"})),
     )
 
 
 def test_material_from_this_project_is() -> None:
     assert matches_retrieval_filters(
         _chunk(("project-a",)),
-        RetrievalFilters(project_id="project-a"),
+        RetrievalFilters(project_ids=frozenset({"project-a"})),
+    )
+
+
+def test_a_hire_on_two_projects_sees_both() -> None:
+    # The reason the filter takes a set: narrowing to one of a person's projects
+    # would hide their own material, and narrowing to none would show them
+    # everybody else's.
+    both = frozenset({"project-a", "project-b"})
+
+    assert matches_retrieval_filters(
+        _chunk(("project-a",)), RetrievalFilters(project_ids=both)
+    )
+    assert matches_retrieval_filters(
+        _chunk(("project-b",)), RetrievalFilters(project_ids=both)
+    )
+    assert not matches_retrieval_filters(
+        _chunk(("project-c",)), RetrievalFilters(project_ids=both)
     )
 
 
@@ -126,8 +143,12 @@ def test_material_shared_between_projects_belongs_to_both() -> None:
     # exactly why a chunk carries several ids rather than one.
     shared = _chunk(("project-a", "project-b"))
 
-    assert matches_retrieval_filters(shared, RetrievalFilters(project_id="project-a"))
-    assert matches_retrieval_filters(shared, RetrievalFilters(project_id="project-b"))
+    assert matches_retrieval_filters(
+        shared, RetrievalFilters(project_ids=frozenset({"project-a"}))
+    )
+    assert matches_retrieval_filters(
+        shared, RetrievalFilters(project_ids=frozenset({"project-b"}))
+    )
 
 
 def test_unscoped_material_stays_visible_to_every_project() -> None:
@@ -137,7 +158,7 @@ def test_unscoped_material_stays_visible_to_every_project() -> None:
     # caller starts scoping would look like the corpus had emptied.
     assert matches_retrieval_filters(
         _chunk(),
-        RetrievalFilters(project_id="project-a"),
+        RetrievalFilters(project_ids=frozenset({"project-a"})),
     )
 
 

@@ -372,13 +372,15 @@ class BuddyAgentRequest(BaseModel):
             "unbounded transcript."
         ),
     )
-    project_id: str | None = Field(
-        default=None,
+    project_ids: list[str] = Field(
+        default_factory=list[str],
         description=(
-            "Scopes `search_docs` to one project's material. Omit and the mentor "
-            "searches everything indexed, which is only right on a deployment "
-            "serving a single project. Material belonging to no project stays "
-            "searchable either way."
+            "Scopes `search_docs` to the projects this hire is on. Several is "
+            "ordinary -- a hire onboarding on two projects should find material "
+            "from both and from neither of anybody else's. Empty searches "
+            "everything indexed, which is only right on a deployment serving a "
+            "single project. Material belonging to no project stays searchable "
+            "either way."
         ),
     )
 

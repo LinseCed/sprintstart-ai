@@ -201,10 +201,10 @@ def test_search_is_scoped_to_the_project_the_hire_is_on(
         [],
         llm,
         StubVectorStore(),
-        project_id="project-a",
+        project_ids=frozenset({"project-a"}),
     )
 
-    assert [getattr(f, "project_id", None) for f in seen] == ["project-a"]
+    assert [getattr(f, "project_ids", None) for f in seen] == [frozenset({"project-a"})]
 
 
 def test_a_deployment_serving_one_project_scopes_to_nothing(
@@ -223,7 +223,7 @@ def test_a_deployment_serving_one_project_scopes_to_nothing(
 
     # No project passed means no narrowing, so a single-project deployment is
     # unaffected by any of this.
-    assert [getattr(f, "project_id", None) for f in seen] == [None]
+    assert [getattr(f, "project_ids", None) for f in seen] == [None]
 
 
 def test_unknown_tool_is_answered_as_such_and_does_not_stall() -> None:

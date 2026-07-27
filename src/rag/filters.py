@@ -53,8 +53,8 @@ def matches_retrieval_filters(
     if filters is None:
         return True
 
-    if filters.project_id is not None and chunk.project_ids:
-        if filters.project_id not in chunk.project_ids:
+    if filters.project_ids and chunk.project_ids:
+        if not any(pid in filters.project_ids for pid in chunk.project_ids):
             return False
 
     if filters.source_systems:
@@ -85,7 +85,7 @@ def matches_retrieval_filters(
 def where_filter_for_chroma(filters: RetrievalFilters | None) -> Any | None:
     """The part of ``filters`` the store itself can apply.
 
-    ``project_id`` is deliberately **not** pushed down. Chroma metadata values
+    ``project_ids`` is deliberately **not** pushed down. Chroma metadata values
     are scalars, so a chunk's several projects are stored as one delimited
     string, and there is no metadata operator that asks "contains this id" --
     equality would silently drop every chunk shared between two projects, which

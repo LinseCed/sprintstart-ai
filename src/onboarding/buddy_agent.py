@@ -231,7 +231,7 @@ def run_agent_turn(
     prior_summary: str | None = None,
     summarize_upto: int | None = None,
     vocabulary: Vocabulary = DEFAULT_VOCABULARY,
-    project_id: str | None = None,
+    project_ids: frozenset[str] | None = None,
 ) -> AgentTurnResult:
     """Runs one agent turn: executes ``search_docs`` locally, pauses on backend tools.
 
@@ -290,11 +290,12 @@ def run_agent_turn(
                         top_k=_TOP_K,
                         min_score=_MIN_SCORE,
                         exclusions=resolved_exclusions,
-                        # Scoped to the hire's project, so the mentor cannot quote
-                        # another team's material as this team's. Material belonging
-                        # to no project stays searchable -- see
+                        # Scoped to the projects this hire is on, so the mentor
+                        # cannot quote another team's material as this team's --
+                        # and cannot hide the hire's own second project either.
+                        # Material belonging to no project stays searchable; see
                         # `matches_retrieval_filters`.
-                        filters=RetrievalFilters(project_id=project_id),
+                        filters=RetrievalFilters(project_ids=project_ids),
                     )
                 )
                 # Cited after the drop, so nothing the mentor may not quote is

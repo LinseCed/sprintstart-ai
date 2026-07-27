@@ -20,10 +20,16 @@ class RetrievalFilters:
     source_systems: list[SourceSystem] | None = None
     time_from: str | None = None
     time_to: str | None = None
-    #: Only material belonging to this project, plus material belonging to no
-    #: project at all. See :func:`rag.filters.matches_retrieval_filters` for why
+    #: Only material belonging to one of these projects, plus material belonging
+    #: to no project at all.
+    #:
+    #: A set rather than one id because the caller is usually a *person*, and a
+    #: person can be on several projects — narrowing to one of them would hide
+    #: their own material, and narrowing to none would show them everybody's.
+    #: ``None`` (and an empty set) narrow nothing, so a single-project deployment
+    #: is unaffected. See :func:`rag.filters.matches_retrieval_filters` for why
     #: unscoped material stays visible rather than disappearing.
-    project_id: str | None = None
+    project_ids: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
