@@ -372,6 +372,15 @@ class BuddyAgentRequest(BaseModel):
             "unbounded transcript."
         ),
     )
+    project_id: str | None = Field(
+        default=None,
+        description=(
+            "Scopes `search_docs` to one project's material. Omit and the mentor "
+            "searches everything indexed, which is only right on a deployment "
+            "serving a single project. Material belonging to no project stays "
+            "searchable either way."
+        ),
+    )
 
 
 class BuddyAgentResponse(BaseModel):
@@ -1105,6 +1114,15 @@ class ArtifactRunIngestRequest(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     artifact_id: str
+    project_ids: list[str] = Field(
+        default_factory=list[str],
+        description=(
+            "The projects this artifact belongs to. Several is ordinary -- a "
+            "repository shared between two projects is one artifact serving both. "
+            "Empty means unscoped, which stays searchable from every project: "
+            "absent scope is not the same as excluded scope."
+        ),
+    )
     source_system: str | None = Field(
         default=None,
         alias="sourceSystem",

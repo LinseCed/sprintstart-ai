@@ -20,6 +20,10 @@ class RetrievalFilters:
     source_systems: list[SourceSystem] | None = None
     time_from: str | None = None
     time_to: str | None = None
+    #: Only material belonging to this project, plus material belonging to no
+    #: project at all. See :func:`rag.filters.matches_retrieval_filters` for why
+    #: unscoped material stays visible rather than disappearing.
+    project_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,11 @@ class Chunk:
     # 1-based PDF page the chunk was extracted from. Only meaningful for "pdf"
     # chunks; text/code chunks track the source line instead (``start_line``).
     start_page: int | None = None
+    # Which projects this material belongs to. A tuple rather than a single id
+    # because one artifact genuinely can serve several projects -- a shared
+    # repository is the ordinary case, not an edge one. Empty means "not scoped
+    # to any project", which is treated as belonging to all of them.
+    project_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +75,9 @@ class ScoredChunk:
     created_at: str | None = None
     start_line: int | None = None
     start_page: int | None = None
+    #: See :attr:`Chunk.project_ids`. Carried through retrieval so a consumer can
+    #: filter after the fact and a citation can say where the material belongs.
+    project_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

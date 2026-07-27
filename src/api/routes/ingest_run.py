@@ -183,6 +183,7 @@ def _ingest_one(
                     source_created_at=artifact.source_created_at,
                     source_updated_at=artifact.source_updated_at,
                     source_system=source_system,
+                    project_ids=tuple(artifact.project_ids),
                 ),
                 position=index,
                 connector_id=source_system.lower(),
