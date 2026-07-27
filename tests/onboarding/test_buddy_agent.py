@@ -14,6 +14,15 @@ _GET_MY_METRICS: ToolSpec = {
 }
 
 
+def _tool(name: str) -> ToolSpec:
+    """A minimal backend tool spec; only its name reaches the persona."""
+    return {
+        "name": name,
+        "description": f"The {name} tool.",
+        "parameters": {"type": "object", "properties": {}},
+    }
+
+
 def _user(text: str) -> Message:
     return Message(role="user", content=text)
 
@@ -136,7 +145,19 @@ def test_unknown_tool_is_answered_as_such_and_does_not_stall() -> None:
 def test_persona_makes_the_buddy_a_plan_aware_mentor() -> None:
     llm = ScriptedLLMClient(turns=[], answer="hi")
 
-    run_agent_turn([_user("hello")], [_GET_MY_METRICS], llm, StubVectorStore())
+    # The persona is assembled from the tools this hire was actually mounted, so a
+    # test about the plan-aware directives has to mount the plan tools. Passing only
+    # get_my_metrics used to still produce them, from a fixed persona that described
+    # capabilities the hire might not have.
+    plan_tools = [
+        _GET_MY_METRICS,
+        _tool("get_learning_plan"),
+        _tool("get_module"),
+        _tool("submit_verification"),
+        _tool("claim_goal"),
+    ]
+
+    run_agent_turn([_user("hello")], plan_tools, llm, StubVectorStore())
 
     persona = _system_of(llm.chat_calls[0])
     # The load-bearing directives, pinned without over-fitting the wording: plan
@@ -148,6 +169,20 @@ def test_persona_makes_the_buddy_a_plan_aware_mentor() -> None:
     assert "claim_goal" in persona
     assert "never invent" in persona
     assert "never mention scores" in persona
+
+
+def test_persona_omits_tools_this_hire_was_not_mounted() -> None:
+    llm = ScriptedLLMClient(turns=[], answer="hi")
+
+    run_agent_turn([_user("hello")], [_GET_MY_METRICS], llm, StubVectorStore())
+
+    persona = _system_of(llm.chat_calls[0])
+    # A mentor told about a tool it was not given will offer the hire something
+    # impossible -- which is how a Scrum Master's buddy ended up discussing their
+    # pull requests.
+    assert "get_learning_plan" not in persona
+    assert "get_module" not in persona
+    assert "`get_my_metrics`" in persona
 
 
 def test_folds_the_oldest_messages_into_an_updated_summary() -> None:

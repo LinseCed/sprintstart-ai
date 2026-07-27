@@ -309,6 +309,29 @@ class BuddyCitationSchema(BaseModel):
     start_page: int | None = None
 
 
+class BuddyVocabularySchema(BaseModel):
+    """What one unit of this hire's accepted work is called.
+
+    Every field defaults to the engineering wording, so a backend that sends no
+    vocabulary gets exactly the mentor it got before tracks existed. The noun is
+    bare because it is always rendered next to the verb -- "merged change",
+    "facilitated ceremony" -- and baking the verb in yields "merged merged change".
+    """
+
+    contribution_noun: str = Field(
+        default="change",
+        description='One unit of accepted work, bare: "change", "ceremony".',
+    )
+    contribution_noun_plural: str = Field(
+        default="changes",
+        description='The plural: "changes", "ceremonies".',
+    )
+    contribution_verb_past: str = Field(
+        default="merged",
+        description='Past tense of the hire\'s own act: "merged", "facilitated".',
+    )
+
+
 class BuddyAgentRequest(BaseModel):
     messages: list[BuddyAgentMessageSchema] = Field(
         default_factory=list[BuddyAgentMessageSchema],
@@ -322,7 +345,17 @@ class BuddyAgentRequest(BaseModel):
         default_factory=list[BuddyToolSpecSchema],
         description=(
             "Tools only the backend can execute (e.g. get_my_metrics). The AI reasons "
-            "about them and hands their calls back rather than running them."
+            "about them and hands their calls back rather than running them. Mounted "
+            "per hire: the mentor's persona describes exactly these and no others, so "
+            "a role that cannot produce a kind of evidence is never told about the "
+            "tool for it."
+        ),
+    )
+    vocabulary: BuddyVocabularySchema = Field(
+        default_factory=BuddyVocabularySchema,
+        description=(
+            "The hire's track vocabulary, rendered into fixed slots in the persona. "
+            "Omit it for the engineering wording."
         ),
     )
     prior_summary: str | None = Field(
@@ -377,7 +410,10 @@ class BuddyAgentResponse(BaseModel):
 class BuddyOpenRequest(BaseModel):
     memory: str | None = Field(
         default=None,
-        description="The mentor's durable memory note about this hire; empty on the first visit.",
+        description=(
+            "The mentor's durable memory note about this hire; empty on the "
+            "first visit."
+        ),
     )
     recent: list[BuddyAgentMessageSchema] = Field(
         default_factory=list[BuddyAgentMessageSchema],
@@ -397,12 +433,16 @@ class BuddyOpenRequest(BaseModel):
 
 class BuddyOpenActionSchema(BaseModel):
     label: str = Field(description="Short button text for the suggested next step.")
-    question: str = Field(description="The message sent to the buddy when the hire clicks it.")
+    question: str = Field(
+        description="The message sent to the buddy when the hire clicks it."
+    )
 
 
 class BuddyOpenResponse(BaseModel):
     memory: str = Field(
-        description="The refreshed memory note to persist; the prior memory if nothing changed."
+        description=(
+            "The refreshed memory note to persist; the prior memory if nothing changed."
+        )
     )
     greeting: str = Field(description="The warm, proactive opener to show the hire.")
     action: BuddyOpenActionSchema | None = Field(
