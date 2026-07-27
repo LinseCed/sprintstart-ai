@@ -29,7 +29,7 @@ from onboarding.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 from rag.citation import build_citations
 from rag.retriever import retrieve
 from rag.source_filter import SourceExclusions
-from rag.source_kind import is_test_source
+from rag.source_kind import is_test_chunk
 from rag.types import Citation, ScoredChunk
 from store.base import VectorStore
 
@@ -178,21 +178,47 @@ def _tool_result_message(call_id: str, content: str) -> Message:
     return Message(role="tool", content=content, tool_call_id=call_id)
 
 
-def _chunk_header(filename: str) -> str:
-    # Mark test/fixture/sample files inline so the model treats their contents as
-    # examples, not the team's real docs or process (see the persona rule).
-    if is_test_source(filename):
+def drop_test_material(chunks: list[ScoredChunk]) -> list[ScoredChunk]:
+    """Remove test, fixture and sample files from what the mentor may quote.
+
+    Dropped rather than labelled, and the difference matters. A label asks the
+    model to hold a distinction while it answers, and this is the exact question
+    a model is worst at holding it on: a fixture describing a review process
+    *reads* like a review process. Told "this is sample data", it produced a
+    branch-naming convention, a CI pipeline and a merge workflow that no team had
+    ever used — and defended them when challenged. What a model cannot quote, it
+    cannot attribute to the team.
+
+    Emptying the result is a *good* outcome, not a degraded one. The buddy's
+    no-evidence path drafts the question to ask a colleague instead of answering,
+    which is exactly right here: if the only thing matching was a fixture, the
+    thing is not documented, and saying so beats reciting an example as policy.
+
+    The label below stays as the second line, for material that is genuinely
+    primary but talks about tests.
+    """
+    return [
+        chunk
+        for chunk in chunks
+        if not is_test_chunk(chunk.filename, chunk.source_url, chunk.source_role)
+    ]
+
+
+def _chunk_header(chunk: ScoredChunk) -> str:
+    # Anything reaching here already survived `drop_test_material`, so this only
+    # fires for a file no signal marked -- it is the belt to that braces.
+    if is_test_chunk(chunk.filename, chunk.source_url, chunk.source_role):
         return (
-            f"[{filename}] (test/fixture file -- example or sample data, "
+            f"[{chunk.filename}] (test/fixture file -- example or sample data, "
             "not the team's real documentation or process)"
         )
-    return f"[{filename}]"
+    return f"[{chunk.filename}]"
 
 
 def _format_chunks(chunks: list[ScoredChunk]) -> str:
     if not chunks:
         return "No indexed material matched this search."
-    parts = [f"{_chunk_header(chunk.filename)}\n{chunk.text}" for chunk in chunks]
+    parts = [f"{_chunk_header(chunk)}\n{chunk.text}" for chunk in chunks]
     return "\n\n---\n\n".join(parts)
 
 
@@ -255,14 +281,18 @@ def run_agent_turn(
         for call in result.tool_calls:
             if call.name == SEARCH_DOCS:
                 query = str(call.arguments.get("query", "")).strip()
-                chunks = retrieve(
-                    query,
-                    llm,
-                    store,
-                    top_k=_TOP_K,
-                    min_score=_MIN_SCORE,
-                    exclusions=resolved_exclusions,
+                chunks = drop_test_material(
+                    retrieve(
+                        query,
+                        llm,
+                        store,
+                        top_k=_TOP_K,
+                        min_score=_MIN_SCORE,
+                        exclusions=resolved_exclusions,
+                    )
                 )
+                # Cited after the drop, so nothing the mentor may not quote is
+                # offered to the hire as a source either.
                 citations.extend(build_citations(chunks))
                 work = [*work, _tool_result_message(call.id, _format_chunks(chunks))]
             elif call.name in backend_names:

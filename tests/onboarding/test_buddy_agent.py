@@ -2,7 +2,12 @@ import pytest
 
 from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
-from onboarding.buddy_agent import SEARCH_DOCS, _format_chunks, run_agent_turn
+from onboarding.buddy_agent import (
+    SEARCH_DOCS,
+    _format_chunks,
+    drop_test_material,
+    run_agent_turn,
+)
 from rag.types import ScoredChunk
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
@@ -82,21 +87,64 @@ def test_resumes_with_a_tool_result_and_answers() -> None:
     assert "52 hours" in result.text
 
 
-def _chunk(filename: str) -> ScoredChunk:
+def _chunk(
+    filename: str, source_url: str | None = None, source_role: str = "primary"
+) -> ScoredChunk:
     return ScoredChunk(
-        id="c1", artifact_id="a1", filename=filename, text="Some content.", score=0.9
+        id="c1",
+        artifact_id="a1",
+        filename=filename,
+        text="Some content.",
+        score=0.9,
+        source_url=source_url,
+        source_role=source_role,  # type: ignore[arg-type]
     )
 
 
-def test_marks_a_test_fixture_chunk_so_the_model_knows_it_is_not_real_process() -> None:
-    formatted = _format_chunks([_chunk("tests/rag/demo-corpus/process.md")])
+# Retrieval returns a *basename*, never a path -- the earlier tests here passed a
+# path as `filename` and so never reproduced what the buddy actually sees. These
+# use the real shape.
+_FIXTURE_URL = "https://github.com/o/r/blob/7766d14/tests/rag/demo-corpus/process.md"
+_REAL_DOC_URL = "https://github.com/o/r/blob/main/docs/process.md"
+
+
+def test_a_fixture_never_reaches_the_model_at_all() -> None:
+    # The failure this fixes: a demo-corpus file quoted as the team's real process,
+    # complete with a branch convention and a CI pipeline nobody had ever used.
+    kept = drop_test_material([_chunk("process.md", _FIXTURE_URL)])
+
+    assert kept == []
+
+
+def test_a_real_document_with_the_same_basename_is_kept() -> None:
+    kept = drop_test_material([_chunk("process.md", _REAL_DOC_URL)])
+
+    assert len(kept) == 1
+
+
+def test_a_search_finding_only_fixtures_finds_nothing() -> None:
+    # And that is the right answer: the buddy's no-evidence path drafts the question
+    # to ask a colleague, which beats reciting an example as policy.
+    kept = drop_test_material([_chunk("process.md", _FIXTURE_URL), _chunk("test_x.py")])
+
+    assert _format_chunks(kept) == "No indexed material matched this search."
+
+
+def test_ingest_time_role_is_honoured_even_with_no_url() -> None:
+    kept = drop_test_material([_chunk("sample.json", None, "test")])
+
+    assert kept == []
+
+
+def test_still_marks_anything_that_slips_past_the_drop() -> None:
+    # Belt to the braces: `_format_chunks` is reachable with un-dropped input.
+    formatted = _format_chunks([_chunk("process.md", _FIXTURE_URL)])
 
     assert "test/fixture file" in formatted
-    assert "tests/rag/demo-corpus/process.md" in formatted
 
 
 def test_does_not_mark_a_real_source_chunk() -> None:
-    formatted = _format_chunks([_chunk("docs/process.md")])
+    formatted = _format_chunks([_chunk("process.md", _REAL_DOC_URL)])
 
     assert "test/fixture file" not in formatted
 
