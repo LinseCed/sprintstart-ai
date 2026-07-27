@@ -4,9 +4,9 @@ Competencies and their prerequisite edges are the backend's durable graph (see
 the backend's ``Competency``/``CompetencyEdge`` entities). This service never
 persists graph state itself -- it proposes candidate nodes/edges for the
 backend to store and a PM to review, the same proposal-only relationship
-:class:`onboarding.models.Blueprint` has with the backend.
+every other proposal-only job has with the backend.
 
-Unlike a :class:`~onboarding.models.Blueprint`, the backend's competency graph
+The backend's competency graph
 today can only grow (no replace-whole-graph, no removal/modification) -- so
 this module has no analogue of ``generation._enforce_invariants``. There is
 nothing to protect a proposal run from silently dropping, because a proposal
@@ -53,7 +53,7 @@ class ProposedEdge(BaseModel):
 
 
 class GraphProvenance(BaseModel):
-    """Why a proposal run looks the way it does; mirrors ``BlueprintProvenance``."""
+    """Why a proposal run looks the way it does; the usual provenance shape."""
 
     corpus_fingerprint: str | None = None
     generated_at: str | None = None

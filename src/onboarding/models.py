@@ -9,12 +9,7 @@ hire. Content is now a shared module owned by a competency, so there is nothing
 per-person left to model.
 """
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
-
-Requirement = Literal["required", "recommended"]
-Source = Literal["authored", "generated"]
 
 # Coarse, ordinal experience levels used to gate steps by ``min_experience`` and
 # to tune the synthesis verbosity. Single source of truth for both, so the two
@@ -106,52 +101,3 @@ class CitationRef(BaseModel):
     filename: str
     chunk_id: str
     source_url: str | None = None
-
-
-class BlueprintProvenance(BaseModel):
-    """Why a generated blueprint looks the way it does.
-
-    ``corpus_fingerprint`` ties a generated blueprint to the exact corpus state
-    it was drafted from, which is what makes the generation job idempotent:
-    re-running against an unchanged corpus produces the same fingerprint and is
-    skipped. ``None`` throughout for authored blueprints.
-    """
-
-    corpus_fingerprint: str | None = None
-    generated_at: str | None = None
-    model: str | None = None
-    notes: list[str] = Field(default_factory=list)
-
-
-class BaselineCompetency(BaseModel):
-    """One competency selected into a baseline.
-
-    A baseline is a *selection over the competency graph*, not a list of prose
-    steps: which competencies must everyone in a scope reach, and to what level.
-    ``target_level`` is ``None`` when the scope has no opinion beyond the
-    competency's own bar — the normal case.
-    """
-
-    competency_key: str
-    target_level: int | None = None
-    requirement: Requirement = "recommended"
-    # Human-owned protection flag. An ``invariant`` entry may not be removed or
-    # downgraded by the generation job; such changes are blocked or escalated.
-    invariant: bool = False
-    # Why this competency belongs in the baseline, in the proposer's words. Shown
-    # to the PM reviewing the proposal; not persisted as part of the selection.
-    rationale: str = ""
-
-
-class Baseline(BaseModel):
-    """A versioned, scoped competency selection — the mandatory baseline.
-
-    ``source`` distinguishes human-authored from AI-generated baselines.
-    ``provenance`` is populated for generated ones and drives idempotency.
-    """
-
-    scope: str = Field(description="'global' or 'area:<name>'")
-    version: str = "0"
-    source: Source = "authored"
-    competencies: list[BaselineCompetency] = []
-    provenance: BlueprintProvenance | None = None

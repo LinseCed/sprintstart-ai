@@ -2,7 +2,7 @@ import json
 from collections.abc import Generator
 
 from llm.base import Message
-from onboarding.generation import corpus_fingerprint
+from onboarding.corpus import corpus_fingerprint
 from onboarding.graph_generation import (
     generate_competency_graph,
     stream_competency_graph,

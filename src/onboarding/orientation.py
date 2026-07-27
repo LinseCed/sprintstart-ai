@@ -32,7 +32,7 @@ from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.citations import resolve_citations
-from onboarding.generation import corpus_fingerprint
+from onboarding.corpus import corpus_fingerprint
 from onboarding.orientation_models import (
     STEP_ORDER,
     OrientationOutcome,

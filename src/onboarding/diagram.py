@@ -41,6 +41,7 @@ from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.citations import resolve_citations
+from onboarding.corpus import corpus_fingerprint
 from onboarding.diagram_models import (
     EDGE_KINDS,
     NODE_KINDS,
@@ -51,7 +52,6 @@ from onboarding.diagram_models import (
     DiagramProvenance,
     DiagramSource,
 )
-from onboarding.generation import corpus_fingerprint
 from onboarding.progress import ProgressEvent, ProgressStream, drain
 from onboarding.similarity import OVERLAP_THRESHOLD, text_overlap
 from rag.hybrid import BM25IndexCache, hybrid_retrieve

@@ -6,7 +6,7 @@ hire's request path -- that mines the ingested corpus's open GitHub issues for
 safely-scoped starter tasks and proposes them as a candidate pool for PM
 curation. Proposal-only, never auto-published: mirrors
 :mod:`onboarding.graph_generation`'s relationship to the backend, including
-reuse of its idempotency mechanism (:func:`onboarding.generation.corpus_fingerprint`).
+reuse of its idempotency mechanism (:func:`onboarding.corpus.corpus_fingerprint`).
 
 Candidate sourcing is deterministic, not LLM-driven: only ``ISSUE`` artifacts
 with ``state == "OPEN"`` are ever considered (see
@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ingestion.metadata_store import IngestionMetadataStore
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
-from onboarding.generation import corpus_fingerprint
+from onboarding.corpus import corpus_fingerprint
 from onboarding.graph_models import ProposalStatus
 from onboarding.models import CitationRef
 from onboarding.progress import ProgressEvent, ProgressStream, drain
