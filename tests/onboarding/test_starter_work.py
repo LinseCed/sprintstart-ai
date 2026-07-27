@@ -2,7 +2,7 @@ import json
 from collections.abc import Generator
 
 from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
-from onboarding.generation import corpus_fingerprint
+from onboarding.corpus import corpus_fingerprint
 from onboarding.progress import ProgressEvent
 from onboarding.starter_work import (
     generate_starter_work_pool,

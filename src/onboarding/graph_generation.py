@@ -4,7 +4,7 @@ A batch, re-runnable job that proposes new ``Competency`` nodes (``SKILL``/
 ``CONCEPT``, per this slice's scope) and the edges between them, grounded in
 the ingested repo. It reuses the same retrieval layer
 (:func:`rag.hybrid.hybrid_retrieve`) and idempotency mechanism
-(:func:`onboarding.generation.corpus_fingerprint`) as blueprint generation.
+(:func:`onboarding.corpus.corpus_fingerprint`) as every other offline job.
 
 Nodes and edges are two separate LLM calls. Asking for both at once reliably
 produced a scatter -- live testing yielded 10 competencies and 3 edges, with
@@ -16,21 +16,19 @@ fingerprint short-circuits the *node* pass only: relationships between nodes
 already in the graph are not a function of the corpus, and a graph proposed
 before this pass existed is precisely the one that needs re-running.
 
-Deliberately simpler than blueprint generation: the backend's competency graph
-today can only grow (see :mod:`onboarding.graph_models`), so there is no
-invariant-protection gate here -- a proposal run only ever adds new
-candidates, it never redrafts or replaces what already exists. The real
-constraint is dedup: a competency already in the graph must not be re-proposed
-(exact key match), and a near-duplicate must not slip through either
-(embedding similarity, same threshold blueprint generation uses).
+Deliberately simple: the backend's competency graph today can only grow (see
+:mod:`onboarding.graph_models`), so there is no invariant-protection gate here
+-- a proposal run only ever adds new candidates, it never redrafts or replaces
+what already exists. The real constraint is dedup: a competency already in the
+graph must not be re-proposed (exact key match), and a near-duplicate must not
+slip through either (embedding similarity).
 
-The backend has no persisted proposal-lifecycle for competencies/edges yet
-(unlike ``Blueprint``'s DRAFT/PROPOSED/ACTIVE/ARCHIVED) -- that is a real gap
-this job's caller must eventually address (see backend issue #7's "Done when"
-list, deferred). Until then, idempotency is driven by an explicit
+The backend has no persisted proposal-lifecycle for competencies/edges yet --
+that is a real gap this job's caller must eventually address (see backend issue
+#7's "Done when" list, deferred). Until then, idempotency is driven by an explicit
 ``last_fingerprint`` the caller passes in and is responsible for persisting,
 since there is no "active proposal" object here to carry it the way
-``Blueprint.provenance.corpus_fingerprint`` does.
+every other job's provenance fingerprint does.
 """
 
 import json
@@ -45,7 +43,7 @@ from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.citations import resolve_citations
-from onboarding.generation import corpus_fingerprint
+from onboarding.corpus import corpus_fingerprint
 from onboarding.graph_models import (
     ActiveCompetency,
     ActiveEdge,

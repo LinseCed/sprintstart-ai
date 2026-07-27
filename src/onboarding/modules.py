@@ -2,7 +2,7 @@
 
 A batch, authoring-time job — never on a hire's request path. It reuses the same
 retrieval layer (:func:`rag.hybrid.hybrid_retrieve`) and idempotency mechanism
-(:func:`onboarding.generation.corpus_fingerprint`) as the rest of the offline
+(:func:`onboarding.corpus.corpus_fingerprint`) as the rest of the offline
 generation jobs.
 
 Two properties are load-bearing and easy to lose:
@@ -29,7 +29,7 @@ from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.citations import resolve_citations
-from onboarding.generation import corpus_fingerprint
+from onboarding.corpus import corpus_fingerprint
 from onboarding.module_models import (
     GROUNDED_PAGE_KINDS,
     ModuleLevel,
