@@ -19,52 +19,19 @@ a language task, so it lives here; persistence is the backend's. The summary rid
 the system message in the returned conversation, so resume hops need nothing re-sent.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from llm.base import ChatResult, LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+from onboarding.buddy_persona import build_persona
+from onboarding.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 from rag.citation import build_citations
 from rag.retriever import retrieve
 from rag.source_filter import SourceExclusions
 from rag.source_kind import is_test_source
 from rag.types import Citation, ScoredChunk
 from store.base import VectorStore
-
-_PERSONA = (
-    "You are the onboarding buddy: the mentor who guides a new hire from their first "
-    "day to shipping real work. You are warm, patient, and always available -- no "
-    "question is too basic.\n"
-    "How you work:\n"
-    "- You have a plan for the hire, not just answers. Before recommending what to "
-    "learn or work on, consult `get_learning_plan`: it says what they are working "
-    "toward, which competencies come next in the order the team's graph suggests, "
-    "and why. The plan determines sequence -- never invent your own curriculum "
-    "order. Relay its reasons ('usually comes after X') as guidance, never as "
-    "gates, and never mention scores.\n"
-    "- Teach from the team's shared material: when the hire should learn a "
-    "competency, read its module with `get_module` and teach from its pages, citing "
-    "the sources they carry. If no module exists, teach from the docs with "
-    "`search_docs` instead -- and never fabricate module content.\n"
-    "- Use `search_docs` for anything about how this codebase, product, or process "
-    "works, and the hire-state tools (`get_my_metrics`, `get_my_competencies`, "
-    "`get_suggested_tasks`) for the hire's own progress.\n"
-    "- Ground every claim about the codebase in a tool result -- a module page's "
-    "sources or `search_docs` citations. If the tools don't cover it, say so "
-    "honestly rather than inventing an answer; offer `flag_to_pm` as the last "
-    "resort.\n"
-    "- Some retrieved files are test, fixture, or sample-data files -- a search "
-    "result is marked `(test/fixture file ...)` when it is. Their contents are "
-    "examples, not the team's real documentation or process, so never present "
-    "them as authoritative: if an answer would lean on one, either find a "
-    "non-test source or tell the hire it comes from an example/test file and may "
-    "not reflect the real process.\n"
-    "- Turn work into record: when the hire has done what a module's check asks, "
-    "offer to submit their answer with `submit_verification` -- you relay the "
-    "verdict, you never grade the work yourself. When they pick a suggested task, "
-    "offer `claim_goal`.\n"
-    "- Celebrate the merges and milestones the metrics report. Shipping is the "
-    "point; everything else is the path to it."
-)
 
 # How the summary enters the model's context: appended to the persona in the system
 # message, so it rides the running conversation the caller carries between turns.
@@ -73,8 +40,12 @@ _SUMMARY_HEADER = "\n\nConversation so far (compressed memory of earlier turns):
 _COMPACT_SYSTEM = (
     "You compress a running mentorship conversation into a durable memory note for "
     "the mentor's future self. Third person, factual, under 200 words. Keep: what "
-    "the hire is working toward, tasks claimed or merged, pull requests opened, "
-    "what they have been taught, decisions made, open questions. Drop: greetings, "
+    # Deliberately role-neutral rather than templated per track: this note is read
+    # back by the mentor, never shown to the hire, so neutral wording covers every
+    # role without threading a second vocabulary seam through compaction.
+    "the hire is working toward, tasks claimed or completed, work they submitted "
+    "and what came of it, what they have been taught, decisions made, open "
+    "questions. Drop: greetings, "
     "phatic talk, superseded questions, anything the recent window still covers."
 )
 
@@ -129,18 +100,34 @@ class AgentTurnResult:
     updated_summary: str | None = None
 
 
-def _persona_prompt(summary: str | None) -> str:
+def _persona_prompt(
+    summary: str | None,
+    tool_names: Collection[str],
+    vocabulary: Vocabulary,
+) -> str:
+    persona = build_persona(tool_names, vocabulary)
     if not summary:
-        return _PERSONA
-    return _PERSONA + _SUMMARY_HEADER + summary
+        return persona
+    return persona + _SUMMARY_HEADER + summary
 
 
-def _ensure_persona(messages: list[Message], summary: str | None) -> list[Message]:
+def _ensure_persona(
+    messages: list[Message],
+    summary: str | None,
+    tool_names: Collection[str],
+    vocabulary: Vocabulary,
+) -> list[Message]:
     # A system message already leads the running conversation on a resume hop: the
     # summary is folded inside it, so nothing is re-sent or double-folded.
     if messages and messages[0]["role"] == "system":
         return list(messages)
-    return [Message(role="system", content=_persona_prompt(summary)), *messages]
+    return [
+        Message(
+            role="system",
+            content=_persona_prompt(summary, tool_names, vocabulary),
+        ),
+        *messages,
+    ]
 
 
 def _try_compact(
@@ -217,6 +204,7 @@ def run_agent_turn(
     exclusions: SourceExclusions | None = None,
     prior_summary: str | None = None,
     summarize_upto: int | None = None,
+    vocabulary: Vocabulary = DEFAULT_VOCABULARY,
 ) -> AgentTurnResult:
     """Runs one agent turn: executes ``search_docs`` locally, pauses on backend tools.
 
@@ -241,9 +229,12 @@ def run_agent_turn(
             summary = folded
             window = window[summarize_upto:]
 
-    work = _ensure_persona(window, summary)
     tools = [_SEARCH_TOOL, *backend_tools]
     backend_names = {tool["name"] for tool in backend_tools}
+    # The persona describes exactly the tools this hire was mounted, never a fixed
+    # catalogue: the backend decides what a given role can even have, and a mentor
+    # told about a tool it does not have will offer the hire something impossible.
+    work = _ensure_persona(window, summary, {SEARCH_DOCS, *backend_names}, vocabulary)
     resolved_exclusions = exclusions if exclusions is not None else SourceExclusions()
     citations: list[Citation] = []
 

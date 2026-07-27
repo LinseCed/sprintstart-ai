@@ -18,6 +18,7 @@ from llm.base import LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
 from onboarding.buddy_agent import run_agent_turn
 from onboarding.buddy_open import open_session
+from onboarding.vocabulary import Vocabulary
 from store.base import VectorStore
 
 router = APIRouter()
@@ -87,6 +88,11 @@ def buddy_agent(
             exclusions=source_state.get_exclusions(),
             prior_summary=body.prior_summary,
             summarize_upto=body.summarize_upto,
+            vocabulary=Vocabulary(
+                contribution_noun=body.vocabulary.contribution_noun,
+                contribution_noun_plural=body.vocabulary.contribution_noun_plural,
+                contribution_verb_past=body.vocabulary.contribution_verb_past,
+            ),
         )
     except LLMUnavailableError as exc:
         raise HTTPException(
@@ -138,7 +144,9 @@ def buddy_open(
         llm=llm,
     )
     action = (
-        BuddyOpenActionSchema(label=opening.action_label, question=opening.action_question)
+        BuddyOpenActionSchema(
+            label=opening.action_label, question=opening.action_question
+        )
         if opening.action_label and opening.action_question
         else None
     )
