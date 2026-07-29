@@ -29,8 +29,7 @@ def client() -> Generator[tuple[TestClient, StubLLMClient, StubVectorStore], Any
                         "kind": "SKILL",
                         "chunk_ids": ["c1"],
                     }
-                ],
-                "edges": [],
+                ]
             }
         )
     )

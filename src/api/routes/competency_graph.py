@@ -1,9 +1,9 @@
-"""Generation API for AI-proposed competency graph elements.
+"""Generation API for AI-proposed competencies.
 
 The AI service is stateless: this router runs the batch proposal job over the
-ingested corpus and returns candidate competencies/edges. The backend owns
-persistence and PM review — it passes its current live graph in on every
-request so proposals can be deduplicated against what already exists.
+ingested corpus and returns candidate competencies. The backend owns
+persistence — it passes its current live vocabulary in on every request so
+proposals can be deduplicated against what already exists.
 """
 
 from typing import Annotated
@@ -34,18 +34,17 @@ router = APIRouter(
 @router.post(
     "/propose",
     response_model=GraphProposalOutcomeSchema,
-    summary="Propose competency graph nodes/edges from the corpus",
+    summary="Propose competencies from the corpus",
     description=(
         "Runs the batch proposal job over the ingested corpus and returns candidate "
-        "`SKILL`/`CONCEPT` competencies plus the `PREREQUISITE`/`RELATED` edges "
-        "between them, for the backend to persist as proposals awaiting PM approval "
-        "-- never auto-applied.\n\n"
-        "Nodes and relationships are two separate passes. The caller's last recorded "
-        "fingerprint makes the *node* pass idempotent (an unchanged corpus proposes "
-        "no new nodes), but the relationships pass still runs: the structure between "
-        "nodes already in the graph is not a function of the corpus, so a sparse "
-        "graph can be re-densified without re-ingesting anything.\n\n"
-        "This is a heavyweight, schedulable operation (one retrieval + two LLM passes "
+        "`SKILL`/`CONCEPT` competencies for the backend to persist.\n\n"
+        "The result is a flat vocabulary: it states no ordering between "
+        "competencies. The relationship pass that used to draw prerequisite edges "
+        "was retired along with the graph it described.\n\n"
+        "The caller's last recorded fingerprint makes the run idempotent -- an "
+        "unchanged corpus proposes nothing, because competencies are all this "
+        "derives and they are a function of the corpus.\n\n"
+        "This is a heavyweight, schedulable operation (one retrieval + one LLM pass "
         "over the whole corpus); it is not on the onboarding request path."
     ),
     responses={
@@ -65,7 +64,6 @@ def propose(
             llm,
             store,
             active_competencies=[c.to_model() for c in request.active_competencies],
-            active_edges=[e.to_model() for e in request.active_edges],
             last_fingerprint=request.last_fingerprint,
         )
     except LLMUnavailableError as exc:
@@ -83,16 +81,15 @@ def propose(
 @router.post(
     "/propose/stream",
     response_class=StreamingResponse,
-    summary="Propose competency graph nodes/edges from the corpus (streaming)",
+    summary="Propose competencies from the corpus (streaming)",
     description=(
         "The same proposal job as `POST /onboarding/competency-graph/propose`, "
-        "streamed as Server-Sent Events so a PM can watch the graph assemble: a "
-        "`stage` per pass (retrieving → grounding → linking), an `item` per "
-        "competency as it clears grounding and then per accepted edge, and a "
-        "terminal `done` carrying the whole outcome. The `done` result is "
-        "identical to what the non-streaming endpoint returns -- the stream is a "
-        "view of the same computation, never a second answer. An LLM outage "
-        "arrives as a terminal `error` event, not an HTTP error."
+        "streamed as Server-Sent Events so a PM can watch the vocabulary build: a "
+        "`stage` per phase (retrieving → grounding), an `item` per competency as "
+        "it clears grounding, and a terminal `done` carrying the whole outcome. "
+        "The `done` result is identical to what the non-streaming endpoint returns "
+        "-- the stream is a view of the same computation, never a second answer. "
+        "An LLM outage arrives as a terminal `error` event, not an HTTP error."
     ),
     responses={422: {"model": ValidationErrorResponse}},
 )
@@ -105,7 +102,6 @@ def propose_stream(
         llm,
         store,
         active_competencies=[c.to_model() for c in request.active_competencies],
-        active_edges=[e.to_model() for e in request.active_edges],
         last_fingerprint=request.last_fingerprint,
     )
     return StreamingResponse(
