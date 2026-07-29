@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
-    from onboarding.graph_models import ActiveCompetency, ActiveEdge
+    from onboarding.graph_models import ActiveCompetency
     from onboarding.verification import ArtifactEvidence
 
 
@@ -686,13 +686,6 @@ class ProposedCompetencySchema(BaseModel):
     repo_ref: str | None = None
 
 
-class ProposedEdgeSchema(BaseModel):
-    from_key: str
-    to_key: str
-    kind: str = "PREREQUISITE"
-    rationale: str = ""
-
-
 class GraphProvenanceSchema(BaseModel):
     corpus_fingerprint: str | None = None
     generated_at: str | None = None
@@ -719,23 +712,11 @@ class ActiveCompetencySchema(BaseModel):
         )
 
 
-class ActiveEdgeSchema(BaseModel):
-    from_key: str
-    to_key: str
-    kind: str = "PREREQUISITE"
-
-    def to_model(self) -> "ActiveEdge":
-        from onboarding.graph_models import ActiveEdge
-
-        return ActiveEdge(from_key=self.from_key, to_key=self.to_key, kind=self.kind)  # type: ignore[arg-type]
-
-
 class GraphProposalOutcomeSchema(BaseModel):
     status: str
     competencies: list[ProposedCompetencySchema] = Field(
         default_factory=list[ProposedCompetencySchema]
     )
-    edges: list[ProposedEdgeSchema] = Field(default_factory=list[ProposedEdgeSchema])
     provenance: GraphProvenanceSchema | None = None
     chunks_retrieved: int = 0
     notes: list[str] = Field(default_factory=list[str])
@@ -745,13 +726,9 @@ class GenerateCompetencyGraphRequest(BaseModel):
     active_competencies: list[ActiveCompetencySchema] = Field(
         default=[],
         description=(
-            "The backend's current live competency graph nodes. Drives dedup "
-            "(never re-proposed as new) and is a valid prerequisite edge endpoint."
+            "The backend's current live competency vocabulary. Drives dedup -- "
+            "an existing key is never re-proposed as new."
         ),
-    )
-    active_edges: list[ActiveEdgeSchema] = Field(
-        default=[],
-        description="The backend's current live prerequisite edges.",
     )
     last_fingerprint: str | None = Field(
         default=None,

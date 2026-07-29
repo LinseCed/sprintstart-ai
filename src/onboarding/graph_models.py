@@ -1,17 +1,20 @@
-"""Domain models for AI-proposed competency graph elements.
+"""Domain models for AI-proposed competencies.
 
-Competencies and their prerequisite edges are the backend's durable graph (see
-the backend's ``Competency``/``CompetencyEdge`` entities). This service never
-persists graph state itself -- it proposes candidate nodes/edges for the
-backend to store and a PM to review, the same proposal-only relationship
-every other proposal-only job has with the backend.
+A competency is a durable name for something somebody can be proficient in
+(see the backend's ``Competency`` entity): the ledger keys off it, a module
+teaches it, the starter-work matcher counts it. This service never persists any
+of it -- it proposes candidates for the backend to store, the same
+proposal-only relationship every other proposal-only job has with the backend.
 
-The backend's competency graph
-today can only grow (no replace-whole-graph, no removal/modification) -- so
-this module has no analogue of ``generation._enforce_invariants``. There is
-nothing to protect a proposal run from silently dropping, because a proposal
-run never removes anything; it only ever adds new candidates alongside
-whatever already exists.
+It is a **flat vocabulary, not a graph**. Prerequisite and related edges were
+retired along with the DAG they described (see
+``forks/SKILL_MAP_RETIREMENT_DESIGN.md``); nothing here states an order.
+
+The backend's vocabulary can only grow through this job (no
+replace-whole-vocabulary, no removal/modification) -- so this module has no
+analogue of ``generation._enforce_invariants``. There is nothing to protect a
+proposal run from silently dropping, because a proposal run never removes
+anything; it only ever adds new candidates alongside whatever already exists.
 """
 
 from typing import Literal
@@ -21,13 +24,6 @@ from pydantic import BaseModel, Field
 from onboarding.models import CitationRef
 
 CompetencyKind = Literal["SKILL", "CONCEPT"]
-
-# Only PREREQUISITE gates a node: it says a hire cannot start `to_key` before
-# `to_key`'s dependency `from_key`. RELATED is structure without gating -- it
-# says two competencies belong near each other. Both exist in the backend's
-# ``EdgeKind``; keeping RELATED available is what lets the graph read as a
-# progression without lengthening the chain a hire must clear first.
-EdgeKind = Literal["PREREQUISITE", "RELATED"]
 
 ProposalStatus = Literal["proposed", "unchanged", "skipped"]
 
@@ -43,15 +39,6 @@ class ProposedCompetency(BaseModel):
     citations: list[CitationRef] = Field(default_factory=list[CitationRef])
 
 
-class ProposedEdge(BaseModel):
-    """A candidate prerequisite edge, with a rationale for PM review."""
-
-    from_key: str
-    to_key: str
-    kind: EdgeKind = "PREREQUISITE"
-    rationale: str = ""
-
-
 class GraphProvenance(BaseModel):
     """Why a proposal run looks the way it does; the usual provenance shape."""
 
@@ -62,11 +49,11 @@ class GraphProvenance(BaseModel):
 
 
 class ActiveCompetency(BaseModel):
-    """A competency already in the backend's live graph.
+    """A competency already live in the backend's vocabulary.
 
-    Drives dedup (never re-proposed as new) and is a valid prerequisite edge
-    endpoint. Carries no proposal-time metadata because the backend's graph
-    has none yet -- competencies are just live nodes, not versioned drafts.
+    Drives dedup (never re-proposed as new). Carries no proposal-time metadata
+    because the backend's vocabulary has none -- competencies are just live
+    rows, not versioned drafts.
     """
 
     key: str
@@ -76,22 +63,13 @@ class ActiveCompetency(BaseModel):
     repo_ref: str | None = None
 
 
-class ActiveEdge(BaseModel):
-    """A prerequisite edge already in the backend's live graph."""
-
-    from_key: str
-    to_key: str
-    kind: EdgeKind = "PREREQUISITE"
-
-
 class GraphProposalOutcome(BaseModel):
-    """Result of one competency-graph proposal run."""
+    """Result of one competency proposal run."""
 
     status: ProposalStatus
     competencies: list[ProposedCompetency] = Field(
         default_factory=list[ProposedCompetency]
     )
-    edges: list[ProposedEdge] = Field(default_factory=list[ProposedEdge])
     provenance: GraphProvenance | None = None
     chunks_retrieved: int = 0
     notes: list[str] = Field(default_factory=list[str])
