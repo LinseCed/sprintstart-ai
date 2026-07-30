@@ -71,6 +71,19 @@ class ActiveCompetency(BaseModel):
     repo_ref: str | None = None
 
 
+class TombstonedCompetency(BaseModel):
+    """A competency somebody deliberately removed, which must not come back.
+
+    Carries the label as well as the key because the thing a tombstone has to
+    stop is a *rephrasing*: dedup matches on the exact key and on embedding
+    similarity, and only the label feeds the second. A tombstone the generator
+    never sees is not a tombstone.
+    """
+
+    key: str
+    label: str
+
+
 class GraphProposalOutcome(BaseModel):
     """Result of one competency proposal run."""
 

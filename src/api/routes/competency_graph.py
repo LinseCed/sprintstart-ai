@@ -65,6 +65,9 @@ def propose(
             store,
             active_competencies=[c.to_model() for c in request.active_competencies],
             existing_areas=request.existing_areas,
+            tombstoned_competencies=[
+                c.to_model() for c in request.tombstoned_competencies
+            ],
             last_fingerprint=request.last_fingerprint,
         )
     except LLMUnavailableError as exc:
@@ -104,6 +107,7 @@ def propose_stream(
         store,
         active_competencies=[c.to_model() for c in request.active_competencies],
         existing_areas=request.existing_areas,
+        tombstoned_competencies=[c.to_model() for c in request.tombstoned_competencies],
         last_fingerprint=request.last_fingerprint,
     )
     return StreamingResponse(

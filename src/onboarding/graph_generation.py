@@ -48,6 +48,7 @@ from onboarding.graph_models import (
     GraphProposalOutcome,
     GraphProvenance,
     ProposedCompetency,
+    TombstonedCompetency,
 )
 from onboarding.models import CitationRef
 from onboarding.progress import ProgressEvent, ProgressStream, drain
@@ -123,6 +124,7 @@ def _build_prompt(
     chunks: list[ScoredChunk],
     active: list[ActiveCompetency],
     existing_areas: list[str] | None = None,
+    tombstoned: list[TombstonedCompetency] | None = None,
 ) -> list[Message]:
     evidence = "\n".join(f"[{c.id}] ({c.filename}) {c.text}" for c in chunks)
     exclusion = ""
@@ -132,6 +134,15 @@ def _build_prompt(
             "\nThese competencies already exist -- do NOT propose them again "
             "under a new key, even if phrased differently.\n\n"
             f"Existing competencies:\n{existing}\n"
+        )
+    graves = tombstoned or []
+    if graves:
+        removed = "\n".join(f"- {c.key}: {c.label}" for c in graves)
+        exclusion += (
+            "\nThese were deliberately REMOVED by a person. Do not propose them "
+            "again, under any key and however differently phrased -- they were "
+            "not missed, they were rejected.\n\n"
+            f"Removed competencies:\n{removed}\n"
         )
     areas = existing_areas or []
     # Show the model the grouping that exists so it joins it rather than coining a
@@ -187,6 +198,7 @@ def _parse_payload(raw: str) -> _GenPayload:
 def _filter_duplicate_competencies(
     candidates: list[tuple[_GenCompetency, list[CitationRef]]],
     active: list[ActiveCompetency],
+    tombstoned: list[TombstonedCompetency],
     llm: LLMClient,
 ) -> list[tuple[_GenCompetency, list[CitationRef]]]:
     """Drop exact-key and near-duplicate (embedding similarity) proposals.
@@ -195,17 +207,23 @@ def _filter_duplicate_competencies(
     a proposal is dropped if its key exactly matches an active competency, or
     if its embedding is too close to an active competency's or an
     already-kept proposal's (first occurrence wins).
+
+    Tombstoned competencies are blocked the same two ways, and the second is the
+    one that matters: the prompt already asks the model not to re-propose them,
+    but asking is not enforcing, and a deletion that only holds against the exact
+    key leaks -- the competency returns next crawl under a rephrasing and is
+    deleted again, forever.
     """
-    active_keys = {c.key for c in active}
+    blocked_keys = {c.key for c in active} | {c.key for c in tombstoned}
     seen_embeddings: list[list[float]] = [
         llm.embed(step_text(c.label, c.description)) for c in active
-    ]
+    ] + [llm.embed(step_text(c.label, "")) for c in tombstoned]
 
     kept: list[tuple[_GenCompetency, list[CitationRef]]] = []
     seen_keys: set[str] = set()
     for competency, citations in candidates:
         key = _normalize_key(competency.key)
-        if not key or key in active_keys or key in seen_keys:
+        if not key or key in blocked_keys or key in seen_keys:
             continue
         embedding = llm.embed(step_text(competency.label, competency.description))
         max_sim = max(
@@ -234,6 +252,7 @@ def stream_competency_graph(
     *,
     active_competencies: list[ActiveCompetency] | None = None,
     existing_areas: list[str] | None = None,
+    tombstoned_competencies: list[TombstonedCompetency] | None = None,
     last_fingerprint: str | None = None,
 ) -> Generator[ProgressEvent, None, GraphProposalOutcome]:
     """Propose the vocabulary, yielding live progress and returning the outcome.
@@ -249,6 +268,7 @@ def stream_competency_graph(
     """
     progress = ProgressStream("competency_graph")
     active = active_competencies or []
+    tombstoned = tombstoned_competencies or []
     fingerprint = corpus_fingerprint(store)
 
     if store.count() == 0:
@@ -293,7 +313,7 @@ def stream_competency_graph(
     )
     try:
         proposed_competencies = _propose_competencies(
-            llm, chunks, active, existing_areas
+            llm, chunks, active, existing_areas, tombstoned
         )
     except GenerationError as exc:
         logger.warning("Competency proposal generation failed: %s", exc)
@@ -345,6 +365,7 @@ def generate_competency_graph(
     *,
     active_competencies: list[ActiveCompetency] | None = None,
     existing_areas: list[str] | None = None,
+    tombstoned_competencies: list[TombstonedCompetency] | None = None,
     last_fingerprint: str | None = None,
 ) -> GraphProposalOutcome:
     """Propose new competencies for the backend to persist.
@@ -363,6 +384,7 @@ def generate_competency_graph(
             store,
             active_competencies=active_competencies,
             existing_areas=existing_areas,
+            tombstoned_competencies=tombstoned_competencies,
             last_fingerprint=last_fingerprint,
         )
     )
@@ -373,10 +395,11 @@ def _propose_competencies(
     chunks: list[ScoredChunk],
     active: list[ActiveCompetency],
     existing_areas: list[str] | None = None,
+    tombstoned: list[TombstonedCompetency] | None = None,
 ) -> list[ProposedCompetency]:
     """Grounded, deduped competency proposals."""
     payload = _parse_payload(
-        llm.generate(_build_prompt(chunks, active, existing_areas))
+        llm.generate(_build_prompt(chunks, active, existing_areas, tombstoned))
     )
 
     chunks_by_id = {c.id: c for c in chunks}
@@ -399,5 +422,7 @@ def _propose_competencies(
             repo_ref=item.repo_ref,
             citations=citations,
         )
-        for item, citations in _filter_duplicate_competencies(grounded, active, llm)
+        for item, citations in _filter_duplicate_competencies(
+            grounded, active, tombstoned or [], llm
+        )
     ]

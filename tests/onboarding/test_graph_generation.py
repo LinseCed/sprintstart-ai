@@ -8,7 +8,7 @@ from onboarding.graph_generation import (
     generate_competency_graph,
     stream_competency_graph,
 )
-from onboarding.graph_models import ActiveCompetency
+from onboarding.graph_models import ActiveCompetency, TombstonedCompetency
 from onboarding.progress import ProgressEvent
 from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
@@ -450,3 +450,115 @@ def test_existing_areas_reach_the_prompt_and_ordering_still_does_not() -> None:
     # An area groups; it must never be sold to the model as a sequence.
     assert "prerequisite" not in system.lower()
     assert "before what" in system  # the rule forbidding ordering survives
+
+
+def test_a_tombstoned_key_is_never_re_proposed() -> None:
+    store = _store("Kotlin is the primary backend language")
+    llm = _llm(
+        [
+            {
+                "key": "kotlin",
+                "label": "Kotlin",
+                "kind": "SKILL",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+
+    outcome = generate_competency_graph(
+        llm,
+        store,
+        tombstoned_competencies=[TombstonedCompetency(key="kotlin", label="Kotlin")],
+    )
+
+    assert outcome.competencies == []
+
+
+def test_a_tombstoned_competency_cannot_return_under_a_rephrasing() -> None:
+    """The case the whole mechanism exists for.
+
+    Blocking the exact key alone leaks: the generator re-proposes the same thing
+    under a new key next crawl, a PM deletes it again, and that repeats forever.
+    So the tombstone's label is embedded and the similarity gate catches it.
+    """
+    store = _store("Kotlin is the primary backend language")
+    llm = _llm(
+        [
+            {
+                "key": "kotlin-language",  # a different key
+                "label": "The Kotlin programming language",
+                "kind": "SKILL",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+    # Same embedding for the tombstone's label and the rephrased proposal, which is
+    # what "means the same thing" looks like to the similarity gate.
+    llm.embedding = _EMBED
+
+    outcome = generate_competency_graph(
+        llm,
+        store,
+        tombstoned_competencies=[TombstonedCompetency(key="kotlin", label="Kotlin")],
+    )
+
+    assert outcome.competencies == []
+
+
+def test_a_tombstone_does_not_block_an_unrelated_competency() -> None:
+    """Stickiness must not become a freeze on everything near what was removed."""
+    store = _store("Chunks are embedded and written to the vector store")
+    llm = _RecordingLLM(
+        json.dumps(
+            {
+                "competencies": [
+                    {
+                        "key": "chunking",
+                        "label": "Chunking",
+                        "kind": "CONCEPT",
+                        "chunk_ids": ["c1"],
+                    }
+                ]
+            }
+        )
+    )
+    # Only the tombstone embeds differently, i.e. it is about something else. The
+    # query goes through this too, so everything else must keep the chunk embedding
+    # or retrieval finds nothing and the run skips before proposing anything.
+    llm.embed_fn = lambda text: _OTHER_EMBED if "Kotlin" in text else _EMBED
+
+    outcome = generate_competency_graph(
+        llm,
+        store,
+        tombstoned_competencies=[TombstonedCompetency(key="kotlin", label="Kotlin")],
+    )
+
+    assert [c.key for c in outcome.competencies] == ["chunking"]
+
+
+def test_removed_competencies_are_named_in_the_prompt_as_rejected() -> None:
+    """A tombstone the generator never sees is not a tombstone."""
+    store = _store("Kotlin is the primary backend language")
+    llm = _llm(
+        [
+            {
+                "key": "chunking",
+                "label": "Chunking",
+                "kind": "CONCEPT",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+    llm.embed_fn = lambda text: _OTHER_EMBED if "Kotlin" in text else _EMBED
+
+    generate_competency_graph(
+        llm,
+        store,
+        tombstoned_competencies=[TombstonedCompetency(key="kotlin", label="Kotlin")],
+    )
+
+    system = llm.prompts[0][0]["content"]
+    assert "Removed competencies:" in system
+    assert "- kotlin: Kotlin" in system
+    # Rejected, not merely absent -- the model must not read this as a gap to fill.
+    assert "they were rejected" in system
