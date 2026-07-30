@@ -361,3 +361,92 @@ def test_an_empty_corpus_streams_a_skipped_done_not_an_error() -> None:
     assert events[-1]["type"] == "done"
     assert events[-1]["result"]["status"] == "skipped"  # type: ignore[index]
     assert "error" not in [e["type"] for e in events]
+
+
+def test_area_snaps_onto_the_spelling_already_in_use() -> None:
+    """Grouping only groups if two words for one subject land in one area.
+
+    The prompt asks the model to reuse an existing area, but asking is not
+    enforcing -- so the value is resolved against what exists on the way out too.
+    """
+    store = _store("JWTs are validated on every request")
+    llm = _llm(
+        [
+            {
+                "key": "jwt-validation",
+                "label": "JWT validation",
+                "kind": "SKILL",
+                "area": "  authentication ",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+
+    outcome = generate_competency_graph(
+        llm, store, existing_areas=["Authentication", "Ingestion"]
+    )
+
+    assert [c.area for c in outcome.competencies] == ["Authentication"]
+
+
+def test_a_genuinely_new_area_is_kept() -> None:
+    store = _store("Chunks are embedded and written to the vector store")
+    llm = _llm(
+        [
+            {
+                "key": "chunking",
+                "label": "Chunking",
+                "kind": "CONCEPT",
+                "area": " Ingestion ",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+
+    outcome = generate_competency_graph(llm, store, existing_areas=["Authentication"])
+
+    assert [c.area for c in outcome.competencies] == ["Ingestion"]
+
+
+def test_an_unplaceable_competency_keeps_a_null_area() -> None:
+    """A wrong grouping is worse than none, so "could not place it" stays empty."""
+    store = _store("Kotlin is the primary backend language")
+    llm = _llm(
+        [
+            {
+                "key": "kotlin",
+                "label": "Kotlin",
+                "kind": "SKILL",
+                "area": "   ",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+
+    outcome = generate_competency_graph(llm, store, existing_areas=["Authentication"])
+
+    assert outcome.competencies[0].area is None
+
+
+def test_existing_areas_reach_the_prompt_and_ordering_still_does_not() -> None:
+    store = _store("JWTs are validated on every request")
+    llm = _llm(
+        [
+            {
+                "key": "jwt-validation",
+                "label": "JWT validation",
+                "kind": "SKILL",
+                "area": "Authentication",
+                "chunk_ids": ["c1"],
+            }
+        ]
+    )
+
+    generate_competency_graph(llm, store, existing_areas=["Authentication"])
+
+    system = llm.prompts[0][0]["content"]
+    assert "Areas already in use:" in system
+    assert "- Authentication" in system
+    # An area groups; it must never be sold to the model as a sequence.
+    assert "prerequisite" not in system.lower()
+    assert "before what" in system  # the rule forbidding ordering survives

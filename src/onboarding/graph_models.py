@@ -35,6 +35,13 @@ class ProposedCompetency(BaseModel):
     label: str
     description: str = ""
     kind: CompetencyKind
+    area: str | None = None
+    """What this competency is about, for grouping -- "Authentication", "Ingestion".
+
+    Free text, because a fixed taxonomy cannot fit a codebase nobody has seen.
+    ``None`` when the evidence does not place it in one; the backend stores that
+    as "not grouped yet" rather than inventing a bucket for it.
+    """
     repo_ref: str | None = None
     citations: list[CitationRef] = Field(default_factory=list[CitationRef])
 
@@ -60,6 +67,7 @@ class ActiveCompetency(BaseModel):
     label: str
     description: str = ""
     kind: CompetencyKind
+    area: str | None = None
     repo_ref: str | None = None
 
 

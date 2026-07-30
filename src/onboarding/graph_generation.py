@@ -79,6 +79,7 @@ class _GenCompetency(BaseModel):
     label: str
     description: str = ""
     kind: str = "SKILL"
+    area: str | None = None
     repo_ref: str | None = None
     chunk_ids: list[str] = Field(default_factory=list)
 
@@ -95,8 +96,33 @@ def _normalize_key(raw: str) -> str:
     return _KEY_RE.sub("-", raw.strip().lower()).strip("-")
 
 
+def _resolve_area(raw: str | None, existing: list[str]) -> str | None:
+    """Snap a proposed area onto the one already in use, when it is the same one.
+
+    The prompt asks the model to reuse an existing area, but asking is not
+    enforcing: it still returns "auth" for "Authentication" often enough to
+    fragment the grouping, and a grouping that fragments is worse than none
+    because it looks organised. The backend normalises on write for exactly the
+    same reason -- doing it here as well means the *proposal* a caller inspects
+    already reads the way it will be stored, rather than being quietly corrected
+    one layer down.
+
+    Blank becomes ``None``: "could not place it" is a real answer, and an empty
+    string would be a group whose name is nothing.
+    """
+    trimmed = (raw or "").strip()
+    if not trimmed:
+        return None
+    for area in existing:
+        if area.casefold() == trimmed.casefold():
+            return area
+    return trimmed
+
+
 def _build_prompt(
-    chunks: list[ScoredChunk], active: list[ActiveCompetency]
+    chunks: list[ScoredChunk],
+    active: list[ActiveCompetency],
+    existing_areas: list[str] | None = None,
 ) -> list[Message]:
     evidence = "\n".join(f"[{c.id}] ({c.filename}) {c.text}" for c in chunks)
     exclusion = ""
@@ -107,6 +133,21 @@ def _build_prompt(
             "under a new key, even if phrased differently.\n\n"
             f"Existing competencies:\n{existing}\n"
         )
+    areas = existing_areas or []
+    # Show the model the grouping that exists so it joins it rather than coining a
+    # synonym. The backend normalises on write as well, but a model that picks the
+    # area itself produces a vocabulary somebody can read, not one that had to be
+    # corrected. Same mechanic as the existing-competency list above.
+    area_rule = (
+        "6. `area` groups the vocabulary by subject (e.g. 'Authentication', "
+        "'Ingestion'). Reuse one of the areas already in use below when the "
+        "competency belongs to it -- only name a new area when none of them "
+        "fits. Use null if the evidence does not place it in any area; a wrong "
+        "grouping is worse than none.\n"
+    )
+    if areas:
+        listed = "\n".join(f"- {a}" for a in areas)
+        area_rule += f"\nAreas already in use:\n{listed}\n"
     system = (
         "You propose entries for a team's competency vocabulary from its "
         "knowledge base. You are given evidence snippets, each prefixed with "
@@ -121,11 +162,13 @@ def _build_prompt(
         "4. `repo_ref` is an optional pointer to the file/path the competency "
         "is grounded in, when the evidence makes one obvious.\n"
         "5. This is a flat vocabulary, not an ordering: do not state or imply "
-        "what must be learned before what.\n"
+        "what must be learned before what. An area groups competencies by "
+        "subject; it never says which comes first.\n"
+        f"{area_rule}"
         f"{exclusion}"
         'JSON schema: {"competencies": [{"key": str, "label": str, '
-        '"description": str, "kind": "SKILL"|"CONCEPT", "repo_ref": str|null, '
-        '"chunk_ids": [str]}]}'
+        '"description": str, "kind": "SKILL"|"CONCEPT", "area": str|null, '
+        '"repo_ref": str|null, "chunk_ids": [str]}]}'
     )
     user = f"Evidence:\n{evidence}"
     return [
@@ -190,6 +233,7 @@ def stream_competency_graph(
     store: VectorStore,
     *,
     active_competencies: list[ActiveCompetency] | None = None,
+    existing_areas: list[str] | None = None,
     last_fingerprint: str | None = None,
 ) -> Generator[ProgressEvent, None, GraphProposalOutcome]:
     """Propose the vocabulary, yielding live progress and returning the outcome.
@@ -248,7 +292,9 @@ def stream_competency_graph(
         "grounding", f"Proposing competencies from {len(chunks)} source(s)"
     )
     try:
-        proposed_competencies = _propose_competencies(llm, chunks, active)
+        proposed_competencies = _propose_competencies(
+            llm, chunks, active, existing_areas
+        )
     except GenerationError as exc:
         logger.warning("Competency proposal generation failed: %s", exc)
         outcome = GraphProposalOutcome(status="skipped", notes=[str(exc)])
@@ -298,6 +344,7 @@ def generate_competency_graph(
     store: VectorStore,
     *,
     active_competencies: list[ActiveCompetency] | None = None,
+    existing_areas: list[str] | None = None,
     last_fingerprint: str | None = None,
 ) -> GraphProposalOutcome:
     """Propose new competencies for the backend to persist.
@@ -315,16 +362,22 @@ def generate_competency_graph(
             llm,
             store,
             active_competencies=active_competencies,
+            existing_areas=existing_areas,
             last_fingerprint=last_fingerprint,
         )
     )
 
 
 def _propose_competencies(
-    llm: LLMClient, chunks: list[ScoredChunk], active: list[ActiveCompetency]
+    llm: LLMClient,
+    chunks: list[ScoredChunk],
+    active: list[ActiveCompetency],
+    existing_areas: list[str] | None = None,
 ) -> list[ProposedCompetency]:
     """Grounded, deduped competency proposals."""
-    payload = _parse_payload(llm.generate(_build_prompt(chunks, active)))
+    payload = _parse_payload(
+        llm.generate(_build_prompt(chunks, active, existing_areas))
+    )
 
     chunks_by_id = {c.id: c for c in chunks}
     grounded: list[tuple[_GenCompetency, list[CitationRef]]] = []
@@ -342,6 +395,7 @@ def _propose_competencies(
             label=item.label,
             description=item.description,
             kind=item.kind,  # type: ignore[arg-type]
+            area=_resolve_area(item.area, existing_areas or []),
             repo_ref=item.repo_ref,
             citations=citations,
         )
