@@ -683,6 +683,7 @@ class ProposedCompetencySchema(BaseModel):
     label: str
     description: str = ""
     kind: str
+    area: str | None = None
     repo_ref: str | None = None
 
 
@@ -698,6 +699,7 @@ class ActiveCompetencySchema(BaseModel):
     label: str
     description: str = ""
     kind: str
+    area: str | None = None
     repo_ref: str | None = None
 
     def to_model(self) -> "ActiveCompetency":
@@ -708,6 +710,7 @@ class ActiveCompetencySchema(BaseModel):
             label=self.label,
             description=self.description,
             kind=self.kind,  # type: ignore[arg-type]
+            area=self.area,
             repo_ref=self.repo_ref,
         )
 
@@ -728,6 +731,16 @@ class GenerateCompetencyGraphRequest(BaseModel):
         description=(
             "The backend's current live competency vocabulary. Drives dedup -- "
             "an existing key is never re-proposed as new."
+        ),
+    )
+    existing_areas: list[str] = Field(
+        default=[],
+        description=(
+            "The grouping areas already in use. Sent so the generator reuses one "
+            "instead of coining a synonym -- the area is free text, and a "
+            "vocabulary split across 'auth', 'Authentication' and 'Auth & "
+            "Identity' groups nothing. The backend normalises on write too; this "
+            "is what lets the model choose rather than be corrected."
         ),
     )
     last_fingerprint: str | None = Field(
