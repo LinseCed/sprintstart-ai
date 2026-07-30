@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic.alias_generators import to_camel
 
 if TYPE_CHECKING:
-    from onboarding.graph_models import ActiveCompetency
+    from onboarding.graph_models import ActiveCompetency, TombstonedCompetency
     from onboarding.verification import ArtifactEvidence
 
 
@@ -687,6 +687,16 @@ class ProposedCompetencySchema(BaseModel):
     repo_ref: str | None = None
 
 
+class TombstonedCompetencySchema(BaseModel):
+    key: str
+    label: str
+
+    def to_model(self) -> "TombstonedCompetency":
+        from onboarding.graph_models import TombstonedCompetency
+
+        return TombstonedCompetency(key=self.key, label=self.label)
+
+
 class GraphProvenanceSchema(BaseModel):
     corpus_fingerprint: str | None = None
     generated_at: str | None = None
@@ -741,6 +751,15 @@ class GenerateCompetencyGraphRequest(BaseModel):
             "vocabulary split across 'auth', 'Authentication' and 'Auth & "
             "Identity' groups nothing. The backend normalises on write too; this "
             "is what lets the model choose rather than be corrected."
+        ),
+    )
+    tombstoned_competencies: list[TombstonedCompetencySchema] = Field(
+        default=[],
+        description=(
+            "Competencies a person deliberately removed. Blocked by key and by "
+            "embedding similarity, and named in the prompt as rejected -- a "
+            "deletion that only holds against the exact key leaks, because the "
+            "competency returns next crawl under a rephrasing."
         ),
     )
     last_fingerprint: str | None = Field(
