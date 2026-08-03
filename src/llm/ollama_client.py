@@ -7,7 +7,7 @@ import ollama
 
 from llm.base import ChatResult, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
-from llm.tool_call_recovery import recover_tool_calls
+from llm.tool_call_recovery import guard_stream, recover_tool_calls
 
 logger = logging.getLogger(__name__)
 
@@ -264,8 +264,13 @@ class OllamaClient:
             raise LLMUnavailableError(self._host, cause=exc) from exc
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
+        # See OpenAiCompatibleClient.stream: the same models reach this client, and the
+        # streamed answer has no tool loop to hand a recovered call to.
         if self._model is None:
             raise ValueError("No model specified")
+        return guard_stream(self._stream_raw(messages))
+
+    def _stream_raw(self, messages: list[Message]) -> Iterator[str]:
         try:
             for chunk in self._client.chat_stream(model=self._model, messages=messages):
                 yield chunk.message.content or ""
