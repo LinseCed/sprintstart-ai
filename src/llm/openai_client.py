@@ -17,7 +17,7 @@ from openai.types.chat.chat_completion_chunk import ChoiceDelta
 
 from llm.base import ChatResult, LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
-from llm.tool_call_recovery import recover_tool_calls
+from llm.tool_call_recovery import guard_stream, recover_tool_calls
 
 
 def _to_openai_tools(tools: list[ToolSpec]) -> list[ChatCompletionToolParam]:
@@ -212,6 +212,13 @@ class OpenAIClient(LLMClient):
             ) from exc
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
+        # Guarded for the same reason chat_with_tools recovers: this backend serves
+        # models that write tool calls as markup in the content. There the markup can
+        # be parsed back into a call and run; here the answer phase has no tool loop,
+        # so the only thing to do with it is not show it to the hire.
+        return guard_stream(self._stream_raw(messages))
+
+    def _stream_raw(self, messages: list[Message]) -> Iterator[str]:
         try:
             stream: Iterator[ChatCompletionChunk] = self.client.chat.completions.create(
                 model=self.chat_model,

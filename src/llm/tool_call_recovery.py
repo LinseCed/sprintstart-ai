@@ -23,6 +23,7 @@ wrappers different models dress them in.
 
 import json
 import re
+from collections.abc import Iterable, Iterator
 from uuid import uuid4
 
 from llm.base import ToolCall
@@ -93,4 +94,135 @@ def recover_tool_calls(content: str) -> tuple[list[ToolCall], str]:
     return calls, content[:cut].rstrip()
 
 
-__all__ = ["recover_tool_calls"]
+# Substrings that identify leaked markup as it arrives. Kept lower-case and matched
+# against a lower-cased buffer, since models vary the casing.
+_STREAM_MARKERS = ("tool_calls", "dsml", "invoke name=", "parameter name=")
+
+_LONGEST_MARKER = max(len(marker) for marker in _STREAM_MARKERS)
+
+# How far past an unresolved `<` to keep waiting for a marker.
+#
+# The delimiters between a tag's `<` and its marker are arbitrary (`<｜｜DSML｜｜…`),
+# so the `<` cannot be released until either a marker completes or enough ordinary
+# text has followed to prove it was prose. An opening tag is short; well beyond this
+# and a `<` is a comparison or a generic type.
+_TAG_LOOKAHEAD = 32
+
+
+def guard_stream(chunks: Iterable[str]) -> Iterator[str]:
+    """Emit a model's streamed answer, cutting it off if leaked tool markup appears.
+
+    ### Why the streaming path needs its own guard
+
+    :func:`recover_tool_calls` protects the *tool* phase, where a whole message is in
+    hand and a leaked call can be parsed back out and run. The visible answer is
+    streamed instead (``AgentLoop.answer_stream``), and that phase has no tool loop at
+    all -- so a model that decides mid-answer to search the docs cannot be given what
+    it asked for, and its markup goes straight to the hire. That is exactly what a
+    tutor saw: a friendly greeting followed by raw ``<｜｜DSML｜｜tool_calls>``.
+
+    ### Cutting, not repairing
+
+    Everything from the start of the markup is dropped and the stream ends there,
+    matching what :func:`recover_tool_calls` does to the same markup in a whole
+    message. **The model's intent is lost** -- the answer simply stops early. That is
+    a worse answer than one where the tool ran, and a much better one than an answer
+    with machine markup in the middle of it, which is the only alternative available
+    without giving the answer phase its own tool loop.
+
+    @param chunks: The raw stream from the model.
+    @return: The same text, minus any leaked markup and anything after it.
+    """
+    pending = ""
+
+    for chunk in chunks:
+        if not chunk:
+            continue
+        pending += chunk
+
+        cut = _markup_start(pending)
+        if cut is not None:
+            head = pending[:cut].rstrip()
+            if head:
+                yield head
+            return
+
+        keep = _unsafe_tail_len(pending)
+        if keep < len(pending):
+            emit, pending = (
+                pending[: len(pending) - keep],
+                pending[len(pending) - keep :],
+            )
+            if emit:
+                yield emit
+
+    if pending:
+        yield pending
+
+
+def _unsafe_tail_len(pending: str) -> int:
+    """How much of the tail must be withheld because it could still become markup.
+
+    ⚠️ **Withholding a fixed-size tail instead would stop short answers streaming at
+    all** — anything shorter than the window arrives in one lump at the end, which the
+    client tests caught. So this withholds only what is genuinely ambiguous, and
+    ordinary prose flows at full speed.
+
+    Three things are ambiguous:
+
+    - a partial marker at the very end (``…parameter nam``);
+    - an unresolved ``<``, since what sits between it and a marker is arbitrary — but
+      only for [_TAG_LOOKAHEAD] characters, after which it was prose;
+    - trailing whitespace, which is held so that the space before a leaked block is
+      never emitted. Once text is streamed it cannot be taken back, and the cut
+      itself can only trim what is still in hand.
+    """
+    lowered = pending.lower()
+    candidates = [0]
+
+    # ⚠️ A candidate, never an early return. `<｜｜D` ends in a one-character prefix of
+    # `dsml`, and returning that 1 would release the `<｜｜` in front of it — which is
+    # precisely the stray opening this function exists to keep back. The longest hold
+    # wins, not the first one found.
+    for length in range(min(len(pending), _LONGEST_MARKER), 0, -1):
+        if any(marker.startswith(lowered[-length:]) for marker in _STREAM_MARKERS):
+            candidates.append(length)
+            break
+
+    opening = pending.rfind("<")
+    if opening != -1 and len(pending) - opening <= _TAG_LOOKAHEAD:
+        # Extended back over the whitespace in front of the tag. The cut trims what is
+        # still in hand, so a space released before the `<` arrived can never be taken
+        # back -- and "Here you go. " with a dangling space is the visible remains of a
+        # block that was supposed to vanish completely.
+        while opening > 0 and pending[opening - 1].isspace():
+            opening -= 1
+        candidates.append(len(pending) - opening)
+
+    trailing_space = len(pending) - len(pending.rstrip())
+    if trailing_space <= _TAG_LOOKAHEAD:
+        candidates.append(trailing_space)
+
+    return max(candidates)
+
+
+def _markup_start(buffer: str) -> int | None:
+    """Where leaked markup begins in ``buffer``, or None when it holds no marker.
+
+    The cut is taken at the ``<`` that opens the tag rather than at the marker itself,
+    so the delimiters a model wraps its markup in go too instead of being left behind
+    as a stray ``<｜｜``.
+    """
+    lowered = buffer.lower()
+    hits = [
+        index for index in (lowered.find(m) for m in _STREAM_MARKERS) if index != -1
+    ]
+    if not hits:
+        return None
+
+    marker = min(hits)
+    opening = buffer.rfind("<", 0, marker)
+    return opening if opening != -1 else marker
+
+
+__all__ = ["guard_stream", "recover_tool_calls"]
