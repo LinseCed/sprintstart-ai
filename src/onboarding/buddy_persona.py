@@ -29,6 +29,23 @@ _IDENTITY = (
     "How you work:\n"
 )
 
+# Deliberately free of engineering nouns. "Somebody who cannot clone the
+# repository" was the obvious way to write this and would have put cloning in
+# front of a Scrum Master -- the same defect the track vocabulary exists to stop,
+# reintroduced in a fixed clause where no track can reach it. The steps carry
+# their own wording, so this only has to say *when* to raise them.
+_ARRIVAL_CLAUSE = (
+    "- Before suggesting anything to work on, check `get_arrival_steps`: somebody "
+    "still waiting on an account or an access grant does not need a good first "
+    "task, they need the access. Raise what is outstanding early, explain why a "
+    "step exists and who to chase, and offer to record the ones they can settle "
+    "themselves.\n"
+    "- Outstanding arrival steps are never a reason they may not do something. Do "
+    "not tell them to finish setup first, do not withhold a suggestion, and never "
+    "total the steps up or give a fraction -- what we confirmed and what they told "
+    "us are different facts and averaging them says nothing.\n"
+)
+
 _PLAN_CLAUSE = (
     "- You have a plan for the hire, not just answers. Before recommending what to "
     "learn or work on, consult `get_learning_plan`: it says what they are working "
@@ -68,7 +85,12 @@ _VERIFY_CLAUSE = (
 
 _CLAIM_CLAUSE = "- When the hire picks a suggested task, offer `claim_goal`.\n"
 
-_STATE_TOOLS = ("get_my_metrics", "get_my_competencies", "get_suggested_tasks")
+_STATE_TOOLS = (
+    "get_arrival_steps",
+    "get_my_metrics",
+    "get_my_competencies",
+    "get_suggested_tasks",
+)
 
 
 def build_persona(
@@ -91,6 +113,12 @@ def build_persona(
     available = set(tool_names)
     parts = [_IDENTITY]
 
+    # First clause, because it is first in the conversation: what has to be true
+    # before somebody can work comes before what they should work on. The backend
+    # only mounts the tool when a step actually applies to this hire, so a project
+    # that has authored no arrival list gets the persona that existed before A2.
+    if "get_arrival_steps" in available:
+        parts.append(_ARRIVAL_CLAUSE)
     if "get_learning_plan" in available:
         parts.append(_PLAN_CLAUSE)
     if "get_module" in available:

@@ -10,6 +10,7 @@ from onboarding.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 
 _ALL_TOOLS = (
     "search_docs",
+    "get_arrival_steps",
     "get_learning_plan",
     "get_module",
     "get_my_metrics",
@@ -60,6 +61,34 @@ def test_no_hire_state_tools_means_no_hire_state_clause() -> None:
     assert "hire-state tools" not in persona
 
 
+def test_arrival_is_raised_before_anything_is_suggested() -> None:
+    """The failure this initiative exists for: somebody who cannot clone the
+    repository being handed a good first issue, and reading as calm rather than
+    blocked because the stall detector watches contributions."""
+    persona = build_persona(_ALL_TOOLS)
+
+    assert "Before suggesting anything to work on" in persona
+    assert persona.index("get_arrival_steps") < persona.index("get_suggested_tasks")
+
+
+def test_arrival_steps_are_never_described_as_a_gate() -> None:
+    """Ordering, not blocking. The model's own words are the one place the gate
+    could come back with no code saying so."""
+    persona = build_persona(_ALL_TOOLS)
+
+    assert "never a reason they may not do something" in persona
+    assert "not tell them to finish setup first" in persona
+
+
+def test_the_arrival_clause_is_absent_without_the_tool() -> None:
+    """A project that has authored no arrival list gets the persona that existed
+    before A2 -- the backend only mounts the tool when a step actually applies."""
+    persona = build_persona([t for t in _ALL_TOOLS if t != "get_arrival_steps"])
+
+    assert "arrival" not in persona.lower()
+    assert "Before suggesting anything to work on" not in persona
+
+
 def test_default_vocabulary_is_the_engineering_wording() -> None:
     persona = build_persona(_ALL_TOOLS, DEFAULT_VOCABULARY)
 
@@ -90,6 +119,12 @@ def test_the_persona_never_presumes_the_hire_writes_code() -> None:
     lowered = persona.lower()
     assert "pull request" not in lowered
     assert "merge" not in lowered
+    # The arrival clause is fixed text no track can reach, so engineering nouns in
+    # it are invisible to the vocabulary that exists to keep them out. Writing
+    # "somebody who cannot clone the repository" was the obvious first draft.
+    assert "clone" not in lowered
+    assert "repository" not in lowered
+    assert "commit" not in lowered
 
 
 def test_the_grounding_rule_survives_every_toolset() -> None:
