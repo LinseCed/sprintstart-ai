@@ -104,8 +104,7 @@ def build_persona(
             whose tools are absent is omitted rather than softened, so the persona
             never mentions a capability this hire does not have.
         vocabulary: The hire's track vocabulary. Defaults to the engineering
-            wording, so a caller that supplies nothing gets the persona that
-            existed before tracks.
+            wording when a caller supplies nothing.
 
     Returns:
         The system prompt, without any conversation summary appended.
@@ -115,8 +114,8 @@ def build_persona(
 
     # First clause, because it is first in the conversation: what has to be true
     # before somebody can work comes before what they should work on. The backend
-    # only mounts the tool when a step actually applies to this hire, so a project
-    # that has authored no arrival list gets the persona that existed before A2.
+    # mounts the tool only when a step actually applies, so a project with no
+    # arrival list gets no arrival clause.
     if "get_arrival_steps" in available:
         parts.append(_ARRIVAL_CLAUSE)
     if "get_learning_plan" in available:
