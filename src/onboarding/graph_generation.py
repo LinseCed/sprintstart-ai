@@ -279,9 +279,6 @@ def stream_competency_graph(
 
     # Competencies are all this derives, and they are a function of the corpus, so
     # an unchanged corpus can hold nothing new and the whole run short-circuits.
-    # (It used to short-circuit the node pass only, because relationships between
-    # nodes already in the graph were not a function of the corpus. There are no
-    # relationships now.)
     if last_fingerprint is not None and last_fingerprint == fingerprint:
         outcome = GraphProposalOutcome(
             status="unchanged",

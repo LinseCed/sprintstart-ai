@@ -241,9 +241,7 @@ def test_persona_makes_the_buddy_a_plan_aware_mentor() -> None:
     llm = ScriptedLLMClient(turns=[], answer="hi")
 
     # The persona is assembled from the tools this hire was actually mounted, so a
-    # test about the plan-aware directives has to mount the plan tools. Passing only
-    # get_my_metrics used to still produce them, from a fixed persona that described
-    # capabilities the hire might not have.
+    # test about the plan-aware directives has to mount the plan tools.
     plan_tools = [
         _GET_MY_METRICS,
         _tool("get_learning_plan"),
