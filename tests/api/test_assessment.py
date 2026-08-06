@@ -143,7 +143,8 @@ def test_must_finish_always_finishes_even_if_model_disagrees(
     assert body["done"] is True
     assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}
     jpa = next(a for a in body["assessments"] if a["key"] == "jpa-persistence")
-    assert jpa["level"] == "beginner"
+    # Probed but not assessed is "we asked and saw nothing" -- not "they are early".
+    assert jpa["level"] == "none"
     assert jpa["confidence"] == 0.0
     assert jpa["evidence"] == "no signal"
 
@@ -169,7 +170,11 @@ def test_never_emits_keys_outside_candidates(client: tuple[TestClient, StubLLMCl
     assert {c["key"] for c in body["coverage"]} == {"kotlin"}
 
 
-def test_unknown_level_is_normalized_to_beginner(
+def test_an_unreadable_level_is_not_credited(
+    # ⚠️ It must land on "none", never "beginner". Only rank 0 is filtered out
+    # downstream, so crediting a competency on the strength of a parse failure
+    # shows up everywhere as "they have this".
+
     client: tuple[TestClient, StubLLMClient],
 ):
     http_client, _ = client
@@ -192,7 +197,7 @@ def test_unknown_level_is_normalized_to_beginner(
 
     assert response.status_code == 200
     kotlin = next(a for a in response.json()["assessments"] if a["key"] == "kotlin")
-    assert kotlin["level"] == "beginner"
+    assert kotlin["level"] == "none"
 
 
 def test_invalid_json_degrades_to_finalize_with_defaults_once_finishing_is_valid(
@@ -215,7 +220,7 @@ def test_invalid_json_degrades_to_finalize_with_defaults_once_finishing_is_valid
     assert body["done"] is True
     assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}
     assert all(
-        a["level"] == "beginner" and a["evidence"] == "no signal"
+        a["level"] == "none" and a["evidence"] == "no signal"
         for a in body["assessments"]
     )
 
@@ -715,3 +720,73 @@ def test_a_caller_sending_no_targets_still_gets_the_turn_floor(
     assert body["done"] is True
     # No coverage information: every candidate is placed, as before.
     assert {a["key"] for a in body["assessments"]} == {"kotlin", "jpa-persistence"}
+
+
+def test_a_confident_disclaimer_is_recorded_as_none_not_beginner(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """⚠️ The bug this exists to stop: being credited for saying you know nothing.
+
+    A hire who says "I have never used Next.js" is giving a *confident* answer, so
+    the interviewer reports high confidence. The backend's low-confidence floor
+    therefore never fires -- the clearer the hire is, the more certain the model,
+    and the more certainly the old contract credited them at beginner/rank 1.
+
+    "none" is what makes the placement honest at the value, rather than relying on
+    a downstream floor to rescue it.
+    """
+    http_client, _ = client
+    payload = {
+        "done": True,
+        "assessments": [
+            {
+                "key": "kotlin",
+                "level": "none",
+                "confidence": 0.95,
+                "evidence": "Says they have never used it.",
+            },
+            {
+                "key": "jpa-persistence",
+                "level": "intermediate",
+                "confidence": 0.6,
+                "evidence": "e",
+            },
+        ],
+    }
+    app.dependency_overrides[get_llm] = _stub(payload)
+
+    response = http_client.post(_URL, json=_request(turn=3))
+
+    assert response.status_code == 200
+    kotlin = next(a for a in response.json()["assessments"] if a["key"] == "kotlin")
+    assert kotlin["level"] == "none"
+    # High confidence is preserved: the model is sure, and the value carries the
+    # meaning. Nothing downstream should need the confidence to know it is not held.
+    assert kotlin["confidence"] == 0.95
+
+
+def test_the_real_levels_still_survive_normalization(
+    client: tuple[TestClient, StubLLMClient],
+):
+    """"none" must not swallow the scale it sits beside."""
+    http_client, _ = client
+    payload = {
+        "done": True,
+        "assessments": [
+            {"key": "kotlin", "level": "EXPERT", "confidence": 0.9, "evidence": "e"},
+            {
+                "key": "jpa-persistence",
+                "level": "  Advanced ",
+                "confidence": 0.8,
+                "evidence": "e",
+            },
+        ],
+    }
+    app.dependency_overrides[get_llm] = _stub(payload)
+
+    response = http_client.post(_URL, json=_request(turn=3))
+
+    assert response.status_code == 200
+    levels = {a["key"]: a["level"] for a in response.json()["assessments"]}
+    assert levels["kotlin"] == "expert"
+    assert levels["jpa-persistence"] == "advanced"

@@ -72,6 +72,13 @@ ONLY, and never grounds to finish. Record low confidence for those keys and move
 the keys you have not probed yet. One non-answer about one competency says nothing about
 the others.
 
+A candidate who tells you they have NOT used something is giving you a clear, confident
+answer -- not a non-answer. Place that competency at "none". Do NOT place it at
+"beginner": "beginner" means they have touched it and are early, and recording that for
+somebody who told you they have never used it credits them with a skill they disclaimed
+and just told you they lack. "none" and low-confidence are different things: use "none"
+when you believe them, and low confidence when you could not tell.
+
 When somebody is clearly a beginner, change register rather than stopping -- they are
 exactly the hire this process exists for, and "beginner at everything" is still a
 placement that needs evidence. Ask what they HAVE built or used, drop to the most
@@ -90,7 +97,7 @@ Interviewing:
  "coverage": [{"key": str, "level": str|null, "confidence": number|null}, ...]}
 Finished:
 {"done": true, "assessments": [{"key": str,
- "level": "beginner"|"intermediate"|"advanced"|"expert",
+ "level": "none"|"beginner"|"intermediate"|"advanced"|"expert",
  "confidence": number 0..1, "evidence": str}, ...]}
 """
 
@@ -103,7 +110,8 @@ class _CoverageItem(BaseModel):
 
 class _AssessmentItem(BaseModel):
     key: str
-    level: str = "beginner"
+    # Not "beginner": an omitted level is not evidence of early proficiency.
+    level: str = "none"
     confidence: float = 0.0
     evidence: str = ""
 
@@ -215,10 +223,26 @@ def _retry_without_finishing(
     return payload
 
 
+# The absence of a proficiency level, not one of them -- deliberately NOT added to
+# ``SKILL_LEVELS``, which is the scale of levels somebody can *hold* and is mirrored by
+# the backend enum and the frontend union. The backend ranks any level it does not
+# recognise as 0, so this needs no coordinated change to be read correctly there.
+_NO_EXPERIENCE = "none"
+
+
 def _normalize_level(level: str | None) -> str:
-    if level is not None and level.strip().lower() in SKILL_LEVELS:
-        return level.strip().lower()
-    return "beginner"
+    """The level to record, defaulting to "none" rather than to a credited one.
+
+    ⚠️ An unreadable or missing level must not become ``beginner``. Doing so credits a
+    competency on the strength of a parse failure, and downstream only rank 0 is
+    filtered out -- rank 1 reads as "they have this" everywhere it is shown.
+    """
+    if level is None:
+        return _NO_EXPERIENCE
+    normalized = level.strip().lower()
+    if normalized == _NO_EXPERIENCE or normalized in SKILL_LEVELS:
+        return normalized
+    return _NO_EXPERIENCE
 
 
 def _finalize_with_defaults(
@@ -228,8 +252,9 @@ def _finalize_with_defaults(
 ) -> AssessmentTurnResponse:
     """Build a done=true response over the candidates that were actually asked about.
 
-    Anything the model didn't (validly) assess but *was* probed defaults to
-    beginner/no-signal -- "we asked and saw nothing" is a real placement.
+    Anything the model didn't (validly) assess but *was* probed is recorded as
+    "none"/no-signal -- "we asked and saw nothing" is a real placement, and it is
+    not the same claim as "they are early at this".
 
     A key that was never targeted is omitted entirely. "Not asked" is not the
     same as "asked and saw nothing", and the caller records the latter as a
