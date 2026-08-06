@@ -1,8 +1,8 @@
-"""AI-authoring of starter-work pool candidates from open GitHub issues.
+"""AI-authoring of starter-work pool candidates from open tracker issues.
 
 Phase 4 (ai issue 5): source the contribution (goal) nodes a hire's path
 terminates in. A batch, re-runnable job -- offline/authoring-time, not on the
-hire's request path -- that mines the ingested corpus's open GitHub issues for
+hire's request path -- that mines the ingested corpus's open issues for
 safely-scoped starter tasks and proposes them as a candidate pool for PM
 curation. Proposal-only, never auto-published: mirrors
 :mod:`onboarding.graph_generation`'s relationship to the backend, including
@@ -12,7 +12,19 @@ Candidate sourcing is deterministic, not LLM-driven: only ``ISSUE`` artifacts
 with ``state == "OPEN"`` are ever considered (see
 :class:`ingestion.metadata_store.ArtifactRecord`'s docstring) -- closed issues
 are excluded before the LLM ever sees them, rather than relying on it to
-notice. The LLM's role is judgment, not filtering: given each open issue's own
+notice.
+
+**Which tracker the issue came from is not asked, and must not become a
+condition.** This job was written when GitHub was the only connector and said so
+in its own docstring, but the filter above was always source-agnostic: an issue
+is a candidate because it is open, not because of where it lives. That is what
+lets a project whose tracker is Jira mine a pool at all -- the ceiling for a
+non-engineering hire was never the model, it was having nothing indexed that
+could become work they could take. A test pins it, because "only GitHub issues"
+is the assumption most likely to be re-added by somebody reading this file
+rather than the filter.
+
+The LLM's role is judgment, not filtering: given each open issue's own
 text, it assesses whether the issue is *safely scoped* for a new hire (small,
 clear acceptance criteria, no cross-cutting blast radius) and tags the
 competencies it exercises. There is no free-form retrieval step here the way

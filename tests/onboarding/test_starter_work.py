@@ -104,6 +104,54 @@ def test_mines_safely_scoped_task_from_open_issue() -> None:
     assert outcome.provenance.corpus_fingerprint == corpus_fingerprint(store)
 
 
+def test_mines_a_tracker_issue_that_is_not_from_github() -> None:
+    """A Jira-shaped issue mines exactly like a GitHub one.
+
+    ⚠️ This is the whole of P4's corpus half seen from this side. The filter here
+    was always source-agnostic -- but nothing set ``state`` on an ingested Jira
+    issue, so every one of them fell out at the ``state == "OPEN"`` line and a
+    project whose tracker is Jira mined an *empty pool*. It read as "no good
+    first issues here" rather than "we cannot see your tracker", which is why it
+    survived the connector landing. The backend now folds Jira's status category
+    into that state; this pins that nothing on this side needs GitHub's shape --
+    no ``owner/repo`` in the source id, no labels, no GitHub URL.
+    """
+    metadata_store = _metadata_store()
+    metadata_store.save_artifact(
+        _issue_artifact(
+            source_type="jira",
+            source_id="10042",
+            source_url="https://example.atlassian.net/browse/ONB-42",
+            labels=[],
+        )
+    )
+    store = StubVectorStore()
+    _add_issue_chunk(
+        store, "a1", "Write up the retro notes", "Summarise what the team agreed."
+    )
+    llm = _llm(
+        [
+            {
+                "source_id": "10042",
+                "safely_scoped": True,
+                "summary": "Write up the retro notes.",
+                "competency_keys": ["facilitation"],
+                "rationale": "Bounded, and the outcome is a single document.",
+            }
+        ]
+    )
+
+    outcome = generate_starter_work_pool(llm, store, metadata_store)
+
+    assert outcome.status == "proposed"
+    task = outcome.tasks[0]
+    assert task.source_id == "10042"
+    assert task.title == "Write up the retro notes"
+    assert task.citations[0].source_url == (
+        "https://example.atlassian.net/browse/ONB-42"
+    )
+
+
 def test_closed_issue_is_never_proposed() -> None:
     metadata_store = _metadata_store()
     metadata_store.save_artifact(_issue_artifact(state="CLOSED"))
