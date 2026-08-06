@@ -2,6 +2,7 @@ import json
 from collections.abc import Generator
 
 from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
+from onboarding import starter_work
 from onboarding.corpus import corpus_fingerprint
 from onboarding.progress import ProgressEvent
 from onboarding.starter_work import (
@@ -469,3 +470,92 @@ def test_an_empty_corpus_streams_a_skipped_done_not_an_error() -> None:
     assert outcome.status == "skipped"
     assert events[-1]["type"] == "done"
     assert "error" not in [e["type"] for e in events]
+
+
+def _many_issues(
+    metadata_store: IngestionMetadataStore, store: StubVectorStore, count: int
+) -> None:
+    """``count`` open, unassigned, chunked issues.
+
+    Ids are zero-padded so the sort order is obvious to read.
+    """
+    for i in range(count):
+        aid = f"a{i:03d}"
+        metadata_store.save_artifact(
+            _issue_artifact(
+                id=aid,
+                source_id=f"github:org/repo:ISSUE:{i:03d}",
+                source_url=f"https://github.com/org/repo/issues/{i}",
+            )
+        )
+        _add_issue_chunk(store, aid, f"Issue {i}", "body")
+
+
+def test_a_corpus_larger_than_the_cap_judges_only_the_cap() -> None:
+    """⚠️ Uncapped, one prompt grows with the corpus until it blocks whoever ran it."""
+    metadata_store = _metadata_store()
+    store = StubVectorStore()
+    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+
+    outcome = generate_starter_work_pool(_llm([]), store, metadata_store)
+
+    assert outcome.candidates_considered == starter_work._MAX_CANDIDATES_PER_RUN
+
+
+def test_what_the_cap_left_out_is_counted_not_dropped_silently() -> None:
+    """A pool missing most of the corpus reads as "no good first work here"."""
+    metadata_store = _metadata_store()
+    store = StubVectorStore()
+    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+
+    outcome = generate_starter_work_pool(_llm([]), store, metadata_store)
+
+    assert any("7 more eligible issue(s)" in note for note in outcome.notes)
+
+
+def test_a_corpus_within_the_cap_says_nothing_about_deferral() -> None:
+    """The note is about a real remainder, never noise on an ordinary run."""
+    metadata_store = _metadata_store()
+    store = StubVectorStore()
+    _many_issues(metadata_store, store, 3)
+
+    outcome = generate_starter_work_pool(_llm([]), store, metadata_store)
+
+    assert outcome.candidates_considered == 3
+    assert not any("eligible issue(s)" in note for note in outcome.notes)
+
+
+def test_the_capped_slice_is_stable_across_runs() -> None:
+    """⚠️ A stable order is what makes the cap fair.
+
+    An arbitrary one re-judges the same issues every run while others are never
+    reached at all -- the deferred remainder would never actually be picked up.
+    """
+    metadata_store = _metadata_store()
+    store = StubVectorStore()
+    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+
+    first, _ = starter_work._load_candidates(
+        store, metadata_store, exclude_source_ids=set()
+    )
+    second, _ = starter_work._load_candidates(
+        store, metadata_store, exclude_source_ids=set()
+    )
+
+    assert [c.source_id for c in first] == [c.source_id for c in second]
+
+
+def test_issues_already_pooled_do_not_consume_the_cap() -> None:
+    """Dedup happens before the cap, so a full pool does not starve the next run."""
+    metadata_store = _metadata_store()
+    store = StubVectorStore()
+    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+    already = {f"github:org/repo:ISSUE:{i:03d}" for i in range(7)}
+
+    candidates, eligible_total = starter_work._load_candidates(
+        store, metadata_store, exclude_source_ids=already
+    )
+
+    assert eligible_total == starter_work._MAX_CANDIDATES_PER_RUN
+    assert len(candidates) == starter_work._MAX_CANDIDATES_PER_RUN
+    assert not any(c.source_id in already for c in candidates)
