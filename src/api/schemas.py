@@ -867,6 +867,24 @@ class AssembleDiagramRequest(BaseModel):
     )
 
 
+class FileDiffSchema(BaseModel):
+    """One changed file's diff, budgeted backend-side."""
+
+    path: str
+    additions: int = 0
+    deletions: int = 0
+    patch: str | None = Field(
+        default=None,
+        description="None when GitHub reported no patch -- binary or too large.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "Whether the patch was cut, so a trimmed diff is not read as small."
+        ),
+    )
+
+
 class ArtifactEvidenceSchema(BaseModel):
     pr_title: str = ""
     pr_body: str = ""
@@ -878,6 +896,20 @@ class ArtifactEvidenceSchema(BaseModel):
         default=None, description="None when CI status is unknown/not reported."
     )
     commit_messages: list[str] = Field(default_factory=list)
+    file_diffs: list[FileDiffSchema] = Field(
+        default_factory=list,
+        description=(
+            "The changed files' diffs. Filenames alone cannot separate a real fix "
+            "from a whitespace edit to the right file."
+        ),
+    )
+    omitted_file_count: int = Field(
+        default=0,
+        description=(
+            "Changed files whose diff did not fit the budget -- sent so a partial "
+            "diff is never mistaken for a complete one."
+        ),
+    )
 
     def to_model(self) -> "ArtifactEvidence":
         from onboarding.verification import ArtifactEvidence
