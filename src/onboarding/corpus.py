@@ -11,10 +11,6 @@ That is the whole reason age is never treated as staleness here: a packet
 describing code nobody has touched in a year is perfectly current, and one
 describing code that changed this morning is not, however recently it was
 written.
-
-This lived in ``onboarding.generation`` because blueprint generation was the
-first job to need it. It outlived that job by five callers, so it now lives
-somewhere its name is true.
 """
 
 import hashlib
