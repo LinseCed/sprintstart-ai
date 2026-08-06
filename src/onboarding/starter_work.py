@@ -47,7 +47,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, ValidationError
 
-from ingestion.metadata_store import IngestionMetadataStore
+from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.corpus import corpus_fingerprint
@@ -60,6 +60,20 @@ from store.base import VectorStore
 logger = logging.getLogger(__name__)
 
 _MAX_CHUNKS_PER_ISSUE = 20
+
+# How many issues one mining run may judge.
+#
+# ⚠️ Every candidate goes into a *single* prompt, so without a cap the prompt
+# grows linearly with the corpus: ingesting a whole organisation once produced
+# one call slow enough to block the person who triggered it. A crawl is not a
+# moment anybody is watching, and an unbounded loop is a bill nobody authorised
+# -- the same reason the module pass caps itself per run.
+#
+# It also protects the judgement: a model asked to rank hundreds of issues in one
+# prompt reasons about each of them worse than one asked about twenty-five.
+#
+# What does not fit is not dropped silently -- see ``notes`` on the outcome.
+_MAX_CANDIDATES_PER_RUN = 25
 
 
 class GenerationError(Exception):
@@ -196,13 +210,19 @@ def _issue_text(chunks: list[Chunk]) -> str:
     return "\n".join(c.text for c in ordered)
 
 
-def _load_candidates(
-    store: VectorStore,
+def _eligible_artifacts(
     metadata_store: IngestionMetadataStore,
     *,
     exclude_source_ids: set[str],
-) -> list[StarterTaskCandidate]:
-    candidates: list[StarterTaskCandidate] = []
+) -> list[ArtifactRecord]:
+    """Every artifact that could become a starter task, in a stable order.
+
+    Metadata only: no chunk reads, so capping happens before the expensive part.
+    Sorted by ``source_id`` because **a stable order is what makes the cap fair**
+    -- an arbitrary one would re-judge the same issues every run while others
+    were never reached at all.
+    """
+    eligible: list[ArtifactRecord] = []
     for artifact in metadata_store.list_artifacts(status="completed"):
         if artifact.artifact_type != "ISSUE":
             continue
@@ -220,6 +240,34 @@ def _load_candidates(
         if artifact.source_id is None or artifact.source_id in exclude_source_ids:
             continue
 
+        eligible.append(artifact)
+
+    return sorted(eligible, key=lambda a: a.source_id or "")
+
+
+def _load_candidates(
+    store: VectorStore,
+    metadata_store: IngestionMetadataStore,
+    *,
+    exclude_source_ids: set[str],
+    limit: int = _MAX_CANDIDATES_PER_RUN,
+) -> tuple[list[StarterTaskCandidate], int]:
+    """The issues this run will judge, and how many eligible ones there were.
+
+    Chunks are read only for the capped slice, so an organisation-sized corpus
+    costs one metadata scan rather than a chunk lookup per issue.
+
+    Returns ``(candidates, eligible_total)``. ``eligible_total`` is what the
+    caller reports as left over: a pool silently missing most of the corpus
+    reads as "there is no good first work here", which is a different claim
+    entirely.
+    """
+    eligible = _eligible_artifacts(
+        metadata_store, exclude_source_ids=exclude_source_ids
+    )
+
+    candidates: list[StarterTaskCandidate] = []
+    for artifact in eligible[:limit]:
         chunks = store.list_chunks_by_artifact(artifact.id, limit=_MAX_CHUNKS_PER_ISSUE)
         if not chunks:
             continue
@@ -230,14 +278,14 @@ def _load_candidates(
 
         candidates.append(
             StarterTaskCandidate(
-                source_id=artifact.source_id,
+                source_id=artifact.source_id or "",
                 title=_derive_title(text, artifact.filename),
                 text=text,
                 source_url=artifact.source_url,
                 labels=artifact.labels,
             )
         )
-    return candidates
+    return candidates, len(eligible)
 
 
 # --- job -----------------------------------------------------------------------
@@ -277,7 +325,7 @@ def stream_starter_work_pool(
         return outcome
 
     yield progress.stage("retrieving", "Collecting open issues from the corpus")
-    candidates = _load_candidates(
+    candidates, eligible_total = _load_candidates(
         store, metadata_store, exclude_source_ids=set(active_source_ids or [])
     )
     if not candidates:
@@ -287,6 +335,23 @@ def stream_starter_work_pool(
         yield progress.warning("No open, unpooled issues to mine")
         yield progress.done("No starter tasks could be mined", _dump(outcome))
         return outcome
+
+    # What did not fit is counted, never silently dropped: the next run reaches it,
+    # and until then a PM can tell "capped" from "the corpus holds nothing else".
+    deferred = max(eligible_total - _MAX_CANDIDATES_PER_RUN, 0)
+    cap_notes = (
+        [
+            f"{deferred} more eligible issue(s) were not judged this run "
+            f"(cap is {_MAX_CANDIDATES_PER_RUN}); the next run picks them up"
+        ]
+        if deferred
+        else []
+    )
+    if deferred:
+        yield progress.warning(
+            f"Judging {len(candidates)} of {eligible_total} open issues this run; "
+            f"{deferred} wait for the next"
+        )
 
     yield progress.stage(
         "grounding", f"Judging {len(candidates)} open issue(s) for scope safety"
@@ -299,7 +364,7 @@ def stream_starter_work_pool(
         outcome = StarterWorkOutcome(
             status="skipped",
             candidates_considered=len(candidates),
-            notes=[str(exc)],
+            notes=[str(exc), *cap_notes],
         )
         yield progress.warning("The mined tasks could not be read")
         yield progress.done("No starter tasks could be mined", _dump(outcome))
@@ -341,7 +406,7 @@ def stream_starter_work_pool(
         outcome = StarterWorkOutcome(
             status="skipped",
             candidates_considered=len(candidates),
-            notes=["no candidate judged safely scoped"],
+            notes=["no candidate judged safely scoped", *cap_notes],
         )
         yield progress.done("No issue was judged safely scoped", _dump(outcome))
         return outcome
@@ -355,6 +420,7 @@ def stream_starter_work_pool(
             model=llm.model_name,
         ),
         candidates_considered=len(candidates),
+        notes=cap_notes,
     )
     yield progress.done(f"Proposed {len(tasks)} starter task(s)", _dump(outcome))
     return outcome
@@ -374,13 +440,13 @@ def generate_starter_work_pool(
     active_competency_keys: list[str] | None = None,
     last_fingerprint: str | None = None,
 ) -> StarterWorkOutcome:
-    """Propose safely-scoped starter tasks from open GitHub issues.
+    """Propose safely-scoped starter tasks from open tracker issues.
 
     ``active_source_ids`` are issues already in the backend's starter-work
-    pool (proposed or approved) -- drives dedup, an issue already pooled is
-    never re-proposed. ``active_competency_keys`` are the backend's live
-    competency graph keys; a proposed task's competency tags are grounded
-    against this set (dropped, not invented, when the tag falls outside it) --
+    pool -- drives dedup, an issue already pooled is never mined again.
+    ``active_competency_keys`` are the backend's live competency keys; a proposed
+    task's competency tags are grounded against this set (dropped, not invented,
+    when the tag falls outside it) --
     when no keys are supplied there is nothing to validate against, so tags
     are kept as the LLM proposed them. ``last_fingerprint`` mirrors
     :func:`onboarding.graph_generation.generate_competency_graph`'s
