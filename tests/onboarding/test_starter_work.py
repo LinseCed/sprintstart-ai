@@ -152,6 +152,88 @@ def test_mines_a_tracker_issue_that_is_not_from_github() -> None:
     )
 
 
+def test_issue_somebody_else_is_already_on_is_not_proposed() -> None:
+    """Starter work is work a hire can *take*.
+
+    An open issue somebody else is assigned to is not available, however open it
+    is. A Jira board assigns its in-progress tickets, so without this the pool
+    offered new hires work other people were doing -- and a hire cannot tell,
+    because the proposal reads exactly like any other.
+    """
+    metadata_store = _metadata_store()
+    metadata_store.save_artifact(_issue_artifact(has_assignee=True))
+    store = StubVectorStore()
+    _add_issue_chunk(store, "a1", "Fix typo", "body")
+    llm = _llm(
+        [
+            {
+                "source_id": "github:org/repo:ISSUE:1",
+                "safely_scoped": True,
+                "summary": "x",
+            }
+        ]
+    )
+
+    outcome = generate_starter_work_pool(llm, store, metadata_store)
+
+    assert outcome.status == "skipped"
+    assert outcome.tasks == []
+
+
+def test_an_unassigned_issue_is_still_proposed() -> None:
+    """A definite ``False`` is the tracker saying nobody has taken it."""
+    metadata_store = _metadata_store()
+    metadata_store.save_artifact(_issue_artifact(has_assignee=False))
+    store = StubVectorStore()
+    _add_issue_chunk(store, "a1", "Fix typo in README", "The install section.")
+    llm = _llm(
+        [
+            {
+                "source_id": "github:org/repo:ISSUE:1",
+                "safely_scoped": True,
+                "summary": "Fix a typo.",
+            }
+        ]
+    )
+
+    outcome = generate_starter_work_pool(llm, store, metadata_store)
+
+    assert outcome.status == "proposed"
+    assert len(outcome.tasks) == 1
+
+
+def test_an_issue_whose_assignment_is_unknown_is_still_proposed() -> None:
+    """⚠️ ``None`` is "we cannot tell", never "nobody".
+
+    GitHub issues have assignees this system does not ingest, so every one of
+    them arrives unknown. Treating unknown as taken would empty the pool for
+    every existing project; treating it as free is what P0 guaranteed --
+    engineering behaviour byte-identical. The default fixture carries no
+    assignment, which is exactly the GitHub case.
+    """
+    metadata_store = _metadata_store()
+    metadata_store.save_artifact(_issue_artifact())
+    assert metadata_store.get_artifact("a1") is not None
+    assert metadata_store.get_artifact("a1").has_assignee is None  # type: ignore[union-attr]
+
+    store = StubVectorStore()
+    _add_issue_chunk(store, "a1", "Fix typo in README", "The install section.")
+    llm = _llm(
+        [
+            {
+                "source_id": "github:org/repo:ISSUE:1",
+                "safely_scoped": True,
+                "summary": "Fix a typo.",
+            }
+        ]
+    )
+
+    outcome = generate_starter_work_pool(llm, store, metadata_store)
+
+    assert outcome.status == "proposed"
+    assert len(outcome.tasks) == 1
+
+
 def test_closed_issue_is_never_proposed() -> None:
     metadata_store = _metadata_store()
     metadata_store.save_artifact(_issue_artifact(state="CLOSED"))

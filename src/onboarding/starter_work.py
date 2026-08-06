@@ -208,6 +208,15 @@ def _load_candidates(
             continue
         if (artifact.state or "").upper() != "OPEN":
             continue
+        # ⚠️ Only a *definite* True withholds it. Starter work is work a hire can
+        # take, and an issue somebody else is already on is not available however
+        # open it is -- a Jira board assigns its in-progress tickets, so without
+        # this the pool offered new hires work other people were doing. ``None``
+        # means the connector cannot tell (GitHub's assignees are not ingested)
+        # and must never be read as "nobody", or engineering behaviour would
+        # change on a fact nobody established.
+        if artifact.has_assignee is True:
+            continue
         if artifact.source_id is None or artifact.source_id in exclude_source_ids:
             continue
 

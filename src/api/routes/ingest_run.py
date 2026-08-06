@@ -117,6 +117,7 @@ def _ingest_one(
         artifact_type=artifact.artifact_type,
         language=artifact.language,
         state=artifact.state,
+        has_assignee=artifact.has_assignee,
         labels=artifact.labels,
     )
 
