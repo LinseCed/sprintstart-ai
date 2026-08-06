@@ -12,6 +12,7 @@ persists the memory and greeting this returns.
 """
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import cast
 
@@ -98,6 +99,176 @@ def open_session(
     return _parse(raw, fallback_memory=memory or "")
 
 
+_MEMORY_MARKER = "<<<MEMORY>>>"
+_ACTION_MARKER = "<<<ACTION>>>"
+
+_STREAM_SYSTEM = (
+    "You are a warm, perceptive onboarding mentor greeting a new hire as they open "
+    "the chat. You keep a private, durable memory note about this hire, and you "
+    "speak to them directly.\n"
+    "You are given: your MEMORY of the hire (may be empty on the first visit), the "
+    "RECENT conversation since you last updated that memory (may be empty), and the "
+    "hire's current STATE (their work in flight, tasks, competencies). What the "
+    "state contains depends on the hire's role -- describe only what is actually "
+    "there, and never assume they write code.\n"
+    "Write your reply in exactly three parts, in this order, with nothing before the "
+    "first part:\n"
+    "PART 1 -- the greeting, as plain prose with no label and no quotes: a short, "
+    "warm, first-person opener (2-4 sentences) that greets the hire and proactively "
+    "says the one thing most worth saying right now, grounded in the memory and the "
+    "current state (work waiting on somebody else, something of theirs that landed "
+    "and is worth celebrating, a stall, an open thread from last time). Be specific, "
+    "not generic. Never invent facts that are not in the memory or the state. The "
+    "hire reads this as you type it, so it must come first.\n"
+    f"PART 2 -- the line {_MEMORY_MARKER} on its own, then your rewritten memory "
+    "note, folding in anything new worth remembering from the recent conversation: "
+    "what the hire is working toward, what you have taught or explained, decisions "
+    "made, open threads, their preferences, and what they have struggled with. Third "
+    "person, factual, concise (under 200 words). Drop greetings and small talk. If "
+    "nothing is new, repeat the memory unchanged. The hire never sees this part.\n"
+    f"PART 3 -- the line {_ACTION_MARKER} on its own, then ONE suggested next step "
+    'as JSON {"label": short button text, "question": the message to send when the '
+    "hire clicks it}, or the word none when nothing fits."
+)
+
+
+def stream_session(
+    memory: str | None,
+    recent: list[Message],
+    state: str,
+    llm: LLMClient,
+) -> Iterator[dict[str, object]]:
+    """Stream the greeting as the model writes it, then yield the folded memory.
+
+    ### Why this exists next to :func:`open_session`
+
+    Opening the buddy took about thirty seconds, and the reason was ordering rather
+    than model speed: :func:`open_session` asks for strict JSON whose **first** field
+    is a memory note of up to 200 words that **the hire never sees**, with the 2-4
+    sentence greeting after it. So the hire waited for roughly 260 invisible tokens
+    before the first word addressed to them was even generated.
+
+    ⚠️ **Strict JSON cannot be streamed as prose** -- the first tokens are
+    ``{"memory": "`` -- so this call uses markers instead and puts the visible part
+    first. Same single model call, same tokens, and the greeting starts arriving
+    immediately.
+
+    ### Degrading
+
+    A model that ignores the format and just writes prose yields all of it as the
+    greeting and **leaves the memory untouched**, which is the safe direction: a visit
+    with an un-updated memory is ordinary, a memory overwritten with a greeting is not.
+    An unavailable model yields the plain welcome, exactly as the non-streaming path
+    does -- opening a visit must never fail the page.
+
+    @param memory: The mentor's durable note, or None on a first visit.
+    @param recent: The window since the memory was last updated.
+    @param state: A snapshot of the hire's current state.
+    @return: ``token`` events carrying the greeting as it arrives, then one terminal
+        ``done`` carrying the whole greeting, the folded memory and any action.
+    """
+    prompt = [
+        Message(role="system", content=_STREAM_SYSTEM),
+        Message(
+            role="user",
+            content=(
+                f"MEMORY:\n{memory or '(no memory yet -- first visit)'}\n\n"
+                "RECENT conversation since the last memory update:\n"
+                f"{_format_recent(recent)}\n\n"
+                f"STATE (current):\n{state or '(no state available)'}\n\n"
+                "Write the three parts."
+            ),
+        ),
+    ]
+
+    greeting = ""
+    tail = ""
+    pending = ""
+    in_greeting = True
+
+    try:
+        for chunk in llm.stream(prompt):
+            if not chunk:
+                continue
+            if not in_greeting:
+                tail += chunk
+                continue
+            pending += chunk
+            cut = pending.find(_MEMORY_MARKER)
+            if cut != -1:
+                # Trailing whitespace before the marker is formatting, not greeting.
+                head = pending[:cut].rstrip()
+                if head:
+                    greeting += head
+                    yield {"type": "token", "content": head}
+                tail = pending[cut + len(_MEMORY_MARKER) :]
+                pending = ""
+                in_greeting = False
+                continue
+            # ⚠️ A suffix that could still grow into the marker is held back, never
+            # emitted and never treated as the end of the greeting: "<<<MEM" is both a
+            # partial marker and a legitimate five characters of prose, and only the
+            # next chunk decides which. Holding back only that suffix is what keeps a
+            # short greeting streaming instead of waiting for a fixed-size buffer.
+            keep = _held_back_len(pending)
+            if keep < len(pending):
+                emit, pending = (
+                    pending[: len(pending) - keep],
+                    pending[len(pending) - keep :],
+                )
+                greeting += emit
+                yield {"type": "token", "content": emit}
+    except LLMUnavailableError:
+        yield {
+            "type": "done",
+            "greeting": _FALLBACK_GREETING,
+            "memory": memory or "",
+            "action": None,
+        }
+        return
+
+    # Whatever is still held back was never a marker after all, so it is prose.
+    if in_greeting and pending:
+        greeting += pending
+        yield {"type": "token", "content": pending}
+
+    folded, label, question = _split_tail(tail)
+    yield {
+        "type": "done",
+        # ⚠️ Byte-identical to the concatenated tokens, deliberately. The client renders
+        # the tokens and the caller persists this; if they differed, the message a hire
+        # watched arrive would not be the one they see after a reload.
+        "greeting": greeting if greeting.strip() else _FALLBACK_GREETING,
+        # An empty or absent memory part means the model did not rewrite the note, so
+        # the note stands. Never blanked by a malformed reply.
+        "memory": folded or (memory or ""),
+        "action": (
+            {"label": label, "question": question} if label and question else None
+        ),
+    }
+
+
+def _held_back_len(text: str) -> int:
+    """How many trailing characters could still turn out to be the memory marker."""
+    for size in range(min(len(_MEMORY_MARKER) - 1, len(text)), 0, -1):
+        if _MEMORY_MARKER.startswith(text[-size:]):
+            return size
+    return 0
+
+
+def _split_tail(tail: str) -> tuple[str, str | None, str | None]:
+    """Split everything after the memory marker into the note and the action."""
+    cut = tail.find(_ACTION_MARKER)
+    if cut == -1:
+        return tail.strip(), None, None
+    memory = tail[:cut].strip()
+    action = _loads_object(tail[cut + len(_ACTION_MARKER) :])
+    if action is None:
+        return memory, None, None
+    label, question = _read_action(action)
+    return memory, label, question
+
+
 def _parse(raw: str, fallback_memory: str) -> BuddyOpening:
     data = _loads_object(raw)
     if data is None:
@@ -148,4 +319,4 @@ def _loads_object(raw: str) -> dict[str, object] | None:
     return cast("dict[str, object]", parsed) if isinstance(parsed, dict) else None
 
 
-__all__ = ["BuddyOpening", "open_session"]
+__all__ = ["BuddyOpening", "open_session", "stream_session"]
