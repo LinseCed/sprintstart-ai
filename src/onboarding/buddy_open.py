@@ -9,56 +9,21 @@ thing worth saying rather than waiting to be asked.
 Stateless like every onboarding endpoint: the backend supplies the prior memory,
 the recent (not-yet-remembered) messages, and a snapshot of the hire's state, and
 persists the memory and greeting this returns.
+
+⚠️ **The greeting is written before the memory note, and that ordering is the feature.**
+An earlier version asked for strict JSON with the note first, so the hire waited on up
+to 200 words of output they never see before the first word addressed to them was even
+generated.
 """
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass
 from typing import cast
 
 from llm.base import LLMClient, Message
 from llm.errors import LLMUnavailableError
 
-_SYSTEM = (
-    "You are a warm, perceptive onboarding mentor greeting a new hire as they open "
-    "the chat. You keep a private, durable memory note about this hire, and you "
-    "speak to them directly.\n"
-    "You are given: your MEMORY of the hire (may be empty on the first visit), the "
-    "RECENT conversation since you last updated that memory (may be empty), and the "
-    "hire's current STATE (their work in flight, tasks, competencies). What the "
-    "state contains depends on the hire's role -- describe only what is actually "
-    "there, and never assume they write code.\n"
-    "Return STRICT JSON with three fields:\n"
-    '1. "memory": rewrite your memory note, folding in anything new worth '
-    "remembering from the recent conversation — what the hire is working toward, "
-    "what you have taught or explained, decisions made, open threads, their "
-    "preferences, and what they have struggled with. Third person, factual, concise "
-    "(under 200 words). Drop greetings and small talk. If nothing is new, return the "
-    "memory unchanged.\n"
-    '2. "greeting": a short, warm, first-person opener (2-4 sentences) that greets '
-    "the hire and proactively says the one thing most worth saying right now — "
-    "grounded in the memory and the current state (work waiting on somebody else, "
-    "something of theirs that landed and is worth celebrating, a stall, an open "
-    "thread from last time). Be specific, not generic. Never invent facts that are "
-    "not in the memory or the state.\n"
-    '3. "action": optionally ONE suggested next step, as {"label": short button '
-    'text, "question": the message to send when the hire clicks it}, or null when '
-    "none fits.\n"
-    'Return ONLY the JSON object, nothing else: {"memory": "...", "greeting": '
-    '"...", "action": {"label": "...", "question": "..."} | null}.'
-)
-
 _FALLBACK_GREETING = "Welcome back! How can I help with your onboarding today?"
-
-
-@dataclass
-class BuddyOpening:
-    """The result of opening a visit: the refreshed memory and the greeting to show."""
-
-    memory: str
-    greeting: str
-    action_label: str | None = None
-    action_question: str | None = None
 
 
 def _format_recent(recent: list[Message]) -> str:
@@ -66,37 +31,6 @@ def _format_recent(recent: list[Message]) -> str:
         f"{m['role']}: {m.get('content') or ''}" for m in recent if m.get("content")
     ]
     return "\n".join(lines) if lines else "(nothing since the last memory update)"
-
-
-def open_session(
-    memory: str | None,
-    recent: list[Message],
-    state: str,
-    llm: LLMClient,
-) -> BuddyOpening:
-    """Fold ``recent`` into ``memory`` and write a greeting grounded in ``state``.
-
-    Degrades to the prior memory and a plain welcome when the model is unavailable
-    or returns unparseable output — opening a visit must never fail the page.
-    """
-    prompt = [
-        Message(role="system", content=_SYSTEM),
-        Message(
-            role="user",
-            content=(
-                f"MEMORY:\n{memory or '(no memory yet -- first visit)'}\n\n"
-                "RECENT conversation since the last memory update:\n"
-                f"{_format_recent(recent)}\n\n"
-                f"STATE (current):\n{state or '(no state available)'}\n\n"
-                "Return the JSON."
-            ),
-        ),
-    ]
-    try:
-        raw = llm.generate(prompt, temperature=0.3)
-    except LLMUnavailableError:
-        return BuddyOpening(memory=memory or "", greeting=_FALLBACK_GREETING)
-    return _parse(raw, fallback_memory=memory or "")
 
 
 _MEMORY_MARKER = "<<<MEMORY>>>"
@@ -140,13 +74,13 @@ def stream_session(
 ) -> Iterator[dict[str, object]]:
     """Stream the greeting as the model writes it, then yield the folded memory.
 
-    ### Why this exists next to :func:`open_session`
+    ### Why the parts are in this order
 
     Opening the buddy took about thirty seconds, and the reason was ordering rather
-    than model speed: :func:`open_session` asks for strict JSON whose **first** field
-    is a memory note of up to 200 words that **the hire never sees**, with the 2-4
-    sentence greeting after it. So the hire waited for roughly 260 invisible tokens
-    before the first word addressed to them was even generated.
+    than model speed: the version this replaced asked for strict JSON whose **first**
+    field is a memory note of up to 200 words that **the hire never sees**, with the
+    2-4 sentence greeting after it. So the hire waited for roughly 260 invisible
+    tokens before the first word addressed to them was even generated.
 
     ⚠️ **Strict JSON cannot be streamed as prose** -- the first tokens are
     ``{"memory": "`` -- so this call uses markers instead and puts the visible part
@@ -158,8 +92,8 @@ def stream_session(
     A model that ignores the format and just writes prose yields all of it as the
     greeting and **leaves the memory untouched**, which is the safe direction: a visit
     with an un-updated memory is ordinary, a memory overwritten with a greeting is not.
-    An unavailable model yields the plain welcome, exactly as the non-streaming path
-    does -- opening a visit must never fail the page.
+    An unavailable model yields the plain welcome -- opening a visit must never fail
+    the page.
 
     @param memory: The mentor's durable note, or None on a first visit.
     @param recent: The window since the memory was last updated.
@@ -269,29 +203,6 @@ def _split_tail(tail: str) -> tuple[str, str | None, str | None]:
     return memory, label, question
 
 
-def _parse(raw: str, fallback_memory: str) -> BuddyOpening:
-    data = _loads_object(raw)
-    if data is None:
-        return BuddyOpening(memory=fallback_memory, greeting=_FALLBACK_GREETING)
-
-    memory = data.get("memory")
-    greeting = data.get("greeting")
-    label, question = _read_action(data.get("action"))
-
-    return BuddyOpening(
-        memory=memory
-        if isinstance(memory, str) and memory.strip()
-        else fallback_memory,
-        greeting=(
-            greeting
-            if isinstance(greeting, str) and greeting.strip()
-            else _FALLBACK_GREETING
-        ),
-        action_label=label,
-        action_question=question,
-    )
-
-
 def _read_action(action: object) -> tuple[str | None, str | None]:
     if not isinstance(action, dict):
         return None, None
@@ -319,4 +230,4 @@ def _loads_object(raw: str) -> dict[str, object] | None:
     return cast("dict[str, object]", parsed) if isinstance(parsed, dict) else None
 
 
-__all__ = ["BuddyOpening", "open_session", "stream_session"]
+__all__ = ["stream_session"]

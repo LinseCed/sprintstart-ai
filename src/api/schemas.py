@@ -441,25 +441,6 @@ class BuddyOpenRequest(BaseModel):
     )
 
 
-class BuddyOpenActionSchema(BaseModel):
-    label: str = Field(description="Short button text for the suggested next step.")
-    question: str = Field(
-        description="The message sent to the buddy when the hire clicks it."
-    )
-
-
-class BuddyOpenResponse(BaseModel):
-    memory: str = Field(
-        description=(
-            "The refreshed memory note to persist; the prior memory if nothing changed."
-        )
-    )
-    greeting: str = Field(description="The warm, proactive opener to show the hire.")
-    action: BuddyOpenActionSchema | None = Field(
-        default=None, description="One optional suggested next step, or null."
-    )
-
-
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     detail: str | None = None
