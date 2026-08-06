@@ -1,4 +1,7 @@
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_llm, get_source_state_store, get_store
 from api.schemas import (
@@ -13,11 +16,12 @@ from api.schemas import (
     BuddyToolSpecSchema,
     ValidationErrorResponse,
 )
+from api.sse import sse_event
 from ingestion.source_state_store import SourceStateStore
 from llm.base import LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
 from onboarding.buddy_agent import run_agent_turn
-from onboarding.buddy_open import open_session
+from onboarding.buddy_open import open_session, stream_session
 from onboarding.vocabulary import Vocabulary
 from store.base import VectorStore
 
@@ -154,3 +158,40 @@ def buddy_open(
     return BuddyOpenResponse(
         memory=opening.memory, greeting=opening.greeting, action=action
     )
+
+
+@router.post(
+    "/onboarding/buddy/open/stream",
+    summary="Open a buddy visit, streaming the greeting as it is written",
+    response_class=StreamingResponse,
+    tags=["onboarding-buddy"],
+    responses={422: {"model": ValidationErrorResponse}},
+)
+def buddy_open_stream(
+    body: BuddyOpenRequest,
+    llm: LLMClient = Depends(get_llm),
+) -> StreamingResponse:
+    """The streaming twin of :func:`buddy_open`, and the reason it exists is ordering.
+
+    ⚠️ **The non-streaming call asks for strict JSON whose first field is the memory
+    note the hire never sees**, so opening a visit meant waiting for up to 200 words of
+    invisible output before the first word addressed to the hire was generated. This
+    one puts the greeting first and streams it, for the same single model call and the
+    same tokens.
+
+    Emits ``token`` events carrying the greeting as it arrives and one terminal
+    ``done`` carrying the whole greeting, the folded memory and any suggested action —
+    the caller persists those exactly as it does for the non-streaming call. Degrades
+    to a plain welcome rather than erroring: opening the buddy must never fail the page.
+    """
+
+    def event_stream() -> Iterator[str]:
+        for event in stream_session(
+            memory=body.memory,
+            recent=[_to_message(m) for m in body.recent],
+            state=body.state,
+            llm=llm,
+        ):
+            yield sse_event(event)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
