@@ -26,11 +26,18 @@ class ArtifactRecord:
     source_url: str | None = None
     artifact_type: str | None = None
     language: str | None = None
-    # GitHub issue state (e.g. "OPEN"/"CLOSED") and labels (e.g. "good first
-    # issue"); both unset for non-issue artifacts. Used by starter-work mining
-    # to deterministically exclude closed issues rather than relying on an LLM
-    # to notice.
+    # Issue state at the tracker (e.g. "OPEN"/"CLOSED") and labels (e.g. "good
+    # first issue"); both unset for non-issue artifacts. Used by starter-work
+    # mining to deterministically exclude closed issues rather than relying on
+    # an LLM to notice.
     state: str | None = None
+    # Whether somebody at the source is already assigned to this issue, or None
+    # when the connector cannot tell. Mining withholds an issue on a definite
+    # True -- work somebody else has taken is not work a hire can pick up.
+    # ⚠️ None is "unknown", never "nobody": GitHub issues have assignees this
+    # system does not ingest, and reading that absence as "free" would be the
+    # same defect as reading an absent history as "beginner".
+    has_assignee: bool | None = None
     labels: list[str] = field(default_factory=list[str])
 
 
@@ -66,15 +73,17 @@ class IngestionMetadataStore:
                     artifact_type TEXT,
                     language TEXT,
                     state TEXT,
+                    has_assignee INTEGER,
                     labels TEXT
                 )
                 """
             )
-            # A pre-existing DB file predates the state/labels columns; CREATE
+            # A pre-existing DB file predates the state/labels/has_assignee
+            # columns; CREATE
             # TABLE IF NOT EXISTS alone won't add them to it. This SQLite build
             # has no ADD COLUMN IF NOT EXISTS guarantee, so add them
             # defensively and ignore "duplicate column".
-            for column in ("state TEXT", "labels TEXT"):
+            for column in ("state TEXT", "labels TEXT", "has_assignee INTEGER"):
                 try:
                     self._connection.execute(
                         f"ALTER TABLE artifacts ADD COLUMN {column}"
@@ -154,6 +163,7 @@ class IngestionMetadataStore:
                     artifact_type,
                     language,
                     state,
+                    has_assignee,
                     labels
                 FROM artifacts
                 WHERE id = ?
@@ -179,7 +189,8 @@ class IngestionMetadataStore:
         query = (
             "SELECT id, filename, content_type, source_type, size_bytes, "
             "chunk_count, status, created_at, updated_at, error_message, "
-            "source_id, source_url, artifact_type, language, state, labels "
+            "source_id, source_url, artifact_type, language, state, "
+            "has_assignee, labels "
             "FROM artifacts"
         )
         params: tuple[str, ...] = ()
@@ -215,6 +226,9 @@ class IngestionMetadataStore:
             ),
             language=None if row["language"] is None else str(row["language"]),
             state=None if row["state"] is None else str(row["state"]),
+            has_assignee=(
+                None if row["has_assignee"] is None else bool(row["has_assignee"])
+            ),
             labels=json.loads(row["labels"]) if row["labels"] else [],
         )
 
@@ -237,9 +251,10 @@ class IngestionMetadataStore:
                 artifact_type,
                 language,
                 state,
+                has_assignee,
                 labels
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 artifact.id,
@@ -257,6 +272,7 @@ class IngestionMetadataStore:
                 artifact.artifact_type,
                 artifact.language,
                 artifact.state,
+                artifact.has_assignee,
                 json.dumps(artifact.labels) if artifact.labels else None,
             ),
         )
