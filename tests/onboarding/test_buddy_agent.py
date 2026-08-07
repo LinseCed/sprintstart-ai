@@ -278,58 +278,30 @@ def test_persona_omits_tools_this_hire_was_not_mounted() -> None:
     assert "`get_my_metrics`" in persona
 
 
-def test_folds_the_oldest_messages_into_an_updated_summary() -> None:
-    llm = ScriptedLLMClient(
-        turns=[], answer="Set up the repo; PR #3 is awaiting review."
-    )
-    history = [_user(f"m{i}") for i in range(1, 5)]
-
-    result = run_agent_turn(
-        history,
-        [_GET_MY_METRICS],
-        llm,
-        StubVectorStore(),
-        prior_summary="Earlier notes.",
-        summarize_upto=2,
-    )
-
-    assert result.updated_summary == "Set up the repo; PR #3 is awaiting review."
-    system = _system_of(result.messages)
-    # The accreted summary stands in for the folded turns...
-    assert "Set up the repo; PR #3 is awaiting review." in system
-    # ...and the folded messages are out of the active window, the rest intact.
-    contents = [msg.get("content") for msg in result.messages]
-    assert "m1" not in contents
-    assert "m2" not in contents
-    assert "m3" in contents
-    assert "m4" in contents
-
-
 def test_summary_round_trips_inside_the_system_message_on_resume() -> None:
-    llm = ScriptedLLMClient(turns=[], answer="Summary of old turns.")
+    llm = ScriptedLLMClient(turns=[], answer="answer")
     first = run_agent_turn(
         [_user("m1"), _user("m2")],
         [_GET_MY_METRICS],
         llm,
         StubVectorStore(),
-        summarize_upto=1,
+        prior_summary="Summary of old turns.",
     )
 
-    # A resume hop carries the returned conversation verbatim -- no summary fields --
+    # A resume hop carries the returned conversation verbatim -- no summary field --
     # and must not get a second persona prepended nor lose the folded memory.
     llm2 = ScriptedLLMClient(turns=[], answer="answer")
-    resumed = run_agent_turn(first.messages, [_GET_MY_METRICS], llm2, StubVectorStore())
+    run_agent_turn(first.messages, [_GET_MY_METRICS], llm2, StubVectorStore())
 
     system_messages = [m for m in llm2.chat_calls[0] if m["role"] == "system"]
     assert len(system_messages) == 1
     assert "Summary of old turns." in (system_messages[0].get("content") or "")
-    assert resumed.updated_summary is None
 
 
-def test_prior_summary_is_standing_context_without_a_fold_request() -> None:
+def test_prior_summary_is_standing_context() -> None:
     llm = ScriptedLLMClient(turns=[], answer="answer")
 
-    result = run_agent_turn(
+    run_agent_turn(
         [_user("recent")],
         [_GET_MY_METRICS],
         llm,
@@ -338,24 +310,25 @@ def test_prior_summary_is_standing_context_without_a_fold_request() -> None:
     )
 
     assert "The hire merged their first PR." in _system_of(llm.chat_calls[0])
-    assert result.updated_summary is None
 
 
-def test_compaction_degrades_to_no_fold_when_the_model_is_unavailable() -> None:
+def test_the_turn_never_folds_however_long_the_window_is() -> None:
+    """⚠️ Folding used to run *before* the answer, and this pins that it is gone.
+
+    Because the caller's cursor advanced by exactly what was folded, the window sat at
+    its cap forever once it first filled -- so every turn of a long visit paid an extra
+    serialized model call to compress one exchange, ahead of the reply the hire was
+    waiting for. `onboarding.buddy_compact` does it afterwards.
+
+    The model here refuses to `generate` at all, which is what compaction used: a turn
+    that still folded would raise instead of answering.
+    """
     llm = _UnavailableSummarizer(turns=[], answer="answer anyway")
-    history = [_user(f"m{i}") for i in range(1, 5)]
+    history = [_user(f"m{i}") for i in range(1, 40)]
 
-    result = run_agent_turn(
-        history,
-        [_GET_MY_METRICS],
-        llm,
-        StubVectorStore(),
-        summarize_upto=2,
-    )
+    result = run_agent_turn(history, [_GET_MY_METRICS], llm, StubVectorStore())
 
-    # Nothing is summarized, so nothing is dropped: the whole window stays, and the
-    # caller's cursor simply does not advance.
-    assert result.updated_summary is None
+    # Nothing is dropped, so nothing needed summarizing: the whole window is sent.
     contents = [msg.get("content") for msg in result.messages]
-    assert all(f"m{i}" in contents for i in range(1, 5))
+    assert all(f"m{i}" in contents for i in range(1, 40))
     assert result.final is True

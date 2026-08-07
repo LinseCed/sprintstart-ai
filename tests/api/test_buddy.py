@@ -29,34 +29,34 @@ def client() -> Generator[TestClient, Any, None]:
     app.dependency_overrides.clear()
 
 
-def test_compaction_round_trips_through_the_endpoint(client: TestClient) -> None:
+def test_the_prior_summary_stands_in_for_the_conversation_older_than_the_window(
+    client: TestClient,
+) -> None:
     response = client.post(
         _URL,
         json={
             "messages": [
                 {"role": "user", "content": "m1"},
                 {"role": "user", "content": "m2"},
-                {"role": "user", "content": "m3"},
             ],
             "prior_summary": "old notes",
-            "summarize_upto": 2,
         },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["final"] is True
-    assert body["updated_summary"] == "condensed memory note"
-    # The folded turns are out of the returned window; the summary stands in, folded
-    # into the system message the backend will carry back verbatim on a resume.
+    # The summary rides the system message the backend carries back verbatim on a
+    # resume, and the window it stands in for is sent whole.
     assert body["messages"][0]["role"] == "system"
-    assert "condensed memory note" in body["messages"][0]["content"]
+    assert "old notes" in body["messages"][0]["content"]
     contents = [m["content"] for m in body["messages"]]
-    assert "m1" not in contents
-    assert "m3" in contents
+    assert "m1" in contents
+    assert "m2" in contents
 
 
-def test_a_plain_turn_returns_no_updated_summary(client: TestClient) -> None:
+def test_a_turn_never_folds_and_returns_no_summary(client: TestClient) -> None:
+    """⚠️ Folding here ran ahead of the answer; it is `/onboarding/buddy/compact` now."""
     response = client.post(
         _URL,
         json={"messages": [{"role": "user", "content": "hello"}]},
@@ -65,7 +65,7 @@ def test_a_plain_turn_returns_no_updated_summary(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["final"] is True
-    assert body["updated_summary"] is None
+    assert "updated_summary" not in body
     assert body["messages"][0]["role"] == "system"
 
 
@@ -114,16 +114,12 @@ def test_compact_endpoint_503s_rather_than_returning_an_unchanged_note() -> None
     assert response.status_code == 503
 
 
-def test_open_stream_sends_the_greeting_before_the_memory_note() -> None:
-    """The visible half arrives as SSE tokens.
+def test_open_stream_greets_and_carries_no_memory_note() -> None:
+    """The greeting arrives as SSE tokens, and the note is nobody's business here.
 
-    The private note only rides the terminal event.
+    ⚠️ It used to ride the terminal event, written by this same model call.
     """
-    llm = StubLLMClient(
-        generate_response=(
-            "Welcome back, Sam!\n<<<MEMORY>>>\nSam merged their first PR."
-        )
-    )
+    llm = StubLLMClient(generate_response="Welcome back, Sam!")
     app.dependency_overrides[get_llm] = lambda: llm
     try:
         with TestClient(app) as client:
@@ -139,8 +135,6 @@ def test_open_stream_sends_the_greeting_before_the_memory_note() -> None:
     body = response.text
     assert '"type": "token"' in body
     assert "Welcome back, Sam!" in body
-    # ⚠️ The note must never appear in a token event -- only in the terminal `done`.
-    token_lines = [line for line in body.splitlines() if '"type": "token"' in line]
-    assert all("Sam merged" not in line for line in token_lines)
     assert '"type": "done"' in body
-    assert "Sam merged their first PR." in body
+    # The caller cannot persist a note it is never handed.
+    assert '"memory"' not in body

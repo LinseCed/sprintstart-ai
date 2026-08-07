@@ -364,14 +364,6 @@ class BuddyAgentRequest(BaseModel):
             "the conversation the window no longer carries. First hop of a turn only."
         ),
     )
-    summarize_upto: int | None = Field(
-        default=None,
-        description=(
-            "When set, fold the first this-many messages of `messages` into the "
-            "summary and return it as `updated_summary`. How the backend bounds an "
-            "unbounded transcript."
-        ),
-    )
     project_ids: list[str] = Field(
         default_factory=list[str],
         description=(
@@ -407,29 +399,22 @@ class BuddyAgentResponse(BaseModel):
         default_factory=list[BuddyCitationSchema],
         description="Sources the grounded searches drew on.",
     )
-    updated_summary: str | None = Field(
-        default=None,
-        description=(
-            "The accreted summary when the request asked for compaction "
-            "(`summarize_upto`): covers the prior summary plus the folded messages. "
-            "The backend persists it and advances its cursor."
-        ),
-    )
 
 
 class BuddyOpenRequest(BaseModel):
     memory: str | None = Field(
         default=None,
         description=(
-            "The mentor's durable memory note about this hire; empty on the "
-            "first visit."
+            "The mentor's durable memory note about this hire; empty on the first "
+            "visit. Read from, never rewritten here — folding is "
+            "`/onboarding/buddy/compact`."
         ),
     )
     recent: list[BuddyAgentMessageSchema] = Field(
         default_factory=list[BuddyAgentMessageSchema],
         description=(
-            "Messages since the memory was last updated (the previous visit), to be "
-            "folded into the memory. May be empty."
+            "Messages since the memory was last updated (the previous visit), so the "
+            "greeting can be specific about it. May be empty."
         ),
     )
     state: str = Field(

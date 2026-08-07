@@ -1,19 +1,27 @@
-"""Open a buddy visit: refresh the mentor's memory, then greet the hire.
+"""Open a buddy visit: greet the hire.
 
-Unlike replaying a transcript, a visit opens like walking up to a mentor: the
-buddy recalls what it knows about the hire (its durable memory), folds in
-whatever has happened since it last updated that memory, notes the hire's current
+Unlike replaying a transcript, a visit opens like walking up to a mentor: the buddy
+recalls what it knows about the hire (its durable memory), notes their current
 state, and opens with a warm, specific greeting — proactively surfacing the one
 thing worth saying rather than waiting to be asked.
 
-Stateless like every onboarding endpoint: the backend supplies the prior memory,
-the recent (not-yet-remembered) messages, and a snapshot of the hire's state, and
-persists the memory and greeting this returns.
+Stateless like every onboarding endpoint: the backend supplies the memory, the
+recent (not-yet-remembered) messages and a snapshot of the hire's state, and
+persists the greeting this returns.
 
-⚠️ **The greeting is written before the memory note, and that ordering is the feature.**
-An earlier version asked for strict JSON with the note first, so the hire waited on up
-to 200 words of output they never see before the first word addressed to them was even
-generated.
+⚠️ **This call used to write the mentor's durable memory note as well, and that was
+a defect worth not reintroducing.** The note was produced by the *same* model call as
+the greeting — so a hire's durable memory was composed while the model was busy
+greeting them, and the open was doing two jobs of which the hire could see one.
+Folding is ``onboarding.buddy_compact`` now, on its own endpoint, run by the backend
+when nobody is waiting.
+
+⚠️ **The greeting still comes first and is still streamed**, and that ordering remains
+the feature: an earlier version asked for strict JSON with the note as its leading
+field, so the hire waited on up to 200 words they never see before the first word
+addressed to them was even generated. The marker machinery that made streaming
+possible survives — it now guards ``<<<ACTION>>>`` instead of ``<<<MEMORY>>>``,
+because the same problem remains: a marker arrives one chunk at a time.
 """
 
 import json
@@ -33,7 +41,6 @@ def _format_recent(recent: list[Message]) -> str:
     return "\n".join(lines) if lines else "(nothing since the last memory update)"
 
 
-_MEMORY_MARKER = "<<<MEMORY>>>"
 _ACTION_MARKER = "<<<ACTION>>>"
 
 _STREAM_SYSTEM = (
@@ -45,7 +52,7 @@ _STREAM_SYSTEM = (
     "hire's current STATE (their work in flight, tasks, competencies). What the "
     "state contains depends on the hire's role -- describe only what is actually "
     "there, and never assume they write code.\n"
-    "Write your reply in exactly three parts, in this order, with nothing before the "
+    "Write your reply in exactly two parts, in this order, with nothing before the "
     "first part:\n"
     "PART 1 -- the greeting, as plain prose with no label and no quotes: a short, "
     "warm, first-person opener (2-4 sentences) that greets the hire and proactively "
@@ -54,15 +61,14 @@ _STREAM_SYSTEM = (
     "and is worth celebrating, a stall, an open thread from last time). Be specific, "
     "not generic. Never invent facts that are not in the memory or the state. The "
     "hire reads this as you type it, so it must come first.\n"
-    f"PART 2 -- the line {_MEMORY_MARKER} on its own, then your rewritten memory "
-    "note, folding in anything new worth remembering from the recent conversation: "
-    "what the hire is working toward, what you have taught or explained, decisions "
-    "made, open threads, their preferences, and what they have struggled with. Third "
-    "person, factual, concise (under 200 words). Drop greetings and small talk. If "
-    "nothing is new, repeat the memory unchanged. The hire never sees this part.\n"
-    f"PART 3 -- the line {_ACTION_MARKER} on its own, then ONE suggested next step "
+    f"PART 2 -- the line {_ACTION_MARKER} on its own, then ONE suggested next step "
     'as JSON {"label": short button text, "question": the message to send when the '
-    "hire clicks it}, or the word none when nothing fits."
+    "hire clicks it}, or the word none when nothing fits.\n"
+    # The note is rewritten elsewhere, by a call nobody is waiting on. Saying so stops
+    # a model that has seen the memory from helpfully offering an updated one, which
+    # would land in the greeting the hire reads.
+    "Do not rewrite or restate your memory note. It is maintained separately; here "
+    "you only read from it."
 )
 
 
@@ -72,34 +78,32 @@ def stream_session(
     state: str,
     llm: LLMClient,
 ) -> Iterator[dict[str, object]]:
-    """Stream the greeting as the model writes it, then yield the folded memory.
+    """Stream the greeting as the model writes it.
 
-    ### Why the parts are in this order
+    ### Why the greeting comes first
 
     Opening the buddy took about thirty seconds, and the reason was ordering rather
     than model speed: the version this replaced asked for strict JSON whose **first**
-    field is a memory note of up to 200 words that **the hire never sees**, with the
-    2-4 sentence greeting after it. So the hire waited for roughly 260 invisible
-    tokens before the first word addressed to them was even generated.
+    field was a memory note of up to 200 words that **the hire never sees**, with the
+    2-4 sentence greeting after it.
 
     ⚠️ **Strict JSON cannot be streamed as prose** -- the first tokens are
-    ``{"memory": "`` -- so this call uses markers instead and puts the visible part
-    first. Same single model call, same tokens, and the greeting starts arriving
-    immediately.
+    ``{"memory": "`` -- so this call uses a marker instead and puts the visible part
+    first.
 
     ### Degrading
 
     A model that ignores the format and just writes prose yields all of it as the
-    greeting and **leaves the memory untouched**, which is the safe direction: a visit
-    with an un-updated memory is ordinary, a memory overwritten with a greeting is not.
+    greeting, which is harmless: there is nothing behind the marker but a suggestion.
     An unavailable model yields the plain welcome -- opening a visit must never fail
     the page.
 
-    @param memory: The mentor's durable note, or None on a first visit.
+    @param memory: The mentor's durable note, or None on a first visit. Read from,
+        never rewritten here -- see the module docstring.
     @param recent: The window since the memory was last updated.
     @param state: A snapshot of the hire's current state.
     @return: ``token`` events carrying the greeting as it arrives, then one terminal
-        ``done`` carrying the whole greeting, the folded memory and any action.
+        ``done`` carrying the whole greeting and any action.
     """
     prompt = [
         Message(role="system", content=_STREAM_SYSTEM),
@@ -110,7 +114,7 @@ def stream_session(
                 "RECENT conversation since the last memory update:\n"
                 f"{_format_recent(recent)}\n\n"
                 f"STATE (current):\n{state or '(no state available)'}\n\n"
-                "Write the three parts."
+                "Write the two parts."
             ),
         ),
     ]
@@ -128,20 +132,20 @@ def stream_session(
                 tail += chunk
                 continue
             pending += chunk
-            cut = pending.find(_MEMORY_MARKER)
+            cut = pending.find(_ACTION_MARKER)
             if cut != -1:
                 # Trailing whitespace before the marker is formatting, not greeting.
                 head = pending[:cut].rstrip()
                 if head:
                     greeting += head
                     yield {"type": "token", "content": head}
-                tail = pending[cut + len(_MEMORY_MARKER) :]
+                tail = pending[cut + len(_ACTION_MARKER) :]
                 pending = ""
                 in_greeting = False
                 continue
             # ⚠️ A suffix that could still grow into the marker is held back, never
-            # emitted and never treated as the end of the greeting: "<<<MEM" is both a
-            # partial marker and a legitimate five characters of prose, and only the
+            # emitted and never treated as the end of the greeting: "<<<ACT" is both a
+            # partial marker and a legitimate six characters of prose, and only the
             # next chunk decides which. Holding back only that suffix is what keeps a
             # short greeting streaming instead of waiting for a fixed-size buffer.
             keep = _held_back_len(pending)
@@ -153,12 +157,7 @@ def stream_session(
                 greeting += emit
                 yield {"type": "token", "content": emit}
     except LLMUnavailableError:
-        yield {
-            "type": "done",
-            "greeting": _FALLBACK_GREETING,
-            "memory": memory or "",
-            "action": None,
-        }
+        yield {"type": "done", "greeting": _FALLBACK_GREETING, "action": None}
         return
 
     # Whatever is still held back was never a marker after all, so it is prose.
@@ -166,16 +165,13 @@ def stream_session(
         greeting += pending
         yield {"type": "token", "content": pending}
 
-    folded, label, question = _split_tail(tail)
+    label, question = _read_action_tail(tail)
     yield {
         "type": "done",
         # ⚠️ Byte-identical to the concatenated tokens, deliberately. The client renders
         # the tokens and the caller persists this; if they differed, the message a hire
         # watched arrive would not be the one they see after a reload.
         "greeting": greeting if greeting.strip() else _FALLBACK_GREETING,
-        # An empty or absent memory part means the model did not rewrite the note, so
-        # the note stands. Never blanked by a malformed reply.
-        "memory": folded or (memory or ""),
         "action": (
             {"label": label, "question": question} if label and question else None
         ),
@@ -183,24 +179,19 @@ def stream_session(
 
 
 def _held_back_len(text: str) -> int:
-    """How many trailing characters could still turn out to be the memory marker."""
-    for size in range(min(len(_MEMORY_MARKER) - 1, len(text)), 0, -1):
-        if _MEMORY_MARKER.startswith(text[-size:]):
+    """How many trailing characters could still turn out to be the action marker."""
+    for size in range(min(len(_ACTION_MARKER) - 1, len(text)), 0, -1):
+        if _ACTION_MARKER.startswith(text[-size:]):
             return size
     return 0
 
 
-def _split_tail(tail: str) -> tuple[str, str | None, str | None]:
-    """Split everything after the memory marker into the note and the action."""
-    cut = tail.find(_ACTION_MARKER)
-    if cut == -1:
-        return tail.strip(), None, None
-    memory = tail[:cut].strip()
-    action = _loads_object(tail[cut + len(_ACTION_MARKER) :])
+def _read_action_tail(tail: str) -> tuple[str | None, str | None]:
+    """Read the suggested next step from everything after the action marker."""
+    action = _loads_object(tail)
     if action is None:
-        return memory, None, None
-    label, question = _read_action(action)
-    return memory, label, question
+        return None, None
+    return _read_action(action)
 
 
 def _read_action(action: object) -> tuple[str | None, str | None]:

@@ -92,7 +92,6 @@ def buddy_agent(
             store,
             exclusions=source_state.get_exclusions(),
             prior_summary=body.prior_summary,
-            summarize_upto=body.summarize_upto,
             vocabulary=Vocabulary(
                 contribution_noun=body.vocabulary.contribution_noun,
                 contribution_noun_plural=body.vocabulary.contribution_noun_plural,
@@ -123,7 +122,6 @@ def buddy_agent(
             )
             for cit in result.citations
         ],
-        updated_summary=result.updated_summary,
     )
 
 
@@ -169,7 +167,7 @@ def buddy_compact(
 
 @router.post(
     "/onboarding/buddy/open/stream",
-    summary="Open a buddy visit: refresh the mentor's memory and greet the hire",
+    summary="Open a buddy visit: greet the hire",
     response_class=StreamingResponse,
     tags=["onboarding-buddy"],
     responses={422: {"model": ValidationErrorResponse}},
@@ -178,18 +176,21 @@ def buddy_open_stream(
     body: BuddyOpenRequest,
     llm: LLMClient = Depends(get_llm),
 ) -> StreamingResponse:
-    """Fold the previous visit into the mentor's memory and greet the hire, streaming.
+    """Greet the hire opening a visit, streaming the greeting as it is written.
 
-    ⚠️ **There was a non-streaming version and its ordering was the whole problem.** It
-    asked for strict JSON whose first field is the memory note the hire never sees, so
-    opening a visit meant waiting for up to 200 words of invisible output before the
-    first word addressed to the hire was generated. This one puts the greeting first
-    and streams it, for the same single model call and the same tokens.
+    ⚠️ **This used to rewrite the mentor's durable memory note as well, from the same
+    model call.** So a hire's memory was composed while the model was busy greeting
+    them, and the call did two jobs of which the hire could see one. Folding is
+    ``/onboarding/buddy/compact`` now, which the caller runs when nobody is waiting.
+
+    ⚠️ **The greeting comes first and is streamed, and that ordering is still the
+    feature.** An earlier version asked for strict JSON whose first field was the note
+    the hire never sees, so opening a visit meant waiting on up to 200 words of
+    invisible output before the first word addressed to the hire was generated.
 
     Emits ``token`` events carrying the greeting as it arrives and one terminal
-    ``done`` carrying the whole greeting, the folded memory and any suggested action —
-    the caller persists those exactly as it does for the non-streaming call. Degrades
-    to a plain welcome rather than erroring: opening the buddy must never fail the page.
+    ``done`` carrying the whole greeting and any suggested action. Degrades to a plain
+    welcome rather than erroring: opening the buddy must never fail the page.
     """
 
     def event_stream() -> Iterator[str]:
