@@ -17,9 +17,9 @@ window plus a running summary of everything older (``prior_summary``). The summa
 rides the system message in the returned conversation, so resume hops need nothing
 re-sent.
 
-Folding older turns into that summary is ``onboarding.buddy_compact``, which the
-backend calls on its own endpoint. ``summarize_upto`` still asks for a fold inside
-this turn, but it runs **before** the answer -- see ``run_agent_turn``.
+Folding older turns into that summary is ``onboarding.buddy_compact``, on its own
+endpoint, which the backend runs after a turn rather than during one -- see
+``run_agent_turn`` for what that cost while it lived here.
 """
 
 from collections.abc import Collection
@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 
 from llm.base import ChatResult, LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
-from onboarding.buddy_compact import compact_memory
 from onboarding.buddy_persona import build_persona
 from onboarding.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 from rag.citation import build_citations
@@ -79,9 +78,7 @@ class AgentTurnResult:
     backend to run these tools first" (``pending_tool_calls`` are them). ``messages``
     is always the full running conversation the caller must carry back verbatim next
     turn -- it already includes any search steps run here and the tool-use turn the
-    pending calls belong to. ``updated_summary`` is set only when the caller asked
-    for compaction (``summarize_upto``) and the fold succeeded; the backend persists
-    it and advances its cursor.
+    pending calls belong to.
     """
 
     final: bool
@@ -89,7 +86,6 @@ class AgentTurnResult:
     messages: list[Message]
     pending_tool_calls: list[ToolCall] = field(default_factory=list[ToolCall])
     citations: list[Citation] = field(default_factory=list[Citation])
-    updated_summary: str | None = None
 
 
 def _persona_prompt(
@@ -184,7 +180,6 @@ def run_agent_turn(
     store: VectorStore,
     exclusions: SourceExclusions | None = None,
     prior_summary: str | None = None,
-    summarize_upto: int | None = None,
     vocabulary: Vocabulary = DEFAULT_VOCABULARY,
     project_ids: frozenset[str] | None = None,
 ) -> AgentTurnResult:
@@ -195,27 +190,18 @@ def run_agent_turn(
     step budget bounds the internal loop; if it's exhausted the model is asked once
     more with no tools, forcing an answer.
 
-    ``prior_summary`` stands in for everything older than ``messages``; when
-    ``summarize_upto`` is set, that many leading messages are folded into the summary
-    first (``updated_summary`` on the result) and drop out of the active window.
+    ``prior_summary`` stands in for everything older than ``messages``.
 
-    ⚠️ ``summarize_upto`` folds **in front of the answer the hire is waiting for**,
-    which is why the backend is moving to the standalone
-    ``POST /onboarding/buddy/compact`` and running it after a turn instead. It stays
-    here until that lands so no caller breaks mid-flight; both do the same fold, via
-    ``onboarding.buddy_compact``.
+    ⚠️ **This turn does not fold anything, and used not to be able to say that.** A
+    ``summarize_upto`` argument asked it to compact the oldest window messages
+    *before* the model began composing a reply, and because the caller's cursor
+    advanced by exactly what was folded, the window sat at its cap forever once it
+    first filled -- so every turn of a long visit paid an extra serialized model call,
+    ahead of the answer, to compress a single exchange. Folding is
+    ``POST /onboarding/buddy/compact``, which the backend runs afterwards.
     """
-    updated_summary: str | None = None
     window = list(messages)
     summary = prior_summary
-    if summarize_upto and summarize_upto > 0:
-        folded = compact_memory(prior_summary, window[:summarize_upto], llm)
-        # Only a successful fold advances anything: a failed one keeps the whole
-        # window, so nothing the model has not summarized is ever dropped.
-        if folded is not None:
-            updated_summary = folded
-            summary = folded
-            window = window[summarize_upto:]
 
     tools = [_SEARCH_TOOL, *backend_tools]
     backend_names = {tool["name"] for tool in backend_tools}
@@ -236,7 +222,6 @@ def run_agent_turn(
                 text=result.text,
                 messages=work,
                 citations=citations,
-                updated_summary=updated_summary,
             )
 
         pending: list[ToolCall] = []
@@ -281,7 +266,6 @@ def run_agent_turn(
                 messages=work,
                 pending_tool_calls=pending,
                 citations=citations,
-                updated_summary=updated_summary,
             )
         # Only local searches this turn -- loop and let the model reason over them.
 
@@ -292,7 +276,6 @@ def run_agent_turn(
         text=forced,
         messages=[*work, Message(role="assistant", content=forced)],
         citations=citations,
-        updated_summary=updated_summary,
     )
 
 

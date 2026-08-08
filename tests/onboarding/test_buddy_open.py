@@ -1,8 +1,17 @@
-"""Tests for opening a buddy visit: the streamed greeting, then the memory fold."""
+"""Tests for opening a buddy visit: the streamed greeting, and nothing else.
+
+⚠️ The memory fold used to happen here too, from the same model call. These tests
+kept every rule the marker machinery needs — it now guards ``<<<ACTION>>>`` rather
+than ``<<<MEMORY>>>``, because the problem it solves is unchanged: a marker arrives
+one chunk at a time, and a partial one is indistinguishable from prose until the
+next chunk lands.
+"""
 
 from llm.base import LLMClient, Message
 from llm.errors import LLMUnavailableError
 from onboarding.buddy_open import stream_session
+
+_ACTION = '{"label": "What next?", "question": "What should I work on?"}'
 
 
 class _StubLLM(LLMClient):
@@ -59,35 +68,67 @@ def _done(events: list[dict[str, object]]) -> dict[str, object]:
     return events[-1]
 
 
-def test_streams_the_greeting_and_never_the_memory_note() -> None:
+def test_streams_the_greeting_and_carries_the_suggested_step() -> None:
     llm = _StreamingStubLLM(
         [
             "Welcome back, Sam! ",
             "Your PR landed.",
-            "\n<<<MEMORY>>>\n",
-            "Sam merged their first PR.",
             "\n<<<ACTION>>>\n",
-            '{"label": "What next?", "question": "What should I work on?"}',
+            _ACTION,
         ]
     )
 
     events = list(stream_session(memory="old", recent=[], state="", llm=llm))
 
-    # ⚠️ The whole point: the private note must never reach the hire as a token.
     assert _tokens(events) == "Welcome back, Sam! Your PR landed."
-    assert "Sam merged" not in _tokens(events)
     done = _done(events)
     assert done["greeting"] == "Welcome back, Sam! Your PR landed."
-    assert done["memory"] == "Sam merged their first PR."
     assert done["action"] == {
         "label": "What next?",
         "question": "What should I work on?",
     }
 
 
+def test_the_open_does_not_rewrite_the_memory_note() -> None:
+    """⚠️ The defect this closed: the note used to be written by *this* call.
+
+    So a hire's durable memory was composed while the model was busy greeting them.
+    Folding is `/onboarding/buddy/compact`, and the terminal event carries no note at
+    all — a caller cannot persist what it is never handed.
+    """
+    llm = _StreamingStubLLM(["Hi!\n<<<ACTION>>>\n" + _ACTION])
+
+    done = _done(list(stream_session(memory="the note", recent=[], state="", llm=llm)))
+
+    assert "memory" not in done
+
+
+def test_the_model_is_told_not_to_restate_the_note() -> None:
+    """A model shown the memory will otherwise helpfully offer an updated one.
+
+    Which would land in the greeting the hire reads.
+    """
+    llm = _StreamingStubLLM(["Hi!"])
+
+    list(stream_session(memory="the note", recent=[], state="", llm=llm))
+
+    assert llm.last_prompt is not None
+    assert "Do not rewrite or restate your memory note" in llm.last_prompt[0]["content"]
+
+
+def test_the_memory_still_reaches_the_model_as_context() -> None:
+    """Read from, even though never written: a greeting is specific or it is generic."""
+    llm = _StreamingStubLLM(["Hi!"])
+
+    list(stream_session(memory="Sam is learning Kotlin.", recent=[], state="", llm=llm))
+
+    assert llm.last_prompt is not None
+    assert "Sam is learning Kotlin." in llm.last_prompt[-1]["content"]
+
+
 def test_the_greeting_starts_arriving_before_the_marker_is_reached() -> None:
     """The reason the whole change exists: first token out before generation ends."""
-    llm = _StreamingStubLLM(["Hi Sam!", " Nice to see you.", "\n<<<MEMORY>>>\nnote"])
+    llm = _StreamingStubLLM(["Hi Sam!", " Nice to see you.", "\n<<<ACTION>>>\nnone"])
 
     events = list(stream_session(memory=None, recent=[], state="", llm=llm))
 
@@ -95,16 +136,16 @@ def test_the_greeting_starts_arriving_before_the_marker_is_reached() -> None:
 
 
 def test_holds_back_only_a_possible_marker_prefix() -> None:
-    """⚠️ "<<<MEM" is both a partial marker and legitimate prose.
+    """⚠️ "<<<ACT" is both a partial marker and legitimate prose.
 
     Only the next chunk decides which, so it must be a candidate, never an early return.
     """
-    llm = _StreamingStubLLM(["Hello there<<<MEM", "ORY>>>\nthe note"])
+    llm = _StreamingStubLLM(["Hello there<<<ACT", "ION>>>\n" + _ACTION])
 
     events = list(stream_session(memory=None, recent=[], state="", llm=llm))
 
     assert _tokens(events) == "Hello there"
-    assert _done(events)["memory"] == "the note"
+    assert _done(events)["action"] is not None
 
 
 def test_a_prefix_that_turns_out_to_be_prose_is_emitted_after_all() -> None:
@@ -113,44 +154,40 @@ def test_a_prefix_that_turns_out_to_be_prose_is_emitted_after_all() -> None:
     events = list(stream_session(memory="keep me", recent=[], state="", llm=llm))
 
     assert _tokens(events) == "Careful with <<<angle brackets>>> in code."
-    # No marker ever arrived, so there was nothing to fold: the note stands.
-    assert _done(events)["memory"] == "keep me"
+    assert _done(events)["action"] is None
 
 
 def test_a_marker_split_across_chunks_is_still_found() -> None:
-    llm = _StreamingStubLLM(["Hi!\n<<<", "MEM", "ORY", ">>>\nthe note"])
+    llm = _StreamingStubLLM(["Hi!\n<<<", "ACT", "ION", ">>>\n" + _ACTION])
 
     events = list(stream_session(memory=None, recent=[], state="", llm=llm))
 
     assert _tokens(events).strip() == "Hi!"
-    assert _done(events)["memory"] == "the note"
+    assert _done(events)["action"] is not None
 
 
-def test_a_model_that_ignores_the_format_leaves_the_memory_untouched() -> None:
-    """The safe direction: an un-updated note is ordinary.
-
-    A note overwritten with a greeting is not.
-    """
+def test_a_model_that_ignores_the_format_yields_all_of_it_as_the_greeting() -> None:
+    """Harmless now: there is nothing behind the marker but a suggestion."""
     llm = _StreamingStubLLM(["Just some prose with no markers at all."])
 
     events = list(stream_session(memory="keep me", recent=[], state="", llm=llm))
 
     assert _tokens(events) == "Just some prose with no markers at all."
-    assert _done(events)["memory"] == "keep me"
+    assert _done(events)["action"] is None
 
 
 def test_missing_action_section_is_no_action_rather_than_a_failure() -> None:
-    llm = _StreamingStubLLM(["Hi!\n<<<MEMORY>>>\nthe note"])
+    llm = _StreamingStubLLM(["Hi!"])
 
     assert _done(list(stream_session(None, [], "", llm)))["action"] is None
 
 
-def test_unparseable_action_json_is_dropped_without_losing_the_memory() -> None:
-    llm = _StreamingStubLLM(["Hi!\n<<<MEMORY>>>\nthe note\n<<<ACTION>>>\nnone"])
+def test_unparseable_action_json_is_dropped_without_losing_the_greeting() -> None:
+    llm = _StreamingStubLLM(["Hi there!\n<<<ACTION>>>\nnone"])
 
     done = _done(list(stream_session(None, [], "", llm)))
 
-    assert done["memory"] == "the note"
+    assert done["greeting"] == "Hi there!"
     assert done["action"] is None
 
 
@@ -160,17 +197,17 @@ def test_an_unavailable_model_still_yields_a_usable_opening() -> None:
     done = _done(list(stream_session(memory="keep me", recent=[], state="", llm=llm)))
 
     assert done["greeting"]
-    assert done["memory"] == "keep me"
+    assert done["action"] is None
 
 
 def test_a_blank_greeting_falls_back_rather_than_showing_nothing() -> None:
-    llm = _StreamingStubLLM(["\n<<<MEMORY>>>\nthe note"])
+    llm = _StreamingStubLLM(["\n<<<ACTION>>>\n" + _ACTION])
 
     assert _done(list(stream_session(None, [], "", llm)))["greeting"]
 
 
 def test_the_streamed_prompt_carries_the_recent_window_too() -> None:
-    llm = _StreamingStubLLM(["hi\n<<<MEMORY>>>\nnote"])
+    llm = _StreamingStubLLM(["hi"])
     recent = [Message(role="user", content="how do I run the tests?")]
 
     list(stream_session(memory=None, recent=recent, state="", llm=llm))
@@ -184,7 +221,7 @@ def test_the_done_greeting_is_exactly_what_was_streamed() -> None:
 
     They must not differ.
     """
-    llm = _StreamingStubLLM(["Hi Sam!", " Nice work.", "\n\n<<<MEMORY>>>\nnote"])
+    llm = _StreamingStubLLM(["Hi Sam!", " Nice work.", "\n\n<<<ACTION>>>\n" + _ACTION])
 
     events = list(stream_session(None, [], "", llm))
 
