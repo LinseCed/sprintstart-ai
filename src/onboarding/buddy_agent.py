@@ -13,10 +13,13 @@ running message list between invocations. Nothing about the hire lives here -- t
 state arrives only as tool results the backend supplies.
 
 Session memory: the backend bounds an unbounded transcript by sending only a recent
-window plus a running summary of everything older (``prior_summary``). When it asks
-(``summarize_upto``), this side folds the oldest window messages into the summary --
-a language task, so it lives here; persistence is the backend's. The summary rides
-the system message in the returned conversation, so resume hops need nothing re-sent.
+window plus a running summary of everything older (``prior_summary``). The summary
+rides the system message in the returned conversation, so resume hops need nothing
+re-sent.
+
+Folding older turns into that summary is ``onboarding.buddy_compact``, which the
+backend calls on its own endpoint. ``summarize_upto`` still asks for a fold inside
+this turn, but it runs **before** the answer -- see ``run_agent_turn``.
 """
 
 from collections.abc import Collection
@@ -24,6 +27,7 @@ from dataclasses import dataclass, field
 
 from llm.base import ChatResult, LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
+from onboarding.buddy_compact import compact_memory
 from onboarding.buddy_persona import build_persona
 from onboarding.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 from rag.citation import build_citations
@@ -36,18 +40,6 @@ from store.base import VectorStore
 # How the summary enters the model's context: appended to the persona in the system
 # message, so it rides the running conversation the caller carries between turns.
 _SUMMARY_HEADER = "\n\nConversation so far (compressed memory of earlier turns):\n"
-
-_COMPACT_SYSTEM = (
-    "You compress a running mentorship conversation into a durable memory note for "
-    "the mentor's future self. Third person, factual, under 200 words. Keep: what "
-    # Deliberately role-neutral rather than templated per track: this note is read
-    # back by the mentor, never shown to the hire, so neutral wording covers every
-    # role without threading a second vocabulary seam through compaction.
-    "the hire is working toward, tasks claimed or completed, work they submitted "
-    "and what came of it, what they have been taught, decisions made, open "
-    "questions. Drop: greetings, "
-    "phatic talk, superseded questions, anything the recent window still covers."
-)
 
 SEARCH_DOCS = "search_docs"
 
@@ -130,43 +122,6 @@ def _ensure_persona(
     ]
 
 
-def _try_compact(
-    prior_summary: str | None,
-    folded: list[Message],
-    llm: LLMClient,
-) -> str | None:
-    """Folds [folded] into the running summary, or None when compaction can't run.
-
-    An unavailable model degrades to no compaction (the caller keeps the whole
-    window and its cursor) rather than failing the turn -- the summary is a
-    prompt-shaping device, never something a hire's question should 503 over.
-    Deterministic (temperature 0) so the same conversation compacts the same way.
-    """
-    transcript = "\n".join(
-        f"{msg['role']}: {msg.get('content') or ''}"
-        for msg in folded
-        if msg.get("content")
-    )
-    if not transcript.strip():
-        return prior_summary or ""
-    prompt = [
-        Message(role="system", content=_COMPACT_SYSTEM),
-        Message(
-            role="user",
-            content=(
-                f"Memory so far:\n{prior_summary or '(nothing yet)'}\n\n"
-                "Conversation turns sliding out of the active window:\n"
-                f"{transcript}\n\n"
-                "Update the memory note."
-            ),
-        ),
-    ]
-    try:
-        return llm.generate(prompt, temperature=0)
-    except LLMUnavailableError:
-        return None
-
-
 def _assistant_message(result: ChatResult) -> Message:
     msg = Message(role="assistant", content=result.text)
     if result.tool_calls:
@@ -243,12 +198,18 @@ def run_agent_turn(
     ``prior_summary`` stands in for everything older than ``messages``; when
     ``summarize_upto`` is set, that many leading messages are folded into the summary
     first (``updated_summary`` on the result) and drop out of the active window.
+
+    ⚠️ ``summarize_upto`` folds **in front of the answer the hire is waiting for**,
+    which is why the backend is moving to the standalone
+    ``POST /onboarding/buddy/compact`` and running it after a turn instead. It stays
+    here until that lands so no caller breaks mid-flight; both do the same fold, via
+    ``onboarding.buddy_compact``.
     """
     updated_summary: str | None = None
     window = list(messages)
     summary = prior_summary
     if summarize_upto and summarize_upto > 0:
-        folded = _try_compact(prior_summary, window[:summarize_upto], llm)
+        folded = compact_memory(prior_summary, window[:summarize_upto], llm)
         # Only a successful fold advances anything: a failed one keeps the whole
         # window, so nothing the model has not summarized is ever dropped.
         if folded is not None:

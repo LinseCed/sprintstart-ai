@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_llm, get_source_state_store, get_store
 from ingestion.source_state_store import SourceStateStore
+from llm.errors import LLMUnavailableError
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 
@@ -66,6 +67,51 @@ def test_a_plain_turn_returns_no_updated_summary(client: TestClient) -> None:
     assert body["final"] is True
     assert body["updated_summary"] is None
     assert body["messages"][0]["role"] == "system"
+
+
+def test_compact_endpoint_returns_the_rewritten_note(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/onboarding/buddy/compact",
+        json={
+            "prior_summary": "old notes",
+            "folded": [
+                {"role": "user", "content": "how do I run the tests?"},
+                {"role": "assistant", "content": "uv run pytest"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"memory": "condensed memory note"}
+
+
+def test_compact_endpoint_503s_rather_than_returning_an_unchanged_note() -> None:
+    """A caller must be able to tell "nothing folded" from "folded to the same words".
+
+    Returning the prior note with a 200 would advance the caller's cursor past
+    messages nothing had summarized -- the one way this design loses a transcript.
+    """
+
+    class _Unavailable(StubLLMClient):
+        def generate(
+            self, messages: list[Any], *, temperature: float | None = None
+        ) -> str:
+            raise LLMUnavailableError("model down")
+
+    app.dependency_overrides[get_llm] = lambda: _Unavailable()
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/onboarding/buddy/compact",
+                json={
+                    "prior_summary": "old notes",
+                    "folded": [{"role": "user", "content": "hello"}],
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
 
 
 def test_open_stream_sends_the_greeting_before_the_memory_note() -> None:

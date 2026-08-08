@@ -9,6 +9,8 @@ from api.schemas import (
     BuddyAgentRequest,
     BuddyAgentResponse,
     BuddyCitationSchema,
+    BuddyCompactRequest,
+    BuddyCompactResponse,
     BuddyOpenRequest,
     BuddyToolCallSchema,
     BuddyToolSpecSchema,
@@ -19,6 +21,7 @@ from ingestion.source_state_store import SourceStateStore
 from llm.base import LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
 from onboarding.buddy_agent import run_agent_turn
+from onboarding.buddy_compact import compact_memory
 from onboarding.buddy_open import stream_session
 from onboarding.vocabulary import Vocabulary
 from store.base import VectorStore
@@ -122,6 +125,46 @@ def buddy_agent(
         ],
         updated_summary=result.updated_summary,
     )
+
+
+@router.post(
+    "/onboarding/buddy/compact",
+    response_model=BuddyCompactResponse,
+    summary="Fold older turns into the mentor's durable memory note",
+    tags=["onboarding-buddy"],
+    responses={
+        422: {"model": ValidationErrorResponse},
+        503: {"description": "The model was unavailable; nothing was folded."},
+    },
+)
+def buddy_compact(
+    body: BuddyCompactRequest,
+    llm: LLMClient = Depends(get_llm),
+) -> BuddyCompactResponse:
+    """Rewrite the mentor's memory note to cover ``folded`` as well.
+
+    ⚠️ **Nobody is waiting on this call, and that is why it exists separately.** The
+    same fold used to run only as the first step of ``/onboarding/buddy/agent``, ahead
+    of the answer -- so once a visit's window outgrew the backend's cap, every turn
+    paid an extra serialized model call to compress one exchange before the hire's
+    reply started. The caller now runs this *after* a turn finishes.
+
+    Stateless as ever: the caller owns the note, the transcript and the cursor, and
+    advances that cursor by exactly the messages it sent here. **503 means nothing was
+    folded** -- the caller keeps its cursor where it is and tries again after the next
+    turn, which is why an unavailable model is not worth degrading gracefully over.
+    """
+    memory = compact_memory(
+        prior_summary=body.prior_summary,
+        folded=[_to_message(m) for m in body.folded],
+        llm=llm,
+    )
+    if memory is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The model was unavailable; the memory note is unchanged.",
+        )
+    return BuddyCompactResponse(memory=memory)
 
 
 @router.post(

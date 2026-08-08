@@ -441,6 +441,32 @@ class BuddyOpenRequest(BaseModel):
     )
 
 
+class BuddyCompactRequest(BaseModel):
+    prior_summary: str | None = Field(
+        default=None,
+        description=(
+            "The mentor's durable memory note as it stands; empty before the first "
+            "fold."
+        ),
+    )
+    folded: list[BuddyAgentMessageSchema] = Field(
+        default_factory=list[BuddyAgentMessageSchema],
+        description=(
+            "The messages sliding out of the active window, oldest first. The caller "
+            "chooses how many — this side only rewrites the note."
+        ),
+    )
+
+
+class BuddyCompactResponse(BaseModel):
+    memory: str = Field(
+        description=(
+            "The rewritten memory note, covering the prior note plus `folded`. The "
+            "caller persists it and advances its cursor by exactly what it sent."
+        )
+    )
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     detail: str | None = None
