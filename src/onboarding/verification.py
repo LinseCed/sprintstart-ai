@@ -234,9 +234,7 @@ def _render_diffs(evidence: ArtifactEvidence) -> str:
     a hire for work it was simply never shown.
     """
     if not evidence.file_diffs:
-        return (
-            "(no diff available -- this is not the same as an empty change)"
-        )
+        return "(no diff available -- this is not the same as an empty change)"
 
     blocks: list[str] = []
     for diff in evidence.file_diffs:
