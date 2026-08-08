@@ -889,7 +889,7 @@ class ArtifactEvidenceSchema(BaseModel):
     )
     commit_messages: list[str] = Field(default_factory=list)
     file_diffs: list[FileDiffSchema] = Field(
-        default_factory=list,
+        default_factory=list[FileDiffSchema],
         description=(
             "The changed files' diffs. Filenames alone cannot separate a real fix "
             "from a whitespace edit to the right file."

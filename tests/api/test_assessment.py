@@ -174,7 +174,6 @@ def test_an_unreadable_level_is_not_credited(
     # ⚠️ It must land on "none", never "beginner". Only rank 0 is filtered out
     # downstream, so crediting a competency on the strength of a parse failure
     # shows up everywhere as "they have this".
-
     client: tuple[TestClient, StubLLMClient],
 ):
     http_client, _ = client
@@ -768,7 +767,7 @@ def test_a_confident_disclaimer_is_recorded_as_none_not_beginner(
 def test_the_real_levels_still_survive_normalization(
     client: tuple[TestClient, StubLLMClient],
 ):
-    """"none" must not swallow the scale it sits beside."""
+    """ "none" must not swallow the scale it sits beside."""
     http_client, _ = client
     payload = {
         "done": True,

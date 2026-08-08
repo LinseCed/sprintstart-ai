@@ -268,11 +268,14 @@ class OllamaClient:
         # streamed answer has no tool loop to hand a recovered call to.
         if self._model is None:
             raise ValueError("No model specified")
-        return guard_stream(self._stream_raw(messages))
+        # The model is passed in rather than re-read off self: this method raises
+        # eagerly, the generator body does not, so the check here is only load-bearing
+        # if the value it checked is the one that reaches the call.
+        return guard_stream(self._stream_raw(self._model, messages))
 
-    def _stream_raw(self, messages: list[Message]) -> Iterator[str]:
+    def _stream_raw(self, model: str, messages: list[Message]) -> Iterator[str]:
         try:
-            for chunk in self._client.chat_stream(model=self._model, messages=messages):
+            for chunk in self._client.chat_stream(model=model, messages=messages):
                 yield chunk.message.content or ""
         except (ollama.ResponseError, ConnectionError, OSError) as exc:
             raise LLMUnavailableError(self._host, cause=exc) from exc
