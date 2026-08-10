@@ -2,18 +2,12 @@
 
 A language task, so it lives here; persistence and the cursor are the backend's.
 
-⚠️ **This is a call the hire is not waiting on, and that is the point of it having
-its own endpoint.** It used to run only as a step inside
-``buddy_agent.run_agent_turn`` -- with its own prompt and its own ``llm.generate``,
-so the *quality* was never the problem, but it ran **before** the agent loop. Once a
-visit's active window outgrew the backend's ``WINDOW``, every further turn paid an
-extra serialized model call before the hire's answer even started being generated,
-to fold a single exchange. Exposed on its own, the backend runs it after a turn
-finishes instead of in front of one.
+⚠️ **Nothing the hire is waiting on may call this.** The backend runs it after a
+turn finishes; folding in front of one puts an extra serialized model call ahead
+of every answer once a visit's window outgrows the backend's ``WINDOW``.
 
-The buddy's *open* had the mirror-image defect: there the memory note really did
-share a call with the greeting, so the hire's durable memory was composed while the
-model was busy greeting them. Both paths now delegate here.
+The buddy's open delegates here too, so the durable memory is never composed in
+the same call as a greeting.
 """
 
 from llm.base import LLMClient, Message

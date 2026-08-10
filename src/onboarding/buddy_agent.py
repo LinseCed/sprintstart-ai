@@ -1,12 +1,11 @@
 """Agentic onboarding buddy: one tool-using turn.
 
-The buddy is no longer a corpus-only Q&A box. It reasons over the hire's question
-and calls tools -- some it runs itself, some only the backend can. ``search_docs``
-is AI-local (it owns retrieval and citations) and is executed here, in an internal
-loop, so a question needing several searches is answered in one call. A tool only
-the backend can run (``get_my_metrics``, "is my PR stuck?" -- backend-owned data)
-can't be executed here: the turn stops and hands the pending call back, and the
-backend re-invokes this endpoint with the tool result appended.
+The buddy reasons over the hire's question and calls tools -- some it runs itself,
+some only the backend can. ``search_docs`` is AI-local (it owns retrieval and
+citations) and is executed here, in an internal loop, so a question needing several
+searches is answered in one call. ⚠️ A tool only the backend can run
+(``get_my_metrics``) cannot be executed here: the turn stops and hands the pending
+call back, and the backend re-invokes this endpoint with the tool result appended.
 
 Stateless like every other onboarding endpoint: the caller (backend) carries the
 running message list between invocations. Nothing about the hire lives here -- their

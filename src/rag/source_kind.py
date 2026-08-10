@@ -1,25 +1,21 @@
 """Classify a source file as test/fixture material by its path — language-agnostic.
 
-The buddy grounds answers in retrieved files, and some of those files are tests,
-fixtures, mocks or sample data rather than the team's real documentation or
-process. Quoting one as authoritative is the worst thing this service does: a
-"Code Review SLA" that actually lives in a ``tests/.../demo-corpus/`` fixture is
-example data, and a new hire has no way to tell.
+Quoting a fixture as authoritative is the worst thing this service does: a
+"Code Review SLA" that lives in a ``tests/.../demo-corpus/`` fixture is example
+data, and a new hire has no way to tell.
 
-This recognises such files the way every ecosystem marks them: a test directory
-somewhere in the path, or a conventional test/spec suffix on the file name. It
-keys only on naming conventions, so it works for any repo, language or project
-with no configuration. It is deliberately conservative — filename patterns are
-tied to known code extensions so data and config files (``openapi_spec.yaml``,
-``manifest.json``) are never misread as tests.
+Recognition keys only on naming conventions — a test directory in the path, or a
+conventional test/spec suffix — so it works for any repo or language with no
+configuration. ⚠️ Filename patterns are tied to known code extensions so data and
+config files (``openapi_spec.yaml``, ``manifest.json``) are never misread as
+tests.
 
-**A retrieved chunk does not carry its path.** Chroma metadata holds only the
-*basename* (``process.md``), which contains no ``tests/`` segment — so asking
-:func:`is_test_source` about a chunk's ``filename`` answers False for exactly the
+⚠️ **A retrieved chunk does not carry its path.** Chroma metadata holds only the
+*basename* (``process.md``), which contains no ``tests/`` segment — so
+:func:`is_test_source` on a chunk's ``filename`` answers False for exactly the
 fixtures this exists to catch, while still catching ``test_chunker.py`` on its
-filename pattern. That asymmetry is what made the failure look like a model
-ignoring a label rather than a label that never fired. The path *is* recoverable
-from the chunk's ``source_url``, which is what :func:`is_test_chunk` does.
+filename pattern. The path *is* recoverable from the chunk's ``source_url``,
+which is what :func:`is_test_chunk` does — **use that for chunks.**
 """
 
 import re
@@ -47,7 +43,7 @@ _TEST_DIR_SEGMENTS = frozenset(
 )
 
 # Extensions that carry executable test code, so a test/spec suffix on one is a
-# real test rather than a coincidentally-named document or data file.
+# real test and not a coincidentally-named document or data file.
 _CODE_EXT = (
     r"(?:py|rb|go|js|jsx|ts|tsx|mjs|cjs|java|kt|kts|scala|groovy|cs|swift|php|"
     r"rs|dart|ex|exs|clj|c|cc|cpp|h|hpp|m|mm)"
@@ -85,9 +81,9 @@ def is_test_source(path: str | None) -> bool:
 # URL segments after which a forge serves a *repository-relative* path:
 # `.../blob/<ref>/src/main.py`, GitLab's `.../-/raw/<ref>/...`, and so on. Only a
 # path recovered this way is trusted, because only then is it certainly a file in
-# a repository. An arbitrary URL that happens to contain "/tests/" is left alone
-# rather than guessed at -- the cost of a false positive is a real document going
-# unquoted, which is the failure this module is trying not to swap one way for.
+# a repository. ⚠️ An arbitrary URL that happens to contain "/tests/" is left
+# alone: a false positive means a real document goes unquoted, which is the same
+# failure this module exists to prevent, pointing the other way.
 _PATH_MARKERS = frozenset({"blob", "raw", "tree", "blame", "src"})
 
 

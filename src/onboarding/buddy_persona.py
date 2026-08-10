@@ -1,21 +1,17 @@
 """The mentor's system prompt, assembled per hire rather than fixed.
 
-Two things forced this apart from a constant.
+⚠️ **Tools are mounted per hire**, so a persona naming every tool would instruct
+the model to call things it has not been given -- and would describe pull
+requests to a Scrum Master. Each clause below declares the tools it depends on
+and is dropped when they are absent.
 
-**Tools are mounted per hire.** The backend decides which tools a hire's role can
-even have -- somebody whose work is never a pull request is not given a tool that
-lists pull requests. A persona that names every tool would instruct the model to
-call things it has not been given, and would describe pull requests to a Scrum
-Master. Each clause below declares the tools it depends on and is dropped when
-they are absent.
+⚠️ **What counts as a unit of work differs by role**, so the words come from the
+hire's track. The skeleton is fixed and only slots are filled: a track
+contributes three nouns, **never prose** (see :mod:`onboarding.vocabulary`).
 
-**What counts as a unit of work differs by role.** The old persona ended with
-"celebrate the merges ... shipping is the point", which is right for a developer
-and meaningless for a PM or an HR hire. The words come from the hire's track.
-
-The skeleton is fixed and only slots are filled. A track contributes three nouns,
-never prose -- see :mod:`onboarding.vocabulary` for why that constraint is
-load-bearing rather than fussy.
+⚠️ Any fixed clause must be checked against the track vocabulary too -- wording
+like "clone the repository" puts engineering work in front of a role that has
+none.
 """
 
 from collections.abc import Collection

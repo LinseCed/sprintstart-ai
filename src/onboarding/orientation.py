@@ -1,23 +1,19 @@
 """Assembly of a task-scoped orientation packet from existing material.
 
-The job this replaces for a hire is not "teach me this competency" but "help me
-do *this* task" — so the work here is identifying, extracting and restructuring
-material the project already has, segmented by the step somebody is on. Nothing
-is authored: a claim about this codebase that no retrieved chunk supports is
-dropped, not softened.
+Material the project already has, extracted and restructured by the step
+somebody is on. ⚠️ **Nothing is authored**: a claim about this codebase that no
+retrieved chunk supports is dropped, not softened.
 
 Three mechanics carry that guarantee:
 
 * **Retrieval is per step, not per task.** One query per step of the path to a
   pull request (set up → find the code → make the change → check locally → open
-  the PR), so the evidence pool actually contains the setup docs *and* the
-  review conventions rather than five restatements of the task's own subject.
-* **The pool is deduplicated before the model sees it.** A README and a wiki
-  page saying the same thing is exactly the redundancy that costs a reader
-  attention; collapsing it deterministically (token overlap, no extra LLM call)
-  is cheaper and more predictable than asking the model not to repeat itself.
-* **Grounding is per section, with no exempt kinds.** Unlike a module — whose
-  ``TASK``/``CHECK`` pages are prompts rather than claims — every section of a
+  the PR), so the evidence pool contains the setup docs *and* the review
+  conventions rather than five restatements of the task's own subject.
+* **The pool is deduplicated before the model sees it** — token overlap, no
+  extra LLM call.
+* **Grounding is per section, with no exempt kinds.** Unlike a module, whose
+  ``TASK``/``CHECK`` pages are prompts rather than claims, every section of a
   packet asserts something about this project, so every section must cite.
 """
 
