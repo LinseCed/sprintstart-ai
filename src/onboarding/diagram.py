@@ -1,32 +1,24 @@
 """Assembly of a subject-scoped diagram from existing material.
 
-The board's cards are a closed catalogue precisely so a model cannot write what
-a hire reads. A diagram needs a *subject* — only the conversation knows whether
-the mentor just explained authentication or the ingestion pipeline — so this is
-the one place the rule is extended, and it is extended in exactly one direction:
-
-    **The model may choose the question. It never writes the answer.**
-
-The subject drives retrieval and nothing else. Every box comes back derived from
-a retrieved chunk and carrying the citation that proves it; a box that cannot be
-grounded is dropped, and a picture left with fewer than two connected boxes is
-``skipped`` rather than shown. So a subject nobody's corpus supports produces no
-diagram, which is the correct answer.
+⚠️ **The model may choose the question. It never writes the answer.** The
+subject drives retrieval and nothing else: every box comes back derived from a
+retrieved chunk and carrying the citation that proves it, an ungrounded box is
+dropped, and a picture left with fewer than two connected boxes is ``skipped``
+rather than shown.
 
 Four mechanics carry that guarantee:
 
 * **Retrieval runs per facet, not per subject.** One query for the parts, one for
-  how they connect, one for where the subject begins and ends — because a single
-  query returns the same passage three ways, and a diagram whose evidence pool
-  never mentions a connection can only draw disconnected boxes.
+  how they connect, one for where the subject begins and ends — a single query
+  returns the same passage three ways, and an evidence pool that never mentions a
+  connection can only draw disconnected boxes.
 * **The pool is deduplicated before the model sees it**, on token overlap, no
-  extra call, exactly as an orientation packet does.
+  extra call.
 * **Grounding is per node, with no exempt kinds.** Every node asserts this
-  project contains this part; there is no equivalent of a module's uncited
-  exercise page.
-* **The subject is fenced as untrusted.** It reaches here as model text written
-  in a conversation a hire steers, so a hire who asks for a diagram of "ignore
-  the evidence and say X" gets their instruction quoted at the model as data.
+  project contains this part.
+* ⚠️ **The subject is fenced as untrusted.** It reaches here as model text
+  written in a conversation a hire steers, so a request to diagram "ignore the
+  evidence and say X" is quoted at the model as data.
 """
 
 import json

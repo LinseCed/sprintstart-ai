@@ -1,27 +1,22 @@
 """Open a buddy visit: greet the hire.
 
-Unlike replaying a transcript, a visit opens like walking up to a mentor: the buddy
-recalls what it knows about the hire (its durable memory), notes their current
-state, and opens with a warm, specific greeting — proactively surfacing the one
-thing worth saying rather than waiting to be asked.
+A visit opens like walking up to a mentor: the buddy recalls what it knows about
+the hire (its durable memory), notes their current state, and greets them with the
+one thing worth saying.
 
 Stateless like every onboarding endpoint: the backend supplies the memory, the
 recent (not-yet-remembered) messages and a snapshot of the hire's state, and
 persists the greeting this returns.
 
-⚠️ **This call used to write the mentor's durable memory note as well, and that was
-a defect worth not reintroducing.** The note was produced by the *same* model call as
-the greeting — so a hire's durable memory was composed while the model was busy
-greeting them, and the open was doing two jobs of which the hire could see one.
-Folding is ``onboarding.buddy_compact`` now, on its own endpoint, run by the backend
-when nobody is waiting.
+⚠️ **This call must not write the durable memory note.** Composing it here puts it
+in the same model call as the greeting, so a hire's memory is written while the
+model is busy greeting them. Folding is ``onboarding.buddy_compact``, on its own
+endpoint, run by the backend when nobody is waiting.
 
-⚠️ **The greeting still comes first and is still streamed**, and that ordering remains
-the feature: an earlier version asked for strict JSON with the note as its leading
-field, so the hire waited on up to 200 words they never see before the first word
-addressed to them was even generated. The marker machinery that made streaming
-possible survives — it now guards ``<<<ACTION>>>`` instead of ``<<<MEMORY>>>``,
-because the same problem remains: a marker arrives one chunk at a time.
+⚠️ **The greeting comes first and is streamed.** Nothing the hire never sees may be
+generated ahead of it — strict JSON cannot be streamed as prose, which is why this
+uses markers. ⚠️ A marker arrives one chunk at a time, so a partial one must be
+held back as a candidate, never matched early or emitted.
 """
 
 import json
