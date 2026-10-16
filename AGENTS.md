@@ -1,5 +1,10 @@
 # SprintStart AI Service
 
+> **Read [`AI_RULES.md`](./AI_RULES.md) first.** Its rules are binding for every AI agent and
+> override this file wherever they conflict. Claude Code loads it automatically through
+> `.claude/settings.json`; other agents must read it before starting. Before you report a task
+> as done, run `bash scripts/quality/ratchet.sh` — CI runs the same.
+
 FastAPI service that ingests project artifacts, indexes them via RAG, and
 answers questions / generates personalized onboarding paths.
 
@@ -24,13 +29,20 @@ Production Docker CMD (Dockerfile): `uvicorn api.app:app --app-dir src`.
 | Tests + coverage | `uv run pytest --cov=src --cov-report=term-missing` |
 | Integration tests (needs Ollama) | `uv run pytest -m integration` |
 | Lint | `uv run ruff check .` |
+| Limits (AI_RULES R3) | `uv run python scripts/quality/ruff_limits.py` |
+| Quality ratchet | `bash scripts/quality/ratchet.sh` |
+| Architecture (layers) | `PYTHONPATH=src uv run lint-imports` |
+| Coverage gate | `uv run pytest --cov=src --cov-report=xml:coverage.xml && bash scripts/quality/coverage-gate.sh` |
+| Mutation gate (Linux/WSL) | `bash scripts/quality/mutation.sh` |
+| Quality report | `bash scripts/quality/report.sh` |
 | Format check | `uv run ruff format --check .` |
 | Auto-format | `uv run ruff format .` |
 | Type-check | `uv run pyright src/` |
 
 Run **lint → format check → type-check → tests** before considering a change
 done. CI enforces this order:
-`gitleaks → quality (ruff lint + ruff format check + pyright) → pytest`.
+`gitleaks → quality (ruff lint + ruff limits + ruff format check + pyright) → pytest`,
+plus the quality ratchet on every PR.
 
 ## Branch protection
 
