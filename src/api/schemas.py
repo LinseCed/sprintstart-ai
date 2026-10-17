@@ -708,9 +708,6 @@ class PathEvent(BaseModel):
     )
 
 
-# ── GitHub run batch ingest ───────────────────────────────────────────────────
-
-
 class ArtifactRunIngestRequest(BaseModel):
     """One artifact from a completed GitHub ingestion run."""
 
@@ -900,9 +897,6 @@ class IngestStatusResponse(BaseModel):
     )
 
 
-# ── Connector / source enable-disable ───────────────────────────────────────
-
-
 class ConfigureConnectorRequest(BaseModel):
     enabled: bool = Field(description="Whether the connector should be enabled.")
 
@@ -938,9 +932,6 @@ class ArtifactSummaryRequest(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
-
-
-# ── Knowledge-gaps (PM insights) ────────────────────────────────────────────
 
 
 class KnowledgeGapsRequest(ProjectScopedRequest):
@@ -985,9 +976,6 @@ class KnowledgeGapSchema(BaseModel):
 
 class KnowledgeGapsResponse(BaseModel):
     gaps: list[KnowledgeGapSchema]
-
-
-# ── FAQ grouping (PM insights) ──────────────────────────────────────────────
 
 
 class FaqQuestionSchema(BaseModel):
@@ -1533,9 +1521,6 @@ class BuddyCompactResponse(BaseModel):
     )
 
 
-# ── FAQ incremental classification (PM insights) ────────────────────────────
-
-
 class FaqGroupRefSchema(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
@@ -1734,9 +1719,6 @@ class SkillSuggestionResponse(BaseModel):
         default_factory=list[SkillSuggestionItem],
         description="List of suggested skills matching the role and project.",
     )
-
-
-# ── Project industry evaluation ───────────────────────────────────────────────
 
 
 class IndustryEvaluationResponse(BaseModel):
