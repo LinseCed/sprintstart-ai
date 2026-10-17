@@ -118,9 +118,6 @@ class _GenPayload(BaseModel):
     sections: list[_GenSection] = Field(default_factory=list[_GenSection])
 
 
-# --- evidence ------------------------------------------------------------------
-
-
 def _task_query(
     task_title: str, task_body: str, labels: list[str], touched_paths: list[str]
 ) -> str:
@@ -150,9 +147,6 @@ def _evidence_line(chunk: ScoredChunk) -> str:
     if chunk.language:
         meta += f"/{chunk.language}"
     return f"  [{chunk.id}] ({chunk.filename} | {meta}) {chunk.text}"
-
-
-# --- prompt / parsing ----------------------------------------------------------
 
 
 def _build_prompt(
@@ -235,9 +229,6 @@ def _parse_payload(raw: str) -> _GenPayload:
         raise AssemblyError(f"invalid orientation output: {exc}") from exc
 
 
-# --- resolution ----------------------------------------------------------------
-
-
 def _resolve_sections(
     payload: _GenPayload, chunks: list[ScoredChunk]
 ) -> tuple[list[OrientationSection], int]:
@@ -310,9 +301,6 @@ def _sources_drawn_on(
                 )
             )
     return sources
-
-
-# --- job -----------------------------------------------------------------------
 
 
 def stream_orientation(
@@ -397,9 +385,8 @@ def stream_orientation(
     messages = _build_prompt(
         task_title, task_body, labels or [], touched_paths or [], chunks
     )
-    # One correction round, as phase assembly has: a small local model breaks the
-    # JSON now and then, and one broken quote used to cost the hire the whole
-    # packet. Asked back for the same content, it usually fixes its own syntax.
+    # One correction round, as phase assembly has: a small local model breaks the JSON
+    # now and then, and asked back for the same content it usually fixes its own syntax.
     parse_error: AssemblyError | None = None
     payload: _GenPayload | None = None
     for attempt in range(_MAX_GENERATION_ATTEMPTS):

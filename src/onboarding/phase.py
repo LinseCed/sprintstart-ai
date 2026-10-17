@@ -133,9 +133,6 @@ class _GenPayload(BaseModel):
     questions: list[_GenQuestion] = Field(default_factory=list[_GenQuestion])
 
 
-# --- evidence ------------------------------------------------------------------
-
-
 def _phase_query(
     title: str,
     description: str,
@@ -171,9 +168,6 @@ def _evidence_line(chunk: ScoredChunk) -> str:
     if chunk.language:
         meta += f"/{chunk.language}"
     return f"  [{chunk.id}] ({chunk.filename} | {meta}) {chunk.text}"
-
-
-# --- prompt / parsing ----------------------------------------------------------
 
 
 def _build_prompt(
@@ -274,9 +268,6 @@ def _correction_prompt(
             ),
         ),
     ]
-
-
-# --- resolution ----------------------------------------------------------------
 
 
 def _resolve_steps(
@@ -428,9 +419,6 @@ def _resolve_dependencies(
         step.blocked_by = resolve(step.key, step.blocked_by)
     for question in questions:
         question.blocked_by = resolve(question.key, question.blocked_by)
-
-
-# --- job -----------------------------------------------------------------------
 
 
 def stream_phase(

@@ -146,9 +146,6 @@ class _GenPayload(BaseModel):
     edges: list[_GenEdge] = Field(default_factory=list[_GenEdge])
 
 
-# --- evidence ------------------------------------------------------------------
-
-
 def _collapse_duplicates(chunks: list[ScoredChunk]) -> tuple[list[ScoredChunk], int]:
     """Drop chunks that restate one already kept, best-scoring first.
 
@@ -170,9 +167,6 @@ def _evidence_line(chunk: ScoredChunk) -> str:
     if chunk.language:
         meta += f"/{chunk.language}"
     return f"  [{chunk.id}] ({chunk.filename} | {meta}) {chunk.text}"
-
-
-# --- prompt / parsing ----------------------------------------------------------
 
 
 def _fenced(subject: str) -> str:
@@ -257,9 +251,6 @@ def _parse_payload(raw: str) -> _GenPayload:
         return _GenPayload.model_validate_json(extract_json_object(raw))
     except (ValidationError, json.JSONDecodeError, ValueError) as exc:
         raise AssemblyError(f"invalid diagram output: {exc}") from exc
-
-
-# --- resolution ----------------------------------------------------------------
 
 
 def _normalise(text: str) -> str:
@@ -414,9 +405,6 @@ def _sources_drawn_on(
                 )
             )
     return sources
-
-
-# --- job -----------------------------------------------------------------------
 
 
 def stream_diagram(
