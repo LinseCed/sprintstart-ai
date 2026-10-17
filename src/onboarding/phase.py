@@ -337,9 +337,8 @@ def _resolve_steps(
 def _validate_question(item: _GenQuestion) -> CheckQuestion | None:
     """Drop a question that doesn't meet the check-question constraints.
 
-    Mirrors ``onboarding.checks._validate_question`` so the phase's quiz obeys
-    the same shape the backend's knowledge-check UI expects. Positions are
-    assigned later over survivors only.
+    The phase's quiz obeys the shape the backend's knowledge-check UI expects.
+    Positions are assigned later over survivors only.
     """
     if not item.question.strip():
         return None

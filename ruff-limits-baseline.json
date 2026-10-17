@@ -240,27 +240,6 @@
       "count": 1
     }
   },
-  "src/onboarding/generation.py::_draft_steps": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/generation.py::_generate_scope": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/generation.py::generate_blueprints": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
   "src/onboarding/orientation.py::_build_prompt": {
     "PLR0913": {
       "count": 1
@@ -306,16 +285,6 @@
       "count": 1
     },
     "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/onboarding/pipeline.py::run": {
-    "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/onboarding/registry.py::upsert_step": {
-    "PLR0913": {
       "count": 1
     }
   },

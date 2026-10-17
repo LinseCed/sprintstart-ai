@@ -32,8 +32,6 @@ ignore_imports =
     ingestion.mapper -> rag.types
     ingestion.metadata_store -> rag.filters
     ingestion.source_state_store -> rag.source_filter
-    onboarding.orchestrator -> api.schemas
-    onboarding.orchestrator -> api.sse
     projects.evaluation -> api.schemas
     skills.suggestion -> api.schemas
     store.base -> ingestion.source_role
