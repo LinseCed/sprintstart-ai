@@ -1,4 +1,4 @@
-# AI_RULES.md R26: the layers of the AI service. Higher layers may import lower ones, never the other
+# The layers of the AI service. Higher layers may import lower ones, never the other
 # way round, and the features on one line are independent of each other. `ignore_imports` lists the
 # violations that existed when this was introduced; it may only shrink (an entry that no longer
 # matches fails the check). Run with `PYTHONPATH=src uv run lint-imports`.

@@ -1,4 +1,4 @@
-# Lint and format rules every file must pass. The R3 limits of AI_RULES.md are in
+# Lint and format rules every file must pass. The size and complexity limits are in
 # ruff-limits.toml, whose existing violations are frozen in ruff-limits-baseline.json.
 line-length = 88
 target-version = "py312"
