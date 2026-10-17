@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Annotated, Literal, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import (
     AfterValidator,
@@ -9,10 +9,6 @@ from pydantic import (
     field_validator,
 )
 from pydantic.alias_generators import to_camel
-
-if TYPE_CHECKING:
-    pass
-
 
 # Project ids are stored as a delimited string (``|id1|id2|``) in the chunk
 # metadata and appear verbatim in blueprint scopes (``project:<id>|global``).
