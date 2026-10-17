@@ -148,6 +148,15 @@ check_history_comments() {
     echo "$hits"
 }
 
+check_rule_citations() {
+    [ -z "${RULE_CITATION_RE:-}" ] && return
+    local hits
+    hits=$(added_lines "$RULE_CITATION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}" | head -15)
+    [ -z "$hits" ] && return
+    fail "R17 comments that cite the rules (the rules live in AI_RULES.md; delete the citation):"
+    echo "$hits"
+}
+
 echo "Quality ratchet against $(git rev-parse --short "$BASE") — see AI_RULES.md"
 check_protected
 ratchet_count R4 "suppressions" "$SUPPRESSION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}"
@@ -157,6 +166,7 @@ ratchet_count R25 "hidden now()/random/new-id calls" "${HIDDEN_DEPS_RE:-}" "${SO
 check_baselines
 check_file_length
 check_history_comments
+check_rule_citations
 
 if [ "$failures" -gt 0 ]; then
     echo "ratchet: $failures failure(s), $warnings warning(s)"

@@ -167,14 +167,21 @@ is genuinely viable. An agent may draft the ADR; only a human sets it to `Accept
 
 ## 4. Comments
 
-**R17 — Code explains _what_, names explain _why_, comments are rare.**
+**R17 — Good code explains itself. Doc comments are the norm; any other comment is the
+exception.**
 
-- Allowed: doc comments on public API — a one-sentence summary plus the contract (parameters,
-  errors, side effects), usually ≤ 6 lines; and an inline comment for a constraint the code
-  cannot express (an external bug, a spec, a non-obvious invariant).
+- Write doc comments (KDoc, docstrings, TSDoc) on public API: a one-sentence summary plus
+  the contract (parameters, errors, side effects), usually ≤ 6 lines.
+- Write any other comment only for what the code cannot say: hard math or a non-obvious
+  algorithm, an external constraint (a library bug, a spec, a protocol quirk), an invariant
+  no type can carry. If a better name, a type or a smaller function would make the comment
+  unnecessary, change the code instead.
+- Never cite or justify these rules in code: no "AI_RULES R7", no "its own type, so that a
+  user id cannot be passed as a session id". The rules live in this file; following them
+  needs no explanation.
 - Forbidden: history ("used to", "no longer", "previously", "after the fix", "the whole
-  change"), justifications for breaking a rule, restating the code, essays. History belongs
-  in the commit message, the PR and the ADR.
+  change"), section comments, restating the code, essays. History belongs in the commit
+  message, the PR and the ADR.
 - If a function needs a paragraph to explain what it does, it does too much (R10).
 
 ## 5. Tests
@@ -248,7 +255,7 @@ code. If the task is bigger, stop and propose a split before continuing.
 - [ ] R13/R14: searched for existing code (say where); nothing copied and adapted
 - [ ] R15: no swallowed exception
 - [ ] R16: ADR linked, or "no trigger applies" with the reason
-- [ ] R17: no history or justification comments
+- [ ] R17: doc comments only, other comments only where the code cannot speak; no history, no rule citations
 - [ ] R18/R19: tests that fail without the change; journey list updated if user-facing
 - [ ] R25: changed lines covered; mutation gate passed; no hidden `now()`/random/ids in logic
 - [ ] R26: no new module-boundary, layering or cycle violation; no new duplication or dead code
@@ -284,6 +291,7 @@ without deciding the change yourself.
 | R27 merging                    | —                                                 | branch ruleset (`.github/rulesets/`)           |               |
 | R8–R14, R16, R18, R19, R22     | —                                                 | —                                              | ✓ PR template |
 | R17 history comments           | sent back once at end of turn                     | —                                              | ✓             |
+| R17 rule citations in comments | sent back at end of turn                          | ratchet: fails on any added citation           | ✓             |
 | R24 `--no-verify`, force-push  | blocked                                           | —                                              |               |
 
 The hooks need Claude Code; agents without hooks are bound by the same rules and are caught

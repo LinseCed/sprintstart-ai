@@ -1,4 +1,4 @@
-"""The contract of ``/onboarding/buddy/agent/stream`` as JSON Schema (AI_RULES R12).
+"""The contract of ``/onboarding/buddy/agent/stream`` as JSON Schema.
 
 The backend consumes these events; it keeps a copy of the generated schema under
 ``contracts/`` and decodes the shared examples in its own contract test. Regenerate

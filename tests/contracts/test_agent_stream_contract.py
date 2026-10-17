@@ -1,4 +1,4 @@
-"""Producer side of the agent stream contract (AI_RULES R12).
+"""Producer side of the agent stream contract.
 
 The backend's consumer test decodes the same examples, so a change here that the
 backend cannot read fails one side or the other.

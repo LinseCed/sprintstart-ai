@@ -1,4 +1,4 @@
-# AI_RULES.md R3 and R15 for Python. Checked by scripts/quality/ruff_limits.py against
+# Size, complexity and exception limits for Python. Checked by scripts/quality/ruff_limits.py against
 # ruff-limits-baseline.json, which may only shrink.
 extend = "ruff.toml"
 

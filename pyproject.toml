@@ -49,7 +49,7 @@ dev = [
 ]
 
 [tool.mutmut]
-# AI_RULES R25: scripts/quality/mutation.sh mutates the modules a branch changed. Needs Linux or WSL.
+# scripts/quality/mutation.sh mutates the modules a branch changed. Needs Linux or WSL.
 paths_to_mutate = ["src/"]
 tests_dir = ["tests/"]
 also_copy = ["contracts/", "tests/"]
