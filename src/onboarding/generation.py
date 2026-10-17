@@ -77,9 +77,6 @@ class GenerationOutcome(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-# --- LLM payload -----------------------------------------------------------
-
-
 class _GenStep(BaseModel):
     title: str
     description: str = ""
@@ -90,9 +87,6 @@ class _GenStep(BaseModel):
 
 class _GenPayload(BaseModel):
     steps: list[_GenStep] = []
-
-
-# --- corpus fingerprint (idempotency) --------------------------------------
 
 
 def _fingerprint_fields(chunk: Chunk) -> tuple[str, ...]:
@@ -125,9 +119,6 @@ def corpus_fingerprint(store: VectorStore, project_id: str) -> str:
             digest.update(value.encode("utf-8"))
             digest.update(b"\0")
     return digest.hexdigest()
-
-
-# --- scope helpers ---------------------------------------------------------
 
 
 def default_scopes(active: list[Blueprint], project_id: str) -> list[str]:
@@ -167,9 +158,6 @@ def _scope_query(scope: str) -> str:
     if parsed.area is not None:
         return f"{parsed.area} onboarding essentials setup workflow"
     return f"{scope} onboarding"
-
-
-# --- prompt / parsing ------------------------------------------------------
 
 
 _DUPLICATE_EXAMPLES = (
@@ -277,9 +265,6 @@ def _draft_steps(
     return refs
 
 
-# --- embedding-based semantic dedup ----------------------------------------
-
-
 def filter_semantic_duplicates(
     refs: list[SkeletonRef],
     pool: dict[str, StepRecord],
@@ -322,9 +307,6 @@ def filter_semantic_duplicates(
         kept.append(ref)
         seen_embeddings.append(embedding)
     return kept
-
-
-# --- invariant gate --------------------------------------------------------
 
 
 def _enforce_invariants(
@@ -370,9 +352,6 @@ def _enforce_invariants(
             )
     patched = draft.model_copy(update={"steps": patched_refs})
     return patched, notes
-
-
-# --- job -------------------------------------------------------------------
 
 
 def _no_evidence_outcome(
