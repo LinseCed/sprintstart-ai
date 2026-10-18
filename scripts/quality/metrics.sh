@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quality metrics ratchet (AI_RULES.md R3, R25): measures the repository and compares each metric with
+# Quality metrics ratchet: measures the repository and compares each metric with
 # the value recorded in quality-metrics.properties on the base branch. A metric may only improve.
 #
 #   bash scripts/quality/metrics.sh [--update] [--only <metric>] [base-rev]
@@ -95,7 +95,7 @@ check() {
     elif [ -z "$was" ]; then
         echo "NEW  $name=$value (no value recorded on the base branch yet)"
     elif worse "$direction" "$value" "$was"; then
-        echo "FAIL $name: $was -> $value (may only get better; AI_RULES R25)"
+        echo "FAIL $name: $was -> $value (may only get better)"
         failures=$((failures + 1))
     else
         echo "OK   $name: $was -> $value"

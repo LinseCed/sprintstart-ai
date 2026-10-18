@@ -1,4 +1,4 @@
-"""Checks the AI_RULES.md R3/R15 limits in ruff-limits.toml against a baseline.
+"""Checks the limits in ruff-limits.toml against a baseline.
 
     uv run python scripts/quality/ruff_limits.py           # fail on new violations
     uv run python scripts/quality/ruff_limits.py --update  # rewrite, after fixes only
@@ -83,12 +83,12 @@ def write_baseline(violations: Counter[Key]) -> None:
 def report(violations: Counter[Key], baseline: Counter[Key]) -> int:
     new = violations - baseline
     for (where, code), count in sorted(new.items()):
-        print(f"FAIL {code} in {where} ({count} new) - AI_RULES R3/R15")
+        print(f"FAIL {code} in {where} ({count} new)")
     fixed = sum((baseline - violations).values())
     if fixed:
         print(f"ruff-limits: {fixed} baseline entries fixed; run --update to drop them")
     if new:
-        print("ruff-limits: restructure the code; never grow the baseline (R1, R4)")
+        print("ruff-limits: restructure the code; never grow the baseline")
         return 1
     print(f"ruff-limits: ok ({sum(violations.values())} known violations left)")
     return 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quality report (AI_RULES.md, Enforcement): the repository's quality numbers as one Markdown table, for
+# Quality report: the repository's quality numbers as one Markdown table, for
 # the sprint review and to see whether the baselines shrink.
 #
 #   bash scripts/quality/report.sh > quality-report.md
@@ -54,19 +54,19 @@ echo "# Quality report: $(basename "$ROOT")"
 echo
 echo "$(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD), $(date +%Y-%m-%d)"
 echo
-echo "| Measure | Value | Rule |"
-echo "| --- | --- | --- |"
-echo "| Suppressions in code | $(count "$SUPPRESSION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}") | R4 |"
-echo "| Skipped or focused tests | $(count "$SKIP_RE" "${TEST_PATHS[@]}") | R6 |"
-[ ${#RAWID_PATHS[@]} -gt 0 ] && echo "| Raw-typed ids in signatures (grep) | $(count "$RAWID_RE" "${RAWID_PATHS[@]}") | R7 |"
-echo "| Hidden now()/random/new-id calls | $(count "${HIDDEN_DEPS_RE:-}" "${SOURCE_PATHS[@]}") | R25 |"
-echo "| Files over $FILE_LIMIT lines | $(oversized) | R3 |"
+echo "| Measure | Value |"
+echo "| --- | --- |"
+echo "| Suppressions in code | $(count "$SUPPRESSION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}") |"
+echo "| Skipped or focused tests | $(count "$SKIP_RE" "${TEST_PATHS[@]}") |"
+[ ${#RAWID_PATHS[@]} -gt 0 ] && echo "| Raw-typed ids in signatures (grep) | $(count "$RAWID_RE" "${RAWID_PATHS[@]}") |"
+echo "| Hidden now()/random/new-id calls | $(count "${HIDDEN_DEPS_RE:-}" "${SOURCE_PATHS[@]}") |"
+echo "| Files over $FILE_LIMIT lines | $(oversized) |"
 for file in "${LINT_BASELINES[@]}"; do
-    [ -f "$file" ] && echo "| Known violations: \`$(basename "$file")\` | $(entries "$file") | R3/R26 |"
+    [ -f "$file" ] && echo "| Known violations: \`$(basename "$file")\` | $(entries "$file") |"
 done
-echo "| Line coverage | $(metric coverage.lines || true)% | R25 |"
-echo "| Mutation score | $(mutation_line) | R25 |"
-echo "| Duplicated lines (jscpd) | $(metric duplication.lines || true) | R26 |"
-[ -n "${DEADCODE_CMD:-}" ] && echo "| Dead-code findings | $(metric deadcode.findings || true) | R26 |"
+echo "| Line coverage | $(metric coverage.lines || true)% |"
+echo "| Mutation score | $(mutation_line) |"
+echo "| Duplicated lines (jscpd) | $(metric duplication.lines || true) |"
+[ -n "${DEADCODE_CMD:-}" ] && echo "| Dead-code findings | $(metric deadcode.findings || true) |"
 echo
-echo "Every number here may only go down (coverage and mutation score: up). See AI_RULES.md."
+echo "Every number here may only go down (coverage and mutation score: up)."

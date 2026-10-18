@@ -1,8 +1,8 @@
 name: Quality ratchet
 
-# AI_RULES.md, Enforcement. Fails a PR that adds suppressions, skipped tests, raw-typed ids,
+# Fails a PR that adds suppressions, skipped tests, raw-typed ids,
 # lint-baseline entries or oversized files, or that changes protected configuration without a
-# `quality-exception` label set by somebody other than the PR author (R2).
+# `quality-exception` label set by somebody other than the PR author.
 
 on:
   pull_request:
@@ -40,7 +40,7 @@ jobs:
               granted=1
               echo "quality-exception granted by $labeller"
             else
-              echo "::warning::quality-exception was set by the PR author ($labeller); it only counts when set by somebody else (AI_RULES R2)."
+              echo "::warning::quality-exception was set by the PR author ($labeller); it only counts when set by somebody else."
             fi
           fi
           echo "granted=$granted" >> "$GITHUB_OUTPUT"
@@ -62,7 +62,7 @@ jobs:
       - name: Metrics against the base branch (duplication, dead code)
         run: bash scripts/quality/metrics.sh "origin/${{ github.base_ref }}"
 
-      - name: Contract copies match their owners (AI_RULES R12)
+      - name: Contract copies match their owners
         env:
           CONTRACT_REF: ${{ github.base_ref }}
         run: bash scripts/quality/contracts-sync.sh

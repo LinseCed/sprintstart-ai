@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the Claude Code hooks in this folder (AI_RULES.md, Enforcement).
+# Shared helpers for the Claude Code hooks in this folder.
 # No jq: the hooks must run on any machine that has git and bash.
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0

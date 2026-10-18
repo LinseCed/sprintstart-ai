@@ -1,6 +1,6 @@
 name: Mutation testing
 
-# AI_RULES.md R25. On a PR: the modules it changed must have a mutation score of at least MUTATION_MIN.
+# On a PR: the modules it changed must have a mutation score of at least MUTATION_MIN.
 # Nightly: the whole service, as a report for the quality trend (never fails).
 
 on:

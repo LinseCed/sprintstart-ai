@@ -29,7 +29,7 @@ Production Docker CMD (Dockerfile): `uvicorn api.app:app --app-dir src`.
 | Tests + coverage | `uv run pytest --cov=src --cov-report=term-missing` |
 | Integration tests (needs Ollama) | `uv run pytest -m integration` |
 | Lint | `uv run ruff check .` |
-| Limits (AI_RULES R3) | `uv run python scripts/quality/ruff_limits.py` |
+| Limits | `uv run python scripts/quality/ruff_limits.py` |
 | Quality ratchet | `bash scripts/quality/ratchet.sh` |
 | Architecture (layers) | `PYTHONPATH=src uv run lint-imports` |
 | Coverage gate | `uv run pytest --cov=src --cov-report=xml:coverage.xml && bash scripts/quality/coverage-gate.sh` |

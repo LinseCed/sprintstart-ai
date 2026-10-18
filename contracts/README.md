@@ -1,6 +1,6 @@
 # Contracts
 
-Machine-readable contracts between the SprintStart services (AI_RULES.md R12). Each contract has one
+Machine-readable contracts between the SprintStart services. Each contract has one
 owner — the repository that produces the data — and every consumer keeps an identical copy.
 
 | Contract | Owner (producer) | Consumers | Producer test | Consumer test |
@@ -12,6 +12,6 @@ Each contract is a JSON Schema (`<name>.schema.json`, one `oneOf` branch per eve
 event type under `examples/<name>/`. Producer tests check that what the code really emits follows the schema;
 consumer tests check that every example is read correctly by the code that reads it in production.
 
-**Changing a contract** is an ADR trigger (R16). Change the owner's schema and examples, then copy them to every
+**Changing a contract** is an ADR trigger. Change the owner's schema and examples, then copy them to every
 consumer in the same week; `bash scripts/quality/contracts-sync.sh` fails while a copy differs from the owner's
 `dev` branch.

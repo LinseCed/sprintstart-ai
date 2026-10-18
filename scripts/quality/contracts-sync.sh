@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Contract copies (AI_RULES.md R12): every contract file this repository consumes must equal the version
+# Contract copies: every contract file this repository consumes must equal the version
 # in the repository that owns it. CONTRACT_COPIES in ratchet.conf lists "local-path|owner-repo|owner-path";
 # a path may be a file or a folder of examples.
 #
@@ -54,7 +54,7 @@ compare_file() {
         return
     fi
     if [ "$remote" != "$(cat "$mine" 2>/dev/null)" ]; then
-        echo "FAIL $mine differs from $repo:$theirs ($REF) — copy the owner's version (R12)"
+        echo "FAIL $mine differs from $repo:$theirs ($REF) — copy the owner's version"
         failures=$((failures + 1))
     fi
 }
