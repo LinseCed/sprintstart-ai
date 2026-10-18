@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse (Edit|MultiEdit|Write): R4 and R6, checked on the file that was just written.
+# PostToolUse (Edit|MultiEdit|Write): suppressions and skipped tests, checked on the file that was just written.
 # Exit 2 hands the message back to the agent, which must undo the suppression or skip.
 
 . "$(dirname "$0")/lib.sh"
@@ -12,23 +12,23 @@ base=$(base_rev)
 problems=""
 
 check() {
-    local rule=$1 label=$2 regex=$3 before after
+    local label=$1 regex=$2 before after
     [ -z "$regex" ] && return
     before=$(count_in_file "$rel" "$regex" "$base")
     after=$(count_in_file "$rel" "$regex" worktree)
     if [ "${after:-0}" -gt "${before:-0}" ]; then
-        problems+="AI_RULES $rule: $rel now has $after $label (base: $before)."$'\n'
+        problems+="$rel now has $after $label (base: $before)."$'\n'
         problems+=$(grep -nE -- "$regex" "$ROOT/$rel" | head -5 | sed 's/^/    line /')$'\n'
     fi
 }
 
-check R4 "suppression(s)" "$SUPPRESSION_RE"
-check R6 "skipped or focused test(s)" "$SKIP_RE"
+check "suppression(s)" "$SUPPRESSION_RE"
+check "skipped or focused test(s)" "$SKIP_RE"
 
 if [ -n "$problems" ]; then
     {
         printf '%s' "$problems"
-        echo "Remove it and restructure the code instead (R1). If you cannot, stop and report"
+        echo "Remove it and restructure the code instead. If you cannot, stop and report"
         echo "which rule blocks you and the refactoring you propose."
     } >&2
     exit 2

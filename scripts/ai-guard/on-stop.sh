@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stop: runs the quality ratchet before the agent may finish its turn. Any failure or warning
 # sends the agent back once; the second stop of the same turn is let through, so a finding the
-# agent cannot fix ends as a report to the human (R1) instead of a loop.
+# agent cannot fix ends as a report to the human instead of a loop.
 
 . "$(dirname "$0")/lib.sh"
 
@@ -20,10 +20,10 @@ status=$?
 
 if [ "$status" -ne 0 ] || printf '%s' "$output" | grep -q '^WARN'; then
     {
-        echo "Before you finish: the quality ratchet (AI_RULES.md) reports problems."
+        echo "Before you finish: the quality ratchet reports problems."
         printf '%s\n' "$output"
         echo "Fix each FAIL. For each WARN, fix it or say in your report why it is fine."
-        echo "If a rule blocks the task, stop and report it as R1 describes."
+        echo "If a rule blocks the task, stop and report it to the human."
     } >&2
     exit 2
 fi

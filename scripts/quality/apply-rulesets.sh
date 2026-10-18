@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Applies .github/rulesets/*.json to a repository on GitHub (AI_RULES.md R27): creates each ruleset, or
+# Applies .github/rulesets/*.json to a repository on GitHub: creates each ruleset, or
 # updates the one with the same name. Needs admin rights and changes how everybody merges — run it only
 # after the team agreed. Existing rulesets are left alone; GitHub applies the strictest rule of all.
 #

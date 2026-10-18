@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mutation gate (AI_RULES.md R25): mutates the source files a branch changed and fails when the tests
+# Mutation gate: mutates the source files a branch changed and fails when the tests
 # kill fewer than MUTATION_MIN percent of the mutants. A test that stays green while the code under it
 # is broken does not test it — this is the check that catches that.
 #
@@ -84,6 +84,6 @@ fi
 score=$((100 * killed / total))
 echo "mutation: $killed of $total mutants killed = $score% (minimum $MUTATION_MIN%)"
 if [ "$all" = 0 ] && [ "$score" -lt "$MUTATION_MIN" ]; then
-    echo "mutation: the tests do not notice enough broken code; strengthen their assertions (R18, R25)"
+    echo "mutation: the tests do not notice enough broken code; strengthen their assertions"
     exit 1
 fi

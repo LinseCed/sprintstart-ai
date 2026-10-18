@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Quality ratchet (AI_RULES.md, Enforcement): compares the working tree with a base revision
+# Quality ratchet: compares the working tree with a base revision
 # and fails when the code got worse on a measure that may only improve.
 #
 #   bash scripts/quality/ratchet.sh [base-rev]
 #
 # base-rev defaults to the merge-base with origin/dev. Patterns and paths come from
 # ratchet.conf next to this script; this file is identical in all SprintStart repos.
-# Set QUALITY_EXCEPTION=1 to downgrade R5 (protected config) failures to warnings; CI does
+# Set QUALITY_EXCEPTION=1 to downgrade protected-config failures to warnings; CI does
 # that only when a human other than the author labelled the PR `quality-exception`.
 
 set -uo pipefail
@@ -71,14 +71,14 @@ added_lines() {
 }
 
 ratchet_count() {
-    local rule=$1 label=$2 regex=$3
-    shift 3
+    local label=$1 regex=$2
+    shift 2
     [ -z "$regex" ] && return
     local before after
     before=$(count_matches "$BASE" "$regex" "$@")
     after=$(count_matches worktree "$regex" "$@")
     if [ "$after" -gt "$before" ]; then
-        fail "$rule $label: $before -> $after (may not rise)"
+        fail "$label: $before -> $after (may not rise)"
         added_lines "$regex" "$@" | head -20
     fi
 }
@@ -89,9 +89,9 @@ check_protected() {
     touched=$(changed_files "${PROTECTED[@]}")
     [ -z "$touched" ] && return
     if [ "${QUALITY_EXCEPTION:-0}" = "1" ]; then
-        warn "R5 protected config changed under a quality-exception:"
+        warn "Protected config changed under a quality-exception:"
     else
-        fail "R5 protected config changed (needs a human decision and the quality-exception label):"
+        fail "Protected config changed (needs a human decision and the quality-exception label):"
     fi
     echo "$touched" | sed 's/^/    /'
 }
@@ -121,7 +121,7 @@ check_baselines() {
         before=$(baseline_entries "$BASE" "$file")
         after=$(baseline_entries worktree "$file")
         if [ "$after" -gt "$before" ]; then
-            fail "R3/R4 lint baseline $file grew: $before -> $after entries (may only shrink)"
+            fail "Lint baseline $file grew: $before -> $after entries (may only shrink)"
         fi
     done
 }
@@ -134,7 +134,7 @@ check_file_length() {
         [ "$after" -le "$FILE_LIMIT" ] && continue
         before=$(git show "$BASE:$f" 2>/dev/null | wc -l)
         if [ "$after" -gt "$before" ]; then
-            fail "R3 $f has $after lines (limit $FILE_LIMIT, was $before; may not grow past the limit)"
+            fail "$f has $after lines (limit $FILE_LIMIT, was $before; may not grow past the limit)"
         fi
     done < <(changed_files "${SIZE_PATHS[@]}")
 }
@@ -144,7 +144,7 @@ check_history_comments() {
     local hits
     hits=$(added_lines "$HISTORY_RE" "${SOURCE_PATHS[@]}" | head -15)
     [ -z "$hits" ] && return
-    warn "R17 comments that narrate history (move them to the commit message, PR or ADR):"
+    warn "Comments that narrate history (move them to the commit message, PR or ADR):"
     echo "$hits"
 }
 
@@ -153,16 +153,16 @@ check_rule_citations() {
     local hits
     hits=$(added_lines "$RULE_CITATION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}" | head -15)
     [ -z "$hits" ] && return
-    fail "R17 comments that cite the rules (the rules live in AI_RULES.md; delete the citation):"
+    fail "Comments that cite the coding rules (delete the citation):"
     echo "$hits"
 }
 
-echo "Quality ratchet against $(git rev-parse --short "$BASE") — see AI_RULES.md"
+echo "Quality ratchet against $(git rev-parse --short "$BASE")"
 check_protected
-ratchet_count R4 "suppressions" "$SUPPRESSION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}"
-ratchet_count R6 "skipped or focused tests" "$SKIP_RE" "${TEST_PATHS[@]}"
-[ ${#RAWID_PATHS[@]} -gt 0 ] && ratchet_count R7 "raw-typed ids in signatures" "$RAWID_RE" "${RAWID_PATHS[@]}"
-ratchet_count R25 "hidden now()/random/new-id calls" "${HIDDEN_DEPS_RE:-}" "${SOURCE_PATHS[@]}"
+ratchet_count "suppressions" "$SUPPRESSION_RE" "${SOURCE_PATHS[@]}" "${TEST_PATHS[@]}"
+ratchet_count "skipped or focused tests" "$SKIP_RE" "${TEST_PATHS[@]}"
+[ ${#RAWID_PATHS[@]} -gt 0 ] && ratchet_count "raw-typed ids in signatures" "$RAWID_RE" "${RAWID_PATHS[@]}"
+ratchet_count "hidden now()/random/new-id calls" "${HIDDEN_DEPS_RE:-}" "${SOURCE_PATHS[@]}"
 check_baselines
 check_file_length
 check_history_comments

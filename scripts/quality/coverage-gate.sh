@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Coverage gate (AI_RULES.md R25): run after the tests have written their coverage report.
+# Coverage gate: run after the tests have written their coverage report.
 #   1. Lines changed against the base branch must be covered to at least DIFF_COVERAGE_MIN percent.
 #   2. Total line coverage may not drop below the value recorded on the base branch.
 #

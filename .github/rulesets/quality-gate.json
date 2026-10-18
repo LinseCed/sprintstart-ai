@@ -1,5 +1,5 @@
 {
-  "name": "Quality gate (AI_RULES R27)",
+  "name": "Quality gate",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
