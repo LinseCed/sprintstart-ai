@@ -76,12 +76,12 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
   prompt-cache breakpoints; caching matches on exact bytes, so read
   `anthropic_client._user_message` before changing message serialisation.
 - **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`.
-- **`onboarding/`** — Deterministic staged pipeline (not agentic):
-  `select → filter → retrieve → synthesize → validate → emit`, yielding
-  `StageProgress` markers. Blueprints are owned by the backend and passed in
-  on each request — the service is stateless. Scopes are project-qualified
-  (`project:<id>|global`, `project:<id>|area:<name>`), parsed by
-  `onboarding/scope.py`.
+- **`onboarding/`** — Deterministic staged assembly jobs (not agentic): phase
+  content (`phase.py`), task orientation (`orientation.py`), diagrams
+  (`diagram.py`) and starter work (`starter_work.py`). Each gates on the corpus
+  fingerprint, retrieves, generates with one correction round and keeps only
+  what the evidence grounds, emitting progress events (`progress.py`) the API
+  relays as SSE. The service is stateless; the backend persists the results.
 
 ## Project separation
 
@@ -90,9 +90,8 @@ scoping is **fail-closed** — a chunk with no project association is invisible
 to all projects rather than visible to all of them. When touching retrieval,
 ingest, or an endpoint, keep that property:
 
-- `project_id` is required on `OnboardingPathRequest`,
-  `GenerateBlueprintsRequest`, `KnowledgeGapsRequest` and `FaqGroupRequest`
-  (all inherit `ProjectScopedRequest` in `api/schemas.py`).
+- `project_id` is required on `KnowledgeGapsRequest` and `FaqGroupRequest`
+  (both inherit `ProjectScopedRequest` in `api/schemas.py`).
   `project_ids` (plural, required) is enforced on `AssembleOrientationRequest`,
   `AssembleDiagramRequest`, and `MineStarterWorkRequest` for multi-project
   scoping; `BuddyAgentRequest.project_ids` scopes the buddy's searches the
