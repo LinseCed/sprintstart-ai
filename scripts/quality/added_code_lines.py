@@ -1,8 +1,10 @@
 """Prints the lines a branch adds to a Python file that are code, for mutation.sh.
 
 A line is code when it holds a token that is not a comment and is not part of a
-docstring. The tokenizer and the parser decide, so a line inside a multi-line
-docstring is not code, and a "#" inside a string does not make a comment.
+docstring or an import. The tokenizer and the parser decide, so a line inside a
+multi-line docstring is not code, and a "#" inside a string does not make a
+comment. The diff detects renames, so a moved file contributes only the lines
+that changed.
 
     uv run python scripts/quality/added_code_lines.py <base-rev> <file>
 """
@@ -25,6 +27,7 @@ _NOT_CODE = {
     tokenize.ENDMARKER,
 }
 _HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
+_FILE_DIFF = re.compile(r"^(?=diff --git )", re.MULTILINE)
 
 
 def added_line_numbers(base: str, path: str, text: str) -> list[int]:
@@ -33,12 +36,16 @@ def added_line_numbers(base: str, path: str, text: str) -> list[int]:
     ).stdout.strip()
     if not tracked:
         return list(range(1, text.count("\n") + 2))
-    diff = subprocess.run(
-        ["git", "diff", "-U0", base, "--", path],
+    full_diff = subprocess.run(
+        ["git", "diff", "-M", "-U0", base],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     ).stdout
+    diff = next(
+        (s for s in _FILE_DIFF.split(full_diff) if f"\n+++ b/{path}\n" in s), ""
+    )
     return [
         int(start) + offset
         for start, count in _HUNK.findall(diff)
@@ -68,12 +75,24 @@ def docstring_lines(tree: ast.Module) -> set[int]:
     return lines
 
 
+def import_lines(tree: ast.Module) -> set[int]:
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Import | ast.ImportFrom)
+            and node.end_lineno is not None
+        ):
+            lines.update(range(node.lineno, node.end_lineno + 1))
+    return lines
+
+
 def code_lines(text: str) -> set[int]:
     lines: set[int] = set()
     for token in tokenize.generate_tokens(io.StringIO(text).readline):
         if token.type not in _NOT_CODE:
             lines.update(range(token.start[0], token.end[0] + 1))
-    return lines - docstring_lines(ast.parse(text))
+    tree = ast.parse(text)
+    return lines - docstring_lines(tree) - import_lines(tree)
 
 
 def main() -> None:
