@@ -133,15 +133,24 @@ base_path() {
     echo "${renamed:-$1}"
 }
 
+# A file's length on stdin: its lines, without those SIZE_IGNORE_RE matches.
+counted_lines() {
+    if [ -n "${SIZE_IGNORE_RE:-}" ]; then
+        grep -cvE -- "$SIZE_IGNORE_RE"
+    else
+        wc -l
+    fi
+}
+
 check_file_length() {
     local f before after
     while read -r f; do
         [ -z "$f" ] && continue
-        after=$(wc -l < "$f")
+        after=$(counted_lines < "$f")
         [ "$after" -le "$FILE_LIMIT" ] && continue
-        before=$(git show "$BASE:$(base_path "$f")" 2>/dev/null | wc -l)
+        before=$(git show "$BASE:$(base_path "$f")" 2>/dev/null | counted_lines)
         if [ "$after" -gt "$before" ]; then
-            fail "$f has $after lines (limit $FILE_LIMIT, was $before; may not grow past the limit)"
+            fail "$f has $after lines${SIZE_IGNORE_RE:+ besides /$SIZE_IGNORE_RE/} (limit $FILE_LIMIT, was $before; may not grow past the limit)"
         fi
     done < <(changed_files "${SIZE_PATHS[@]}")
 }
