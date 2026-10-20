@@ -126,13 +126,20 @@ check_baselines() {
     done
 }
 
+# The path a file had at BASE: its own, or the one it was moved from, so a move keeps its history.
+base_path() {
+    local renamed
+    renamed=$(git diff -M --name-status --diff-filter=R "$BASE" 2>/dev/null | awk -F'\t' -v f="$1" '$3 == f { print $2; exit }')
+    echo "${renamed:-$1}"
+}
+
 check_file_length() {
     local f before after
     while read -r f; do
         [ -z "$f" ] && continue
         after=$(wc -l < "$f")
         [ "$after" -le "$FILE_LIMIT" ] && continue
-        before=$(git show "$BASE:$f" 2>/dev/null | wc -l)
+        before=$(git show "$BASE:$(base_path "$f")" 2>/dev/null | wc -l)
         if [ "$after" -gt "$before" ]; then
             fail "$f has $after lines (limit $FILE_LIMIT, was $before; may not grow past the limit)"
         fi
