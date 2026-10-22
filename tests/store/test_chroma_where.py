@@ -1,5 +1,5 @@
 from corpus.types import RetrievalFilters
-from rag.filters import where_filter_for_chroma
+from store.chroma_where import where_filter_for_chroma
 
 
 def test_where_filter_for_chroma_uses_the_project_marker_key() -> None:

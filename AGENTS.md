@@ -101,7 +101,7 @@ ingest, or an endpoint, keep that property:
   scoping; `BuddyAgentRequest.project_ids` scopes the buddy's searches the
   same way (empty admits nothing).
 - `RetrievalFilters.project_id` / `project_ids` is enforced in **both** halves of hybrid
-  retrieval — `where_filter_for_chroma()` for the vector side and
+  retrieval — `where_filter_for_chroma()` (`store/chroma_where.py`) for the vector side and
   `matches_retrieval_filters()` for the BM25/in-memory side (`corpus/filters.py`).
   Anything that scans `all_chunks_without_embeddings()` directly (the `grep`
   and `fetch_file` tools) must apply the filter itself.

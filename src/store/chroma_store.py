@@ -20,7 +20,7 @@ from corpus.source_filter import SourceExclusions
 from corpus.source_role import SourceRole
 from corpus.types import Chunk, RetrievalFilters, ScoredChunk, is_chunk_kind
 from ingestion.metadata_store import IngestionMetadataStore, RevocationReason
-from rag.filters import where_filter_for_chroma
+from store.chroma_where import where_filter_for_chroma
 
 _NO_POSITION: int = -1
 # Keep every Chroma ``get`` comfortably below SQLite's 32,766 bind-variable
