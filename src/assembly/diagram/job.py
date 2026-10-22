@@ -27,7 +27,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from assembly.diagram_draft import (
+from assembly.diagram.draft import (
     FACET_LABEL,
     FACET_QUERIES,
     MAX_NODES,
@@ -42,7 +42,7 @@ from assembly.diagram_draft import (
     resolve_nodes,
     trim_to_cap,
 )
-from assembly.diagram_models import (
+from assembly.diagram.models import (
     Diagram,
     DiagramEdge,
     DiagramNode,

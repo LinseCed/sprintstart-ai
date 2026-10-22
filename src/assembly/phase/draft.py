@@ -2,7 +2,7 @@
 
 The generation models, the prompt, the correction round, and the resolution of a
 draft against the retrieved evidence: everything that depends on the model's output
-rather than on the order of the pipeline stages in assembly.phase.
+rather than on the order of the pipeline stages in assembly.phase.job.
 """
 
 import json
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from assembly.citations import resolve_citations
 from assembly.models import CheckOption, CheckQuestion
-from assembly.phase_models import (
+from assembly.phase.models import (
     PhaseResource,
     PhaseStep,
     PhaseTask,

@@ -2,7 +2,7 @@
 
 Choosing the open issues to put in front of the model, the prompt, and reading its
 judgement: everything that depends on the corpus's issues and the model's output
-rather than on the order of the stages in assembly.starter_work.
+rather than on the order of the stages in assembly.starter_work.job.
 """
 
 import json
@@ -10,7 +10,7 @@ import logging
 
 from pydantic import BaseModel, Field, ValidationError
 
-from assembly.starter_work_models import (
+from assembly.starter_work.models import (
     GenerationError,
     StarterTaskCandidate,
 )

@@ -17,7 +17,7 @@ then *reads* is derived: each node names something a retrieved chunk actually
 evidences, carries the citation proving it, and is dropped if it cannot. So a
 subject the model invented cannot become a claim the model invented.
 
-Three properties separate a diagram from an :mod:`assembly.orientation_models`
+Three properties separate a diagram from an :mod:`assembly.orientation.models`
 packet:
 
 * **Scoped to a subject, not a task.** It outlives the task somebody claimed and

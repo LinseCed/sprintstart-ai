@@ -1,7 +1,12 @@
-from assembly.orientation import assemble_orientation, stream_orientation
-from assembly.orientation_models import OrientationOutcome
+from assembly.orientation.job import assemble_orientation, stream_orientation
+from assembly.orientation.models import OrientationOutcome
 from corpus.types import Chunk
-from tests.assembly.orientation_fixtures import PIDS, TITLE, payload, section
+from tests.assembly.orientation.orientation_fixtures import (
+    PIDS,
+    TITLE,
+    payload,
+    section,
+)
 from tests.assembly.pipeline_fixtures import EMBED, collect, make_llm, make_store
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore

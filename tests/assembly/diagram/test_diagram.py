@@ -1,9 +1,9 @@
 import json
 
-from assembly.diagram import assemble_diagram, stream_diagram
-from assembly.diagram_models import DiagramOutcome
+from assembly.diagram.job import assemble_diagram, stream_diagram
+from assembly.diagram.models import DiagramOutcome
 from corpus.types import Chunk
-from tests.assembly.diagram_fixtures import (
+from tests.assembly.diagram.diagram_fixtures import (
     PIDS,
     SUBJECT,
     TWO_CHUNKS,

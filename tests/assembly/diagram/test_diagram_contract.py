@@ -11,11 +11,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from assembly.diagram import assemble_diagram, clamp_subject, stream_diagram
-from assembly.diagram_models import DiagramEdge, DiagramOutcome, DiagramSource
+from assembly.diagram.job import assemble_diagram, clamp_subject, stream_diagram
+from assembly.diagram.models import DiagramEdge, DiagramOutcome, DiagramSource
 from assembly.progress import ProgressEvent
 from corpus.types import Chunk
-from tests.assembly.diagram_fixtures import (
+from tests.assembly.diagram.diagram_fixtures import (
     PIDS,
     SUBJECT,
     TWO_CHUNKS,
@@ -318,7 +318,7 @@ def test_each_dropped_box_is_logged_with_its_reason(
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="assembly.diagram_draft"):
+    with caplog.at_level(logging.INFO, logger="assembly.diagram.draft"):
         _assemble(llm)
 
     assert [r.getMessage() for r in caplog.records] == [
@@ -328,7 +328,7 @@ def test_each_dropped_box_is_logged_with_its_reason(
 
 
 def test_each_failed_attempt_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.WARNING, logger="assembly.diagram"):
+    with caplog.at_level(logging.WARNING, logger="assembly.diagram.job"):
         _assemble(unreadable_llm())
 
     reason = "invalid diagram output: no JSON object found in LLM output"

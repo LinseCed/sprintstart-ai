@@ -2,7 +2,7 @@
 
 The generation models, the prompt, the correction round, and the resolution of a
 draft against the retrieved evidence: everything that depends on the model's output
-rather than on the order of the pipeline stages in assembly.diagram.
+rather than on the order of the pipeline stages in assembly.diagram.job.
 """
 
 import json
@@ -12,7 +12,7 @@ import re
 from pydantic import BaseModel, Field, ValidationError
 
 from assembly.citations import resolve_citations
-from assembly.diagram_models import (
+from assembly.diagram.models import (
     EDGE_KINDS,
     NODE_KINDS,
     DiagramEdge,

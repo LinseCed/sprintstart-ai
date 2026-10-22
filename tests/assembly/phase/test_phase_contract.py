@@ -13,11 +13,11 @@ import pytest
 
 from assembly.fingerprint import corpus_fingerprint
 from assembly.models import CheckOption, CheckQuestion
-from assembly.phase import assemble_phase, stream_phase
-from assembly.phase_models import PhaseOutcome, PhaseResource, PhaseTask
+from assembly.phase.job import assemble_phase, stream_phase
+from assembly.phase.models import PhaseOutcome, PhaseResource, PhaseTask
 from assembly.progress import ProgressEvent
 from corpus.types import Chunk
-from tests.assembly.phase_fixtures import PROJECT, payload, question, step
+from tests.assembly.phase.phase_fixtures import PROJECT, payload, question, step
 from tests.assembly.pipeline_fixtures import (
     EMBED,
     collect,
@@ -426,7 +426,7 @@ def test_each_dropped_step_is_logged_with_its_reason(
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="assembly.phase_draft"):
+    with caplog.at_level(logging.INFO, logger="assembly.phase.draft"):
         _assemble(llm)
 
     assert [r.getMessage() for r in caplog.records] == [
@@ -436,7 +436,7 @@ def test_each_dropped_step_is_logged_with_its_reason(
 
 
 def test_each_failed_attempt_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.WARNING, logger="assembly.phase"):
+    with caplog.at_level(logging.WARNING, logger="assembly.phase.job"):
         _assemble(unreadable_llm())
 
     reason = "invalid phase output: no JSON object found in LLM output"

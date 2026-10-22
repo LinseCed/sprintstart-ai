@@ -9,18 +9,18 @@
       "count": 1
     }
   },
-  "src/assembly/diagram.py::assemble_diagram": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/assembly/diagram.py::stream_diagram": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/assembly/diagram_draft.py::resolve_nodes": {
+  "src/assembly/diagram/draft.py::resolve_nodes": {
     "PLR0915": {
+      "count": 1
+    }
+  },
+  "src/assembly/diagram/job.py::assemble_diagram": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/diagram/job.py::stream_diagram": {
+    "PLR0913": {
       "count": 1
     }
   },
@@ -29,47 +29,47 @@
       "count": 1
     }
   },
-  "src/assembly/orientation.py::assemble_orientation": {
+  "src/assembly/orientation/draft.py::build_prompt": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/orientation.py::stream_orientation": {
+  "src/assembly/orientation/job.py::assemble_orientation": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/orientation_draft.py::build_prompt": {
+  "src/assembly/orientation/job.py::stream_orientation": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/phase.py::assemble_phase": {
+  "src/assembly/phase/draft.py::build_prompt": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/phase.py::stream_phase": {
+  "src/assembly/phase/job.py::assemble_phase": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/phase_draft.py::build_prompt": {
+  "src/assembly/phase/job.py::stream_phase": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/starter_work.py::generate_starter_work_pool": {
+  "src/assembly/starter_work/draft.py::load_candidates": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/starter_work.py::stream_starter_work_pool": {
+  "src/assembly/starter_work/job.py::generate_starter_work_pool": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/starter_work_draft.py::load_candidates": {
+  "src/assembly/starter_work/job.py::stream_starter_work_pool": {
     "PLR0913": {
       "count": 1
     }

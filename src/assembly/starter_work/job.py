@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 from assembly.fingerprint import fingerprint_gate
 from assembly.models import CitationRef
 from assembly.progress import ProgressEvent, ProgressStream, drain
-from assembly.starter_work_draft import (
+from assembly.starter_work.draft import (
     MAX_CANDIDATES_PER_RUN,
     GenPayload,
     build_prompt,
@@ -47,7 +47,7 @@ from assembly.starter_work_draft import (
     mining_fingerprint_material,
     parse_payload,
 )
-from assembly.starter_work_models import (
+from assembly.starter_work.models import (
     GenerationError,
     ProposedStarterTask,
     StarterTaskCandidate,

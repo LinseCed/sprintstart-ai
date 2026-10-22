@@ -2,7 +2,7 @@
 
 The generation models, the prompt, the correction round, and the resolution of a
 draft against the retrieved evidence: everything that depends on the model's output
-rather than on the order of the pipeline stages in assembly.orientation.
+rather than on the order of the pipeline stages in assembly.orientation.job.
 """
 
 import json
@@ -11,7 +11,7 @@ import logging
 from pydantic import BaseModel, Field, ValidationError
 
 from assembly.citations import resolve_citations
-from assembly.orientation_models import (
+from assembly.orientation.models import (
     STEP_ORDER,
     OrientationSection,
     OrientationStep,

@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 
 from assembly.fingerprint import fingerprint_gate
 from assembly.models import CheckQuestion
-from assembly.phase_draft import (
+from assembly.phase.draft import (
     TOP_K,
     GenPayload,
     build_prompt,
@@ -39,7 +39,7 @@ from assembly.phase_draft import (
     resolve_questions,
     resolve_steps,
 )
-from assembly.phase_models import (
+from assembly.phase.models import (
     PhaseOutcome,
     PhaseProvenance,
     PhaseStep,

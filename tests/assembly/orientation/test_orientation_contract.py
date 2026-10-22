@@ -10,11 +10,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-from assembly.orientation import assemble_orientation, stream_orientation
-from assembly.orientation_draft import task_query
-from assembly.orientation_models import OrientationSource
+from assembly.orientation.draft import task_query
+from assembly.orientation.job import assemble_orientation, stream_orientation
+from assembly.orientation.models import OrientationSource
 from corpus.types import Chunk
-from tests.assembly.orientation_fixtures import PIDS, TITLE, payload, section
+from tests.assembly.orientation.orientation_fixtures import (
+    PIDS,
+    TITLE,
+    payload,
+    section,
+)
 from tests.assembly.pipeline_fixtures import (
     EMBED,
     collect,
@@ -289,7 +294,7 @@ def test_each_dropped_section_is_logged_with_its_reason(
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="assembly.orientation_draft"):
+    with caplog.at_level(logging.INFO, logger="assembly.orientation.draft"):
         assemble_orientation(llm, _two_doc_store(), task_title=TITLE, project_ids=PIDS)
 
     assert [r.getMessage() for r in caplog.records] == [
@@ -300,7 +305,7 @@ def test_each_dropped_section_is_logged_with_its_reason(
 
 
 def test_each_failed_attempt_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.WARNING, logger="assembly.orientation"):
+    with caplog.at_level(logging.WARNING, logger="assembly.orientation.job"):
         assemble_orientation(
             unreadable_llm(), _two_doc_store(), task_title=TITLE, project_ids=PIDS
         )

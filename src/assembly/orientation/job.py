@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from assembly.fingerprint import fingerprint_gate
-from assembly.orientation_draft import (
+from assembly.orientation.draft import (
     STEP_LABEL,
     STEP_QUERIES,
     TOP_K_PER_STEP,
@@ -33,7 +33,7 @@ from assembly.orientation_draft import (
     resolve_sections,
     task_query,
 )
-from assembly.orientation_models import (
+from assembly.orientation.models import (
     STEP_ORDER,
     OrientationOutcome,
     OrientationPacket,

@@ -1,9 +1,9 @@
 import json
 
-from assembly.phase import assemble_phase, stream_phase
+from assembly.phase.job import assemble_phase, stream_phase
 from corpus.types import RetrievalFilters
 from llm.base import Message
-from tests.assembly.phase_fixtures import PROJECT, payload, question, step
+from tests.assembly.phase.phase_fixtures import PROJECT, payload, question, step
 from tests.assembly.pipeline_fixtures import EMBED, collect, make_llm, make_store
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
@@ -361,7 +361,7 @@ def test_stream_emits_item_per_grounded_step_then_terminal_done() -> None:
 
 
 def test_phase_query_and_prompt_with_industry() -> None:
-    from assembly.phase_draft import build_prompt, phase_query
+    from assembly.phase.draft import build_prompt, phase_query
 
     query = phase_query(
         title="Architecture",
@@ -393,7 +393,7 @@ def test_phase_query_and_prompt_with_industry() -> None:
 
 
 def test_phase_query_and_prompt_backward_compat_when_industry_none() -> None:
-    from assembly.phase_draft import build_prompt, phase_query
+    from assembly.phase.draft import build_prompt, phase_query
 
     query = phase_query(
         title="Architecture",

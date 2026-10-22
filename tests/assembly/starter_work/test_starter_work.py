@@ -1,9 +1,9 @@
 import json
 from collections.abc import Generator
 
-from assembly import starter_work_draft
 from assembly.progress import ProgressEvent
-from assembly.starter_work import (
+from assembly.starter_work import draft as starter_work_draft
+from assembly.starter_work.job import (
     generate_starter_work_pool,
     stream_starter_work_pool,
 )
