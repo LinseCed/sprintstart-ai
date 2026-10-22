@@ -102,6 +102,47 @@ def test_suggest_skills_api_200(
     assert "Communication" in names
 
 
+def test_suggest_skills_api_maps_every_field_and_prefers_the_catalog_category(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, _, _ = client
+
+    payload = {
+        "projectId": _PROJECT,
+        "roleName": "Frontend Developer",
+        "availableSkills": [
+            {"id": "s1", "name": "React", "category": "Web UI", "universal": False},
+            {
+                "id": "s2",
+                "name": "Communication",
+                "category": "People",
+                "universal": True,
+            },
+        ],
+    }
+
+    response = http.post(f"{_BASE}/suggest", json=payload)
+
+    assert response.status_code == 200, response.text
+    by_name = {s["name"]: s for s in response.json()["suggestions"]}
+    assert by_name["React"] == {
+        "name": "React",
+        "category": "Web UI",
+        "reason": "Used across web components",
+        "confidence": "high",
+        "isNew": False,
+        "chunkIds": ["c-react"],
+    }
+    assert by_name["Communication"] == {
+        "name": "Communication",
+        "category": "People",
+        "reason": "Essential for teamwork",
+        "confidence": "high",
+        "isNew": False,
+        "chunkIds": [],
+    }
+
+
 def test_suggest_skills_api_503_on_llm_error(
     client: tuple[TestClient, StubLLMClient, StubVectorStore],
 ) -> None:

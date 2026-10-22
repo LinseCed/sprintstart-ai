@@ -1,7 +1,7 @@
 # The layers of the AI service. Higher layers may import lower ones, never the other
-# way round, and the features on one line are independent of each other. `ignore_imports` lists the
-# violations that existed when this was introduced; it may only shrink (an entry that no longer
-# matches fails the check). Run with `PYTHONPATH=src uv run lint-imports`.
+# way round, and the features on one line are independent of each other. There are no known
+# violations: a new one fails the check, and an `ignore_imports` entry needs a human decision.
+# Run with `PYTHONPATH=src uv run lint-imports`.
 
 [importlinter]
 root_packages =
@@ -28,6 +28,3 @@ layers =
     ingestion
     store
     llm | corpus
-ignore_imports =
-    projects.evaluation -> api.schemas
-    skills.suggestion -> api.schemas

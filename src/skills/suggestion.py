@@ -5,11 +5,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from api.schemas import (
-    SkillCatalogItem,
-    SkillSuggestionItem,
-    SkillSuggestionResponse,
-)
 from corpus.filters import RetrievalFilters
 from corpus.source_role import GROUNDING_EXCLUDED_ROLES
 from corpus.types import ScoredChunk
@@ -17,6 +12,7 @@ from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.retriever import get_bm25_cache
+from skills.models import SkillCatalogEntry, SkillSuggestion, SkillSuggestionResult
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -59,7 +55,7 @@ class _Payload(BaseModel):
     suggestions: list[_Suggestion] = Field(default_factory=list[_Suggestion])
 
 
-def _format_catalog(available_skills: list[SkillCatalogItem]) -> str:
+def _format_catalog(available_skills: list[SkillCatalogEntry]) -> str:
     if not available_skills:
         return "(empty catalog)"
     lines: list[str] = []
@@ -90,7 +86,7 @@ def _build_prompt(
     role_name: str,
     role_description: str,
     project_industry: str | None,
-    available_skills: list[SkillCatalogItem],
+    available_skills: list[SkillCatalogEntry],
     chunks: list[ScoredChunk],
 ) -> list[Message]:
     system = (
@@ -141,15 +137,15 @@ def suggest_skills(
     role_name: str,
     role_description: str = "",
     project_industry: str | None = None,
-    available_skills: list[SkillCatalogItem] | None = None,
+    available_skills: list[SkillCatalogEntry] | None = None,
     bm25_cache: BM25IndexCache | None = None,
-) -> SkillSuggestionResponse:
+) -> SkillSuggestionResult:
     """Suggest fitting skills for a project role, grounded in project artifacts."""
     if available_skills is None:
         available_skills = []
 
     # Map catalog by normalized name for lookup
-    catalog_by_norm_name: dict[str, SkillCatalogItem] = {
+    catalog_by_norm_name: dict[str, SkillCatalogEntry] = {
         s.name.strip().lower(): s for s in available_skills
     }
 
@@ -199,12 +195,12 @@ def suggest_skills(
             project_id,
             exc,
         )
-        return SkillSuggestionResponse(suggestions=[])
+        return SkillSuggestionResult(suggestions=[])
 
     # Grounding gate:
     # Universal skills pass without evidence citations.
     # Project-specific skills MUST have >=1 valid retrieved chunk_id.
-    validated_suggestions: list[SkillSuggestionItem] = []
+    validated_suggestions: list[SkillSuggestion] = []
     seen_names: set[str] = set()
 
     for item in payload.suggestions:
@@ -237,7 +233,7 @@ def suggest_skills(
             seen_names.add(norm_name)
             reason = item.reason or f"Recommended universal skill for {role_name}."
             validated_suggestions.append(
-                SkillSuggestionItem(
+                SkillSuggestion(
                     name=name,
                     category=category,
                     reason=reason,
@@ -262,7 +258,7 @@ def suggest_skills(
                 or f"Project-specific skill identified from artifacts for {role_name}."
             )
             validated_suggestions.append(
-                SkillSuggestionItem(
+                SkillSuggestion(
                     name=name,
                     category=category,
                     reason=reason,
@@ -272,4 +268,4 @@ def suggest_skills(
                 )
             )
 
-    return SkillSuggestionResponse(suggestions=validated_suggestions)
+    return SkillSuggestionResult(suggestions=validated_suggestions)
