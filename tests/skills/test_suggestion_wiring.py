@@ -3,6 +3,7 @@ import logging
 
 import pytest
 
+from corpus.source_role import SourceRole
 from corpus.types import Chunk
 from llm.base import Message
 from rag.hybrid import BM25Index, BM25IndexCache
@@ -45,7 +46,7 @@ class _CountingCache(BM25IndexCache):
         return super().get(store)
 
 
-def _chunk(chunk_id: str, filename: str, role: str = "primary") -> Chunk:
+def _chunk(chunk_id: str, filename: str, role: SourceRole = "primary") -> Chunk:
     return Chunk(
         id=chunk_id,
         artifact_id=f"art-{chunk_id}",
@@ -53,7 +54,7 @@ def _chunk(chunk_id: str, filename: str, role: str = "primary") -> Chunk:
         text=f"text of {filename}",
         embedding=_EMBED,
         project_ids=(_PROJECT,),
-        source_role=role,  # type: ignore[arg-type]
+        source_role=role,
     )
 
 
