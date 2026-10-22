@@ -7,7 +7,8 @@
 include_external_packages = True
 root_packages =
     api
-    onboarding
+    buddy
+    assembly
     insights
     projects
     skills
@@ -23,7 +24,7 @@ name = Layers: api > features > agents > rag > ingestion > store > llm | corpus
 type = layers
 layers =
     api
-    onboarding | insights | projects | skills
+    buddy | assembly | insights | projects | skills
     agents
     rag
     ingestion
@@ -53,7 +54,8 @@ name = Only api knows the web framework
 type = forbidden
 allow_indirect_imports = True
 source_modules =
-    onboarding
+    buddy
+    assembly
     insights
     projects
     skills

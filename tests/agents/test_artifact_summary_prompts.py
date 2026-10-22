@@ -11,8 +11,8 @@ from agents.artifact_summary import (
 )
 from corpus.types import Chunk
 from llm.base import Message
-from tests.onboarding.golden import assert_matches_golden
 from tests.stubs.llm import StubLLMClient
+from tests.support.golden import assert_matches_golden
 
 
 class _RecordingLLM(StubLLMClient):

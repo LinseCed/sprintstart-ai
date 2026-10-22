@@ -58,7 +58,7 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 - **`agents/`** — the buddy's tool-loop building blocks: tools live in
   `agents/tools/` (retrieval, grep, evidence helpers), registered via
   `ToolRegistry`, and `artifact_summary.py` backs the summaries endpoint. The
-  conversation engine itself is `onboarding/buddy_agent.py`
+  conversation engine itself is `buddy/agent.py`
   (`run_agent_turn`): one flat tool loop over a single message list — it
   searches while the model asks, then answers from that same conversation.
   Tool results carry the retrieved text, so the loop that searched is the
@@ -81,12 +81,18 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 - **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`, and the
   SQLite stores for ingestion metadata (`metadata_store.py`) and source state
   (`source_state_store.py`).
-- **`onboarding/`** — Deterministic staged assembly jobs (not agentic): phase
-  content (`phase.py`), task orientation (`orientation.py`), diagrams
-  (`diagram.py`) and starter work (`starter_work.py`). Each gates on the corpus
-  fingerprint, retrieves, generates with one correction round and keeps only
-  what the evidence grounds, emitting progress events (`progress.py`) the API
-  relays as SSE. The service is stateless; the backend persists the results.
+- **`buddy/`** — The Buddy: `agent.py` (`run_agent_turn` and the `_Turn` that drives it),
+  `events.py` (the stream events), `evidence.py` (the local search tools and how their
+  results are shown), `opening.py`, `compact.py`, `persona.py`, `query_fence.py`,
+  `vocabulary.py`.
+- **`assembly/`** — Deterministic staged assembly jobs (not agentic): phase content
+  (`phase.py`), task orientation (`orientation.py`), diagrams (`diagram.py`) and starter
+  work (`starter_work.py`), plus answer grading and titles. Each job is its stages in
+  `<job>.py` and what the model drafts in `<job>_draft.py`. Each gates on the corpus
+  fingerprint (`fingerprint.py`), retrieves, generates with one correction round and keeps
+  only what the evidence grounds, emitting progress events (`progress.py`) the API relays
+  as SSE. The shared stages are `stages.py`. The service is stateless; the backend persists
+  the results.
 
 ## Project separation
 
@@ -131,7 +137,7 @@ ingest, or an endpoint, keep that property:
   behind a lock, as `rag.hybrid.BM25IndexCache` does.
 - `AGENT_DEBUG=1` logs each agent's reasoning (LLM text + tool calls) to
   stderr — useful when debugging agent behavior.
-- The onboarding pipeline is intentionally deterministic/staged rather than
+- The assembly pipeline is intentionally deterministic/staged rather than
   agentic: a bad LLM output degrades to a blueprint-only path instead of
   breaking. Keep that property when modifying it.
 - `data/` is gitignored — don't commit local ChromaDB state or test fixtures

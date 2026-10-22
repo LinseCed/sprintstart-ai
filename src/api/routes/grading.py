@@ -7,9 +7,9 @@ from api.schemas import (
     GradeAnswersResponse,
     ValidationErrorResponse,
 )
+from assembly import grading
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from onboarding import grading
 
 router = APIRouter()
 

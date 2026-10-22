@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_llm
 from api.schemas import TitleRequest, TitleResponse, ValidationErrorResponse
+from assembly.titles import generate_title as generate
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from onboarding.titles import generate_title as generate
 
 router = APIRouter()
 

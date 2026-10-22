@@ -1,6 +1,6 @@
 from corpus.types import ScoredChunk
 from projects.evaluation import _build_prompt, _coerce_evidence
-from tests.onboarding.golden import assert_matches_golden
+from tests.support.golden import assert_matches_golden
 
 
 def _chunk(chunk_id: str, filename: str, text: str) -> ScoredChunk:
