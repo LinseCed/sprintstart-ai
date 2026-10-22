@@ -26,8 +26,8 @@ from api.schemas import (
     ProjectId,
     ProjectMembershipsDeletedResponse,
 )
-from ingestion.metadata_store import IngestionMetadataStore
 from store.base import VectorStore
+from store.metadata_store import IngestionMetadataStore
 
 logger = logging.getLogger(__name__)
 

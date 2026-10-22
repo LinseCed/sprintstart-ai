@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from ingestion import metadata_store
-from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
+from store import metadata_store
+from store.metadata_store import ArtifactRecord, IngestionMetadataStore
 
 _NOW = "2026-01-01T00:00:00+00:00"
 

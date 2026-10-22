@@ -21,12 +21,12 @@ from corpus.source_role import classify_source_role
 from corpus.types import Chunk
 from ingestion.mapper import to_chunk
 from ingestion.membership import revoke_removed_memberships
-from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from ingestion.models import ParsedChunk
 from ingestion.parser import parse
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from store.base import VectorStore
+from store.metadata_store import ArtifactRecord, IngestionMetadataStore
 
 logger = logging.getLogger(__name__)
 

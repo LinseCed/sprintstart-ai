@@ -2,13 +2,13 @@ import json
 from collections.abc import Generator
 
 from corpus.types import Chunk
-from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from onboarding import starter_work
 from onboarding.progress import ProgressEvent
 from onboarding.starter_work import (
     generate_starter_work_pool,
     stream_starter_work_pool,
 )
+from store.metadata_store import ArtifactRecord, IngestionMetadataStore
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

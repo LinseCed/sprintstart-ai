@@ -64,8 +64,7 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
   Tool results carry the retrieved text, so the loop that searched is the
   loop that answers. `api/routes/buddy.py` serves it.
 - **`ingestion/`** — Per-filetype parsers (`text_parser`, `pdf_parser`,
-  `code_parser`, `image_parser`) behind `parser.py`, then `chunker.py` and
-  `metadata_store.py`.
+  `code_parser`, `image_parser`) behind `parser.py`, then `chunker.py`.
 - **`corpus/`** — the vocabulary of the indexed material, with no I/O and no
   dependency on our other packages: `types.py` (`Chunk`, `ScoredChunk`,
   `RetrievalFilters`), `source_role.py`, `source_filter.py`, and the pure
@@ -79,7 +78,9 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
   (`LLM_TIMEOUT_SECONDS`, default 600). The Anthropic client sets
   prompt-cache breakpoints; caching matches on exact bytes, so read
   `anthropic_client._user_message` before changing message serialisation.
-- **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`.
+- **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`, and the
+  SQLite stores for ingestion metadata (`metadata_store.py`) and source state
+  (`source_state_store.py`).
 - **`onboarding/`** — Deterministic staged assembly jobs (not agentic): phase
   content (`phase.py`), task orientation (`orientation.py`), diagrams
   (`diagram.py`) and starter work (`starter_work.py`). Each gates on the corpus

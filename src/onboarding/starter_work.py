@@ -40,13 +40,13 @@ from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from corpus.types import Chunk
-from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.corpus import fingerprint_gate
 from onboarding.models import CitationRef
 from onboarding.progress import ProgressEvent, ProgressStream, drain
 from store.base import VectorStore
+from store.metadata_store import ArtifactRecord, IngestionMetadataStore
 
 ProposalStatus = Literal["proposed", "unchanged", "skipped"]
 
