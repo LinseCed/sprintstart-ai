@@ -66,6 +66,10 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 - **`ingestion/`** — Per-filetype parsers (`text_parser`, `pdf_parser`,
   `code_parser`, `image_parser`) behind `parser.py`, then `chunker.py` and
   `metadata_store.py`.
+- **`corpus/`** — the vocabulary of the indexed material, with no I/O and no
+  dependency on our other packages: `types.py` (`Chunk`, `ScoredChunk`,
+  `RetrievalFilters`), `source_role.py`, `source_filter.py`, and the pure
+  filter predicates and project-id encoding in `filters.py`.
 - **`rag/`** — `retriever.py`, `hybrid.py` (BM25 + vector hybrid retrieval
   with RRF fusion), `citation.py`, `prompt.py`.
 - **`llm/`** — `LLMClient` protocol (`base.py`) with implementations:
@@ -98,7 +102,7 @@ ingest, or an endpoint, keep that property:
   same way (empty admits nothing).
 - `RetrievalFilters.project_id` / `project_ids` is enforced in **both** halves of hybrid
   retrieval — `where_filter_for_chroma()` for the vector side and
-  `matches_retrieval_filters()` for the BM25/in-memory side (`rag/filters.py`).
+  `matches_retrieval_filters()` for the BM25/in-memory side (`corpus/filters.py`).
   Anything that scans `all_chunks_without_embeddings()` directly (the `grep`
   and `fetch_file` tools) must apply the filter itself.
 - Chroma metadata cannot hold lists, so membership is stored twice: a

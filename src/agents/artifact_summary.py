@@ -1,8 +1,8 @@
 from collections.abc import Generator
 from dataclasses import dataclass
 
+from corpus.types import Chunk
 from llm.base import LLMClient, Message, TextDelta
-from rag.types import Chunk
 
 _MAX_BATCH_CHARS = 10_000
 _MAX_SUMMARY_BATCHES = 8

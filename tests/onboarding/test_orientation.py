@@ -1,6 +1,6 @@
+from corpus.types import Chunk
 from onboarding.orientation import assemble_orientation, stream_orientation
 from onboarding.orientation_models import OrientationOutcome
-from rag.types import Chunk
 from tests.onboarding.orientation_fixtures import PIDS, TITLE, payload, section
 from tests.onboarding.pipeline_fixtures import EMBED, collect, make_llm, make_store
 from tests.stubs.llm import StubLLMClient

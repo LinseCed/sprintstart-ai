@@ -10,13 +10,13 @@ from datetime import UTC, datetime
 
 import pytest
 
+from corpus.types import Chunk
 from onboarding.orientation import (
     _task_query,
     assemble_orientation,
     stream_orientation,
 )
 from onboarding.orientation_models import OrientationSource
-from rag.types import Chunk
 from tests.onboarding.golden import assert_matches_golden
 from tests.onboarding.orientation_fixtures import PIDS, TITLE, payload, section
 from tests.onboarding.pipeline_fixtures import (

@@ -18,6 +18,7 @@ from api.schemas import (
     ValidationErrorResponse,
 )
 from api.sse import sse_event
+from corpus.types import RetrievalFilters
 from ingestion.source_state_store import SourceStateStore
 from llm.base import LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
@@ -32,7 +33,6 @@ from onboarding.buddy_agent import (
 from onboarding.buddy_compact import compact_memory
 from onboarding.buddy_open import stream_session
 from onboarding.vocabulary import Vocabulary
-from rag.types import RetrievalFilters
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)

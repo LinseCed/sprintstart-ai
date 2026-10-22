@@ -4,6 +4,8 @@ from collections.abc import Iterator, Sequence
 
 import pytest
 
+from corpus.filters import NO_FILTERED_RESULTS_MESSAGE
+from corpus.types import Chunk, RetrievalFilters
 from llm.base import (
     ChatResult,
     LLMChatStreamEvent,
@@ -25,8 +27,6 @@ from onboarding.buddy_agent import (
     run_agent_turn,
     stream_agent_turn,
 )
-from rag.filters import NO_FILTERED_RESULTS_MESSAGE
-from rag.types import Chunk, RetrievalFilters
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 

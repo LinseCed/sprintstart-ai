@@ -9,8 +9,8 @@ because it formats a ``ToolResult``, and ``rag`` must not import ``agents``.
 from collections.abc import Callable
 
 from agents.tools.base import ToolResult
+from corpus.types import ScoredChunk
 from rag.prompt import chunk_header
-from rag.types import ScoredChunk
 
 # Per-chunk cap on what goes back to the model, so a handful of large chunks
 # can't crowd out the conversation.

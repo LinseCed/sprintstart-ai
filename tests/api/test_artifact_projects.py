@@ -5,8 +5,8 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api.dependencies import get_ingestion_metadata_store, get_store
+from corpus.types import Chunk
 from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
-from rag.types import Chunk
 from tests.stubs.store import StubVectorStore
 
 

@@ -9,9 +9,9 @@ through the job that happened to define it.
 
 from pydantic import BaseModel
 
+from corpus.types import Chunk
 from onboarding.corpus import corpus_fingerprint, fingerprint_gate
 from onboarding.progress import ProgressStream
-from rag.types import Chunk
 from tests.stubs.store import StubVectorStore
 
 

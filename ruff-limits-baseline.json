@@ -42,6 +42,14 @@
       "count": 1
     }
   },
+  "src/corpus/filters.py::matches_retrieval_filters": {
+    "C901": {
+      "count": 1
+    },
+    "PLR0912": {
+      "count": 1
+    }
+  },
   "src/ingestion/chunker.py::_group_paragraphs_into_chunks_with_lines": {
     "PLR0915": {
       "count": 1
@@ -308,14 +316,6 @@
       "count": 1
     },
     "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/rag/filters.py::matches_retrieval_filters": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
       "count": 1
     }
   },

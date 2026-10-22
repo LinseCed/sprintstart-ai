@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from corpus.source_filter import SourceExclusions
 from ingestion.source_state_store import SourceStateStore
-from rag.source_filter import SourceExclusions
 
 
 @pytest.fixture

@@ -1,8 +1,8 @@
 import json
 
+from corpus.types import RetrievalFilters
 from llm.base import Message
 from onboarding.phase import assemble_phase, stream_phase
-from rag.types import RetrievalFilters
 from tests.onboarding.phase_fixtures import PROJECT, payload, question, step
 from tests.onboarding.pipeline_fixtures import EMBED, collect, make_llm, make_store
 from tests.stubs.llm import StubLLMClient

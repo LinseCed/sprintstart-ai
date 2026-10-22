@@ -7,9 +7,9 @@ from pydantic import BaseModel
 from agents.tools.base import Tool, ToolRegistry, ToolResult, run_tool_calls
 from agents.tools.grep import GrepTool
 from agents.tools.retrieve import RetrieveTool
+from corpus.source_filter import SourceExclusions
+from corpus.types import Chunk, RetrievalFilters
 from llm.base import ToolCall
-from rag.source_filter import SourceExclusions
-from rag.types import Chunk, RetrievalFilters
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

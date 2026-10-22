@@ -15,9 +15,10 @@ root_packages =
     ingestion
     store
     llm
+    corpus
 
 [importlinter:contract:layers]
-name = Layers: api > features > agents > rag > ingestion > store > llm
+name = Layers: api > features > agents > rag > ingestion > store > llm | corpus
 type = layers
 layers =
     api
@@ -26,19 +27,9 @@ layers =
     rag
     ingestion
     store
-    llm
+    llm | corpus
 ignore_imports =
-    ingestion.mapper -> rag.filters
-    ingestion.mapper -> rag.types
-    ingestion.metadata_store -> rag.filters
-    ingestion.source_state_store -> rag.source_filter
+    store.chroma_store -> rag.filters
     projects.evaluation -> api.schemas
     skills.suggestion -> api.schemas
-    store.base -> ingestion.source_role
-    store.base -> rag.source_filter
-    store.base -> rag.types
     store.chroma_store -> ingestion.metadata_store
-    store.chroma_store -> ingestion.source_role
-    store.chroma_store -> rag.filters
-    store.chroma_store -> rag.source_filter
-    store.chroma_store -> rag.types

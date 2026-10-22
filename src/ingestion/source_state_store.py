@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from threading import RLock
 
-from rag.source_filter import SourceExclusions
+from corpus.source_filter import SourceExclusions
 
 
 class SourceStateStore:

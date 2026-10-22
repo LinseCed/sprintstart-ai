@@ -4,8 +4,8 @@ The pipelines' contract suites drive these through each pipeline; this module
 pins the pieces whose behaviour no single pipeline shows on its own.
 """
 
+from corpus.types import ScoredChunk
 from onboarding.assembly import collapse_duplicates, evidence_line
-from rag.types import ScoredChunk
 
 
 def _scored(

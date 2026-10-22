@@ -2,8 +2,8 @@
 
 from collections.abc import Mapping
 
+from corpus.types import ScoredChunk
 from onboarding.models import CitationRef
-from rag.types import ScoredChunk
 
 
 def resolve_citations(

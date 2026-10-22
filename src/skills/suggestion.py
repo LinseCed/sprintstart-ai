@@ -10,13 +10,13 @@ from api.schemas import (
     SkillSuggestionItem,
     SkillSuggestionResponse,
 )
-from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
+from corpus.filters import RetrievalFilters
+from corpus.source_role import GROUNDING_EXCLUDED_ROLES
+from corpus.types import ScoredChunk
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
-from rag.filters import RetrievalFilters
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.retriever import get_bm25_cache
-from rag.types import ScoredChunk
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)

@@ -3,9 +3,9 @@ import json
 import pytest
 
 from api.schemas import SkillCatalogItem
+from corpus.types import Chunk, ScoredChunk
 from llm.base import Message
 from llm.errors import LLMUnavailableError
-from rag.types import Chunk, ScoredChunk
 from skills.suggestion import _build_prompt, suggest_skills
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from rag.types import Chunk, ScoredChunk
+from corpus.types import Chunk, ScoredChunk
 
 
 @dataclass(frozen=True)

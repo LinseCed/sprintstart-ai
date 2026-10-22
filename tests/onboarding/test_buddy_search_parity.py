@@ -9,6 +9,8 @@ from collections.abc import Iterator, Sequence
 
 import pytest
 
+from corpus.filters import NO_FILTERED_RESULTS_MESSAGE
+from corpus.types import Chunk, RetrievalFilters, ScoredChunk, SourceSystem
 from llm.base import ChatResult, LLMChatStreamEvent, Message, ToolSpec
 from onboarding.buddy_agent import (
     GREP,
@@ -16,8 +18,6 @@ from onboarding.buddy_agent import (
     run_agent_turn,
 )
 from onboarding.query_fence import QUERY_FENCE_NOTE, fence, is_fenced
-from rag.filters import NO_FILTERED_RESULTS_MESSAGE
-from rag.types import Chunk, RetrievalFilters, ScoredChunk, SourceSystem
 from tests.stubs.llm import ScriptedLLMClient, Turn
 from tests.stubs.store import StubVectorStore
 

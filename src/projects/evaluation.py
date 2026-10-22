@@ -16,12 +16,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from api.schemas import IndustryEvaluationResponse
-from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
+from corpus.source_role import GROUNDING_EXCLUDED_ROLES
+from corpus.types import RetrievalFilters, ScoredChunk
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
 from rag.retriever import get_bm25_cache
-from rag.types import RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)

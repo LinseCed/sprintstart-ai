@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Literal, cast
 
-from rag.filters import (
+from corpus.filters import (
     decode_project_ids,
     encode_project_ids,
     encoded_project_marker,
