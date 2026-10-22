@@ -4,8 +4,8 @@ Moved here from the chat agent so the buddy runs the same budget; the chat
 agent's own tests still pin it end to end through a turn.
 """
 
-from agents.tools.base import ToolResult
-from agents.tools.evidence import (
+from buddy.tools.base import ToolResult
+from buddy.tools.evidence import (
     MAX_EVIDENCE_CHARS,
     MAX_EVIDENCE_CHUNKS,
     SOURCE_CHARS,

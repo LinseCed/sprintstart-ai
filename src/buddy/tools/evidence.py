@@ -3,12 +3,12 @@
 Shared by every agent loop that runs ``retrieve``/``grep`` (the onboarding
 buddy's turn), pinning how much evidence one call may return and how it
 reads. It lives beside the tools rather than in ``rag``
-because it formats a ``ToolResult``, and ``rag`` must not import ``agents``.
+because it formats a ``ToolResult``, and ``rag`` must not import ``buddy``.
 """
 
 from collections.abc import Callable
 
-from agents.tools.base import ToolResult
+from buddy.tools.base import ToolResult
 from corpus.types import ScoredChunk
 from rag.prompt import chunk_header
 

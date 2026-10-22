@@ -1,9 +1,4 @@
 {
-  "src/agents/tools/retrieve.py::__init__": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
   "src/api/app.py::lifespan": {
     "BLE001": {
       "count": 1
@@ -115,6 +110,11 @@
       "count": 1
     },
     "PLR0915": {
+      "count": 1
+    }
+  },
+  "src/buddy/tools/retrieve.py::__init__": {
+    "PLR0913": {
       "count": 1
     }
   },

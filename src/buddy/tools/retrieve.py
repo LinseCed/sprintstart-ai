@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from agents.tools.base import Tool, ToolResult
+from buddy.tools.base import Tool, ToolResult
 from corpus.source_filter import SourceExclusions
 from corpus.types import RetrievalFilters
 from llm.base import LLMClient

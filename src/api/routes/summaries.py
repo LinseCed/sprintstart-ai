@@ -3,12 +3,6 @@ from collections.abc import Iterator
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from agents.artifact_summary import (
-    ArtifactSummaryAgent,
-    SummaryEvent,
-    SummaryStage,
-    SummaryToken,
-)
 from api.dependencies import get_llm, get_store
 from api.schemas import ArtifactSummaryRequest
 from api.sse import stream_events
@@ -16,6 +10,12 @@ from corpus.ids import ArtifactId
 from corpus.types import Chunk
 from llm.base import LLMClient
 from store.base import VectorStore
+from summaries.artifact_summary import (
+    ArtifactSummaryAgent,
+    SummaryEvent,
+    SummaryStage,
+    SummaryToken,
+)
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 

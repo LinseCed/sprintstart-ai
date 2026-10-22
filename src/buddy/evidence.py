@@ -3,10 +3,10 @@
 Test and fixture material never reaches the model, and each search result is
 formatted under the shared evidence budget."""
 
-from agents.tools.base import ToolRegistry, ToolResult
-from agents.tools.evidence import format_evidence
-from agents.tools.grep import GrepTool
-from agents.tools.retrieve import RetrieveTool
+from buddy.tools.base import ToolRegistry, ToolResult
+from buddy.tools.evidence import format_evidence
+from buddy.tools.grep import GrepTool
+from buddy.tools.retrieve import RetrieveTool
 from corpus.source_filter import SourceExclusions
 from corpus.types import RetrievalFilters, ScoredChunk
 from llm.base import (

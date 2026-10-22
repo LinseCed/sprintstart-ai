@@ -1,6 +1,8 @@
 import pytest
 
-from agents.artifact_summary import (
+from corpus.types import Chunk
+from llm.base import Message
+from summaries.artifact_summary import (
     _MAX_BATCH_CHARS,
     _MAX_SUMMARY_BATCHES,
     ArtifactSummaryAgent,
@@ -9,8 +11,6 @@ from agents.artifact_summary import (
     _citations_for_chunks,
     _format_chunk,
 )
-from corpus.types import Chunk
-from llm.base import Message
 from tests.stubs.llm import StubLLMClient
 from tests.support.golden import assert_matches_golden
 

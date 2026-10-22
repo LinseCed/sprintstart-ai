@@ -12,7 +12,7 @@ root_packages =
     insights
     projects
     skills
-    agents
+    summaries
     rag
     ingestion
     store
@@ -20,12 +20,11 @@ root_packages =
     corpus
 
 [importlinter:contract:layers]
-name = Layers: api > features > agents > rag > ingestion > store > llm | corpus
+name = Layers: api > features > rag > ingestion > store > llm | corpus
 type = layers
 layers =
     api
-    buddy | assembly | insights | projects | skills
-    agents
+    buddy | assembly | insights | projects | skills | summaries
     rag
     ingestion
     store
@@ -53,7 +52,7 @@ source_modules =
     insights
     projects
     skills
-    agents
+    summaries
     rag
     ingestion
     store

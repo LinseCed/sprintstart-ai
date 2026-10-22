@@ -1,11 +1,11 @@
-from agents.artifact_summary import (
+from corpus.ids import ArtifactId
+from corpus.types import Chunk
+from summaries.artifact_summary import (
     ArtifactSummaryAgent,
     SummaryCitation,
     SummaryStage,
     SummaryToken,
 )
-from corpus.ids import ArtifactId
-from corpus.types import Chunk
 from tests.stubs.llm import StubLLMClient
 
 

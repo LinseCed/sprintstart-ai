@@ -274,7 +274,7 @@ def test_search_docs_shows_neighbours_but_cites_only_the_hit(
         score=0.9,
         position=1,
     )
-    monkeypatch.setattr("agents.tools.retrieve.retrieve", lambda *a, **k: [hit])
+    monkeypatch.setattr("buddy.tools.retrieve.retrieve", lambda *a, **k: [hit])
     llm = ScriptedLLMClient(turns=[[(SEARCH_DOCS, {"query": "part"})]])
 
     result = run_agent_turn([_user("part?")], [], llm, _store(*doc))

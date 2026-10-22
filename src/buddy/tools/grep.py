@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 
-from agents.tools.base import Tool, ToolResult
+from buddy.tools.base import Tool, ToolResult
 from corpus.filters import matches_retrieval_filters
 from corpus.source_filter import SourceExclusions, is_excluded
 from corpus.types import RetrievalFilters
