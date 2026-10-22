@@ -9,14 +9,6 @@
       "count": 1
     }
   },
-  "src/api/routes/summaries.py::summarize_artifact": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0915": {
-      "count": 1
-    }
-  },
   "src/corpus/filters.py::matches_retrieval_filters": {
     "C901": {
       "count": 1

@@ -1,6 +1,7 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 
+from corpus.ids import ArtifactId
 from corpus.types import Chunk
 from llm.base import LLMClient, Message, TextDelta
 
@@ -31,6 +32,16 @@ class SummaryStage:
 
     name: str
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class SummaryToken:
+    """A fragment of the final summary text."""
+
+    text: str
+
+
+type SummaryEvent = SummaryStage | SummaryToken | SummaryCitation
 
 
 class ArtifactSummaryAgent:
@@ -88,6 +99,22 @@ class ArtifactSummaryAgent:
             summary="".join(summary_parts).strip(),
             citations=citations,
         )
+
+    def events(
+        self,
+        artifact_id: ArtifactId,
+        chunks: list[Chunk],
+        previous_chunks: list[Chunk] | None = None,
+    ) -> Iterator[SummaryEvent]:
+        """The summary as one flat stream: stages, then tokens, then each citation."""
+        stream = self.summarize_stream(artifact_id, chunks, previous_chunks)
+        try:
+            while True:
+                item = next(stream)
+                yield item if isinstance(item, SummaryStage) else SummaryToken(item)
+        except StopIteration as stop:
+            summary: ArtifactSummary = stop.value
+        yield from summary.citations
 
     def _notes_for_chunks(self, label: str, chunks: list[Chunk]) -> str:
         all_batches = _chunk_batches(chunks, _MAX_BATCH_CHARS)
