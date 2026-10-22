@@ -18,8 +18,8 @@ from fastapi.responses import StreamingResponse
 from api.dependencies import get_llm, get_store
 from api.schemas import AssembleDiagramRequest, ValidationErrorResponse
 from api.sse import stream_progress
-from assembly.diagram import assemble_diagram, clamp_subject, stream_diagram
-from assembly.diagram_models import DiagramOutcome
+from assembly.diagram.job import assemble_diagram, clamp_subject, stream_diagram
+from assembly.diagram.models import DiagramOutcome
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from store.base import VectorStore

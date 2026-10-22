@@ -55,22 +55,37 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 
 - **`api/`** — FastAPI app (`app.py`), DI (`dependencies.py`), `schemas.py`,
   SSE helpers (`sse.py`), and route modules under `routes/`.
-- **`agents/`** — the buddy's tool-loop building blocks: tools live in
-  `agents/tools/` (retrieval, grep, evidence helpers), registered via
-  `ToolRegistry`, and `artifact_summary.py` backs the summaries endpoint. The
-  conversation engine itself is `buddy/agent.py`
-  (`run_agent_turn`): one flat tool loop over a single message list — it
-  searches while the model asks, then answers from that same conversation.
-  Tool results carry the retrieved text, so the loop that searched is the
-  loop that answers. `api/routes/buddy.py` serves it.
-- **`ingestion/`** — Per-filetype parsers (`text_parser`, `pdf_parser`,
-  `code_parser`, `image_parser`) behind `parser.py`, then `chunker.py`.
+- **`buddy/`** — The Buddy. `agent.py` is the conversation engine (`run_agent_turn`
+  and the `_Turn` that drives it): one flat tool loop over a single message list — it
+  searches while the model asks, then answers from that same conversation. Tool results
+  carry the retrieved text, so the loop that searched is the loop that answers.
+  `tools/` holds the tool kit (`ToolRegistry`, retrieval, grep, evidence budget),
+  `events.py` the stream events, `evidence.py` the local search tools and how their results
+  are shown, plus `opening.py`, `compact.py`, `persona.py`, `query_fence.py` and
+  `vocabulary.py`. `api/routes/buddy.py` serves it.
+- **`assembly/`** — Deterministic staged assembly jobs (not agentic). One package per job:
+  `phase/`, `orientation/`, `diagram/` and `starter_work/`, each with `job.py` (the
+  stages), `draft.py` (what the model drafts and how it is read) and `models.py`. Each
+  gates on the corpus fingerprint (`fingerprint.py`), retrieves, generates with one
+  correction round and keeps only what the evidence grounds, emitting progress events
+  (`progress.py`) the API relays as SSE. The shared stages are `stages.py`; answer grading
+  and titles sit beside them. The service is stateless; the backend persists the results.
+- **`summaries/`** — `artifact_summary.py`: the streamed artifact summary behind the
+  summaries endpoint.
+- **`insights/`**, **`projects/`**, **`skills/`** — FAQ grouping and knowledge gaps,
+  project industry evaluation, and skill suggestion. Each is independent of the others.
+- **`rag/`** — `retriever.py`, `hybrid.py` (BM25 + vector hybrid retrieval
+  with RRF fusion), `citation.py`, `prompt.py`.
+- **`ingestion/`** — `parsing/` (per-filetype parsers behind `parser.py`), `chunking/`
+  (`chunker.py`, `context_aware_chunker.py`) and `pipeline/` (the shared steps and the
+  upload and synced-artifact flows), plus `mapper.py` and `membership.py`.
+- **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`, and the
+  SQLite stores for ingestion metadata (`metadata_store.py`) and source state
+  (`source_state_store.py`).
 - **`corpus/`** — the vocabulary of the indexed material, with no I/O and no
   dependency on our other packages: `types.py` (`Chunk`, `ScoredChunk`,
   `RetrievalFilters`), `source_role.py`, `source_filter.py`, and the pure
   filter predicates and project-id encoding in `filters.py`.
-- **`rag/`** — `retriever.py`, `hybrid.py` (BM25 + vector hybrid retrieval
-  with RRF fusion), `citation.py`, `prompt.py`.
 - **`llm/`** — `LLMClient` protocol (`base.py`) with implementations:
   `ollama_client.py`, `openai_client.py`, `anthropic_client.py`.
   `SplitLLMClient` lets generation and embeddings use different backends
@@ -78,21 +93,6 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
   (`LLM_TIMEOUT_SECONDS`, default 600). The Anthropic client sets
   prompt-cache breakpoints; caching matches on exact bytes, so read
   `anthropic_client._user_message` before changing message serialisation.
-- **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`, and the
-  SQLite stores for ingestion metadata (`metadata_store.py`) and source state
-  (`source_state_store.py`).
-- **`buddy/`** — The Buddy: `agent.py` (`run_agent_turn` and the `_Turn` that drives it),
-  `events.py` (the stream events), `evidence.py` (the local search tools and how their
-  results are shown), `opening.py`, `compact.py`, `persona.py`, `query_fence.py`,
-  `vocabulary.py`.
-- **`assembly/`** — Deterministic staged assembly jobs (not agentic): phase content
-  (`phase.py`), task orientation (`orientation.py`), diagrams (`diagram.py`) and starter
-  work (`starter_work.py`), plus answer grading and titles. Each job is its stages in
-  `<job>.py` and what the model drafts in `<job>_draft.py`. Each gates on the corpus
-  fingerprint (`fingerprint.py`), retrieves, generates with one correction round and keeps
-  only what the evidence grounds, emitting progress events (`progress.py`) the API relays
-  as SSE. The shared stages are `stages.py`. The service is stateless; the backend persists
-  the results.
 
 ## Project separation
 
@@ -123,17 +123,17 @@ ingest, or an endpoint, keep that property:
 
 ## Conventions
 
-- `src` is on `pythonpath` for tests — import as `from agents.base import
-  Agent`, **not** `from src.agents...`.
+- `src` is on `pythonpath` for tests — import as `from buddy.agent import
+  run_agent_turn`, **not** `from src.buddy...`.
 - Don't assume Ollama-only: check `llm/base.py`'s `LLMClient` protocol when
   touching LLM calls. Backend is configurable per deployment via
   `LLM_BACKEND` / `EMBED_BACKEND`.
-- The buddy is one agent, one loop. Give it a new `Tool` in `agents/tools/`
+- The buddy is one agent, one loop. Give it a new `Tool` in `buddy/tools/`
   rather than a sub-agent to delegate to: every tier costs a serialized
   round-trip ahead of the user's first token. Tool results must carry their
   chunk text — a count-only summary forces a second pass to write the answer.
 - Tools must be read-only and thread-safe: a turn's tool calls run
-  concurrently (`agents.tools.base.run_tool_calls`). Cache across calls only
+  concurrently (`buddy.tools.base.run_tool_calls`). Cache across calls only
   behind a lock, as `rag.hybrid.BM25IndexCache` does.
 - `AGENT_DEBUG=1` logs each agent's reasoning (LLM text + tool calls) to
   stderr — useful when debugging agent behavior.

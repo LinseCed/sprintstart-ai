@@ -21,8 +21,11 @@ from api.schemas import (
     ValidationErrorResponse,
 )
 from api.sse import stream_progress
-from assembly.starter_work import generate_starter_work_pool, stream_starter_work_pool
-from assembly.starter_work_models import StarterWorkOutcome
+from assembly.starter_work.job import (
+    generate_starter_work_pool,
+    stream_starter_work_pool,
+)
+from assembly.starter_work.models import StarterWorkOutcome
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from store.base import VectorStore

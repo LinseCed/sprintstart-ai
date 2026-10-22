@@ -1,12 +1,12 @@
 import pytest
 
-from agents.tools.base import ToolResult
 from buddy.agent import run_agent_turn
 from buddy.evidence import (
     SEARCH_DOCS,
     drop_test_material,
     format_result,
 )
+from buddy.tools.base import ToolResult
 from corpus.types import ScoredChunk
 from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
@@ -168,7 +168,7 @@ def test_runs_search_docs_locally_and_collects_citations(
     def _fake_retrieve(*args: object, **kwargs: object) -> list[ScoredChunk]:
         return [chunk]
 
-    monkeypatch.setattr("agents.tools.retrieve.retrieve", _fake_retrieve)
+    monkeypatch.setattr("buddy.tools.retrieve.retrieve", _fake_retrieve)
     llm = ScriptedLLMClient(
         turns=[[(SEARCH_DOCS, {"query": "how to build"})], []],
         answer="Run ./gradlew build.",
@@ -198,7 +198,7 @@ def test_search_is_scoped_to_the_project_the_hire_is_on(
         seen.append(args[6])  # RetrieveTool passes filters positionally
         return []
 
-    monkeypatch.setattr("agents.tools.retrieve.retrieve", _fake_retrieve)
+    monkeypatch.setattr("buddy.tools.retrieve.retrieve", _fake_retrieve)
     llm = ScriptedLLMClient(turns=[[(SEARCH_DOCS, {"query": "how do we deploy"})], []])
 
     run_agent_turn(
@@ -221,7 +221,7 @@ def test_a_deployment_serving_one_project_scopes_to_nothing(
         seen.append(args[6])  # RetrieveTool passes filters positionally
         return []
 
-    monkeypatch.setattr("agents.tools.retrieve.retrieve", _fake_retrieve)
+    monkeypatch.setattr("buddy.tools.retrieve.retrieve", _fake_retrieve)
     llm = ScriptedLLMClient(turns=[[(SEARCH_DOCS, {"query": "how do we deploy"})], []])
 
     run_agent_turn([_user("how?")], [], llm, StubVectorStore())
@@ -237,7 +237,7 @@ def test_a_spent_search_budget_tells_the_model_it_has_no_tools(
     # The failure this pins: a model that searched until the budget ran out answered
     # with the persona still saying "offer X", and told the hire to confirm a button
     # no tool call had produced.
-    monkeypatch.setattr("agents.tools.retrieve.retrieve", lambda *a, **k: [])
+    monkeypatch.setattr("buddy.tools.retrieve.retrieve", lambda *a, **k: [])
     llm = ScriptedLLMClient(
         turns=[[(SEARCH_DOCS, {"query": "again"})]] * 20, answer="Here is what I know."
     )

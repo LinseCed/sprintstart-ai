@@ -5,7 +5,7 @@ some only the backend can. ``search_docs`` (and ``grep``, when the reader asked 
 corpus rather than the mentor) are AI-local -- they own retrieval and citations --
 and are executed here, in an internal loop, so a question needing several searches
 is answered in one call. They are the chat agent's own tools and evidence budget
-(``agents.tools``), so answering from the buddy loses nothing chat had. A tool only
+(``buddy.tools``), so answering from the buddy loses nothing chat had. A tool only
 the backend can run (``get_my_metrics``) cannot be executed here: the turn stops and
 hands the pending call back, and the backend re-invokes this endpoint with the tool
 result appended.
@@ -34,8 +34,6 @@ for the callers that only want the outcome.
 from collections.abc import Collection, Generator, Iterator
 from dataclasses import dataclass, replace
 
-from agents.tools.base import ToolResult, run_tool_calls
-from agents.tools.evidence import limit_evidence
 from buddy.events import (
     AgentReasoning,
     AgentStreamEvent,
@@ -50,6 +48,8 @@ from buddy.evidence import (
 )
 from buddy.persona import build_persona
 from buddy.query_fence import QUERY_FENCE_NOTE, fence_user_messages
+from buddy.tools.base import ToolResult, run_tool_calls
+from buddy.tools.evidence import limit_evidence
 from buddy.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 from corpus.filters import NO_FILTERED_RESULTS_MESSAGE, has_narrowing_filters
 from corpus.source_filter import SourceExclusions

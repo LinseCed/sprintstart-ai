@@ -1,26 +1,21 @@
 {
-  "src/agents/tools/retrieve.py::__init__": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
   "src/api/app.py::lifespan": {
     "BLE001": {
       "count": 1
     }
   },
-  "src/assembly/diagram.py::assemble_diagram": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/assembly/diagram.py::stream_diagram": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/assembly/diagram_draft.py::resolve_nodes": {
+  "src/assembly/diagram/draft.py::resolve_nodes": {
     "PLR0915": {
+      "count": 1
+    }
+  },
+  "src/assembly/diagram/job.py::assemble_diagram": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/diagram/job.py::stream_diagram": {
+    "PLR0913": {
       "count": 1
     }
   },
@@ -29,47 +24,47 @@
       "count": 1
     }
   },
-  "src/assembly/orientation.py::assemble_orientation": {
+  "src/assembly/orientation/draft.py::build_prompt": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/orientation.py::stream_orientation": {
+  "src/assembly/orientation/job.py::assemble_orientation": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/orientation_draft.py::build_prompt": {
+  "src/assembly/orientation/job.py::stream_orientation": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/phase.py::assemble_phase": {
+  "src/assembly/phase/draft.py::build_prompt": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/phase.py::stream_phase": {
+  "src/assembly/phase/job.py::assemble_phase": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/phase_draft.py::build_prompt": {
+  "src/assembly/phase/job.py::stream_phase": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/starter_work.py::generate_starter_work_pool": {
+  "src/assembly/starter_work/draft.py::load_candidates": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/starter_work.py::stream_starter_work_pool": {
+  "src/assembly/starter_work/job.py::generate_starter_work_pool": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/assembly/starter_work_draft.py::load_candidates": {
+  "src/assembly/starter_work/job.py::stream_starter_work_pool": {
     "PLR0913": {
       "count": 1
     }
@@ -118,6 +113,11 @@
       "count": 1
     }
   },
+  "src/buddy/tools/retrieve.py::__init__": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
   "src/corpus/filters.py::matches_retrieval_filters": {
     "C901": {
       "count": 1
@@ -126,22 +126,17 @@
       "count": 1
     }
   },
-  "src/ingestion/chunker.py::_group_paragraphs_into_chunks_with_lines": {
+  "src/ingestion/chunking/chunker.py::_group_paragraphs_into_chunks_with_lines": {
     "PLR0915": {
       "count": 1
     }
   },
-  "src/ingestion/chunker.py::to_parsed_chunk": {
+  "src/ingestion/chunking/chunker.py::to_parsed_chunk": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/code_parser.py::parse_code": {
-    "BLE001": {
-      "count": 1
-    }
-  },
-  "src/ingestion/context_aware_chunker.py::chunk_text_context_aware": {
+  "src/ingestion/chunking/context_aware_chunker.py::chunk_text_context_aware": {
     "PLR0913": {
       "count": 1
     },
@@ -154,12 +149,17 @@
       "count": 1
     }
   },
-  "src/ingestion/parser.py::parse": {
+  "src/ingestion/parsing/code_parser.py::parse_code": {
+    "BLE001": {
+      "count": 1
+    }
+  },
+  "src/ingestion/parsing/parser.py::parse": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/pdf_parser.py::parse_pdf": {
+  "src/ingestion/parsing/pdf_parser.py::parse_pdf": {
     "BLE001": {
       "count": 2
     },
@@ -167,12 +167,12 @@
       "count": 1
     }
   },
-  "src/ingestion/text_parser.py::parse_text": {
+  "src/ingestion/parsing/text_parser.py::parse_text": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/tree_sitter_parser.py::parse_with_tree_sitter": {
+  "src/ingestion/parsing/tree_sitter_parser.py::parse_with_tree_sitter": {
     "PLR0915": {
       "count": 1
     }

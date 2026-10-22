@@ -16,8 +16,8 @@ from fastapi.responses import StreamingResponse
 from api.dependencies import get_llm, get_store
 from api.schemas import AssemblePhaseRequest, ValidationErrorResponse
 from api.sse import stream_progress
-from assembly.phase import assemble_phase, stream_phase
-from assembly.phase_models import PhaseOutcome
+from assembly.phase.job import assemble_phase, stream_phase
+from assembly.phase.models import PhaseOutcome
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from store.base import VectorStore

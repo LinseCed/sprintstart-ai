@@ -12,7 +12,7 @@ root_packages =
     insights
     projects
     skills
-    agents
+    summaries
     rag
     ingestion
     store
@@ -20,12 +20,11 @@ root_packages =
     corpus
 
 [importlinter:contract:layers]
-name = Layers: api > features > agents > rag > ingestion > store > llm | corpus
+name = Layers: api > features > rag > ingestion > store > llm | corpus
 type = layers
 layers =
     api
-    buddy | assembly | insights | projects | skills
-    agents
+    buddy | assembly | insights | projects | skills | summaries
     rag
     ingestion
     store
@@ -39,14 +38,8 @@ allow_indirect_imports = True
 source_modules =
     api.routes
 forbidden_modules =
-    ingestion.parser
-    ingestion.chunker
-    ingestion.context_aware_chunker
-    ingestion.code_parser
-    ingestion.pdf_parser
-    ingestion.text_parser
-    ingestion.image_parser
-    ingestion.tree_sitter_parser
+    ingestion.parsing
+    ingestion.chunking
     store.chroma_store
 
 [importlinter:contract:http-only-in-api]
@@ -59,7 +52,7 @@ source_modules =
     insights
     projects
     skills
-    agents
+    summaries
     rag
     ingestion
     store
