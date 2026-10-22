@@ -22,16 +22,15 @@ from corpus.source_filter import SourceExclusions
 from corpus.types import RetrievalFilters
 from llm.base import LLMClient, Message, ToolCall, ToolSpec
 from llm.errors import LLMUnavailableError
-from onboarding.buddy_agent import (
+from onboarding.buddy_agent import run_agent_turn, stream_agent_turn
+from onboarding.buddy_compact import compact_memory
+from onboarding.buddy_events import (
     AgentReasoning,
     AgentStreamEvent,
     AgentToken,
     AgentToolUse,
     AgentTurnResult,
-    run_agent_turn,
-    stream_agent_turn,
 )
-from onboarding.buddy_compact import compact_memory
 from onboarding.buddy_open import stream_session
 from onboarding.vocabulary import Vocabulary
 from store.base import VectorStore

@@ -12,11 +12,8 @@ import pytest
 from corpus.filters import NO_FILTERED_RESULTS_MESSAGE
 from corpus.types import Chunk, RetrievalFilters, ScoredChunk, SourceSystem
 from llm.base import ChatResult, LLMChatStreamEvent, Message, ToolSpec
-from onboarding.buddy_agent import (
-    GREP,
-    SEARCH_DOCS,
-    run_agent_turn,
-)
+from onboarding.buddy_agent import run_agent_turn
+from onboarding.buddy_evidence import GREP, SEARCH_DOCS
 from onboarding.query_fence import QUERY_FENCE_NOTE, fence, is_fenced
 from tests.stubs.llm import ScriptedLLMClient, Turn
 from tests.stubs.store import StubVectorStore
