@@ -3,9 +3,9 @@ from collections.abc import Callable
 from typing import cast
 
 from corpus.types import Chunk
-from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from insights.faq import NON_FAQ_KINDS, FaqDocument, FaqQuestionInput, group_faqs
 from llm.base import Message
+from store.metadata_store import ArtifactRecord, IngestionMetadataStore
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 from api.app import app
 from api.dependencies import get_ingestion_metadata_store, get_llm, get_store
 from corpus.types import Chunk
-from ingestion.metadata_store import ArtifactRecord, IngestionMetadataStore
 from llm.errors import LLMUnavailableError
+from store.metadata_store import ArtifactRecord, IngestionMetadataStore
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

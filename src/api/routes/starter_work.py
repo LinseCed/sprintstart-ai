@@ -21,7 +21,6 @@ from api.schemas import (
     ValidationErrorResponse,
 )
 from api.sse import stream_progress
-from ingestion.metadata_store import IngestionMetadataStore
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
 from onboarding.starter_work import (
@@ -30,6 +29,7 @@ from onboarding.starter_work import (
     stream_starter_work_pool,
 )
 from store.base import VectorStore
+from store.metadata_store import IngestionMetadataStore
 
 router = APIRouter(prefix="/onboarding/starter-work", tags=["onboarding-starter-work"])
 

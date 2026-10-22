@@ -31,4 +31,3 @@ layers =
 ignore_imports =
     projects.evaluation -> api.schemas
     skills.suggestion -> api.schemas
-    store.chroma_store -> ingestion.metadata_store

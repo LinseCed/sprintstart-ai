@@ -10,10 +10,10 @@ import pytest
 from corpus.source_filter import SourceExclusions
 from corpus.source_role import SourceRole
 from corpus.types import Chunk, RetrievalFilters
-from ingestion.metadata_store import IngestionMetadataStore
 from rag.hybrid import BM25IndexCache
 from store import chroma_store as chroma_store_module
 from store.chroma_store import ChromaVectorStore
+from store.metadata_store import IngestionMetadataStore
 
 
 def test_persistent_client_cold_cache_is_constructed_once_concurrently(
