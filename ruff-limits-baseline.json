@@ -138,11 +138,6 @@
       "count": 1
     }
   },
-  "src/onboarding/buddy_agent.py::_local_tools": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
   "src/onboarding/buddy_agent.py::_persona_prompt": {
     "PLR0913": {
       "count": 1
@@ -154,16 +149,12 @@
     }
   },
   "src/onboarding/buddy_agent.py::stream_agent_turn": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
     "PLR0913": {
       "count": 1
-    },
-    "PLR0915": {
+    }
+  },
+  "src/onboarding/buddy_evidence.py::local_tools": {
+    "PLR0913": {
       "count": 1
     }
   },

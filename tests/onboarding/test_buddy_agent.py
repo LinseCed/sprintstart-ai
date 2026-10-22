@@ -4,11 +4,11 @@ from agents.tools.base import ToolResult
 from corpus.types import ScoredChunk
 from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
-from onboarding.buddy_agent import (
+from onboarding.buddy_agent import run_agent_turn
+from onboarding.buddy_evidence import (
     SEARCH_DOCS,
-    _format_result,
     drop_test_material,
-    run_agent_turn,
+    format_result,
 )
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
@@ -128,7 +128,7 @@ def test_a_search_finding_only_fixtures_finds_nothing() -> None:
     # to ask a colleague, which beats reciting an example as policy.
     kept = drop_test_material([_chunk("process.md", _FIXTURE_URL), _chunk("test_x.py")])
 
-    assert _format_result(ToolResult.empty("x"), kept) == (
+    assert format_result(ToolResult.empty("x"), kept) == (
         "No indexed material matched this search."
     )
 
@@ -142,14 +142,14 @@ def test_ingest_time_role_is_honoured_even_with_no_url() -> None:
 def test_still_marks_anything_that_slips_past_the_drop() -> None:
     # Belt to the braces: `_format_result` is reachable with un-dropped input.
     chunks = [_chunk("process.md", _FIXTURE_URL)]
-    formatted = _format_result(ToolResult(summary="", chunks=chunks), chunks)
+    formatted = format_result(ToolResult(summary="", chunks=chunks), chunks)
 
     assert "test/fixture file" in formatted
 
 
 def test_does_not_mark_a_real_source_chunk() -> None:
     chunks = [_chunk("process.md", _REAL_DOC_URL)]
-    formatted = _format_result(ToolResult(summary="", chunks=chunks), chunks)
+    formatted = format_result(ToolResult(summary="", chunks=chunks), chunks)
 
     assert "test/fixture file" not in formatted
 

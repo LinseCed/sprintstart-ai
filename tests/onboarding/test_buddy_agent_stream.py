@@ -17,16 +17,15 @@ from llm.base import (
     ToolSpec,
 )
 from llm.errors import LLMUnavailableError
-from onboarding.buddy_agent import (
-    GREP,
+from onboarding.buddy_agent import run_agent_turn, stream_agent_turn
+from onboarding.buddy_events import (
     AgentReasoning,
     AgentStreamEvent,
     AgentToken,
     AgentToolUse,
     AgentTurnResult,
-    run_agent_turn,
-    stream_agent_turn,
 )
+from onboarding.buddy_evidence import GREP
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 
