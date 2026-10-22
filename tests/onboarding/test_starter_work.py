@@ -2,7 +2,7 @@ import json
 from collections.abc import Generator
 
 from corpus.types import Chunk
-from onboarding import starter_work
+from onboarding import starter_work_draft
 from onboarding.progress import ProgressEvent
 from onboarding.starter_work import (
     generate_starter_work_pool,
@@ -595,20 +595,20 @@ def test_a_corpus_larger_than_the_cap_judges_only_the_cap() -> None:
     """Uncapped, one prompt grows with the corpus until it blocks whoever ran it."""
     metadata_store = _metadata_store()
     store = StubVectorStore()
-    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+    _many_issues(metadata_store, store, starter_work_draft.MAX_CANDIDATES_PER_RUN + 7)
 
     outcome = generate_starter_work_pool(
         _llm([]), store, metadata_store, project_ids=_PIDS
     )
 
-    assert outcome.candidates_considered == starter_work._MAX_CANDIDATES_PER_RUN
+    assert outcome.candidates_considered == starter_work_draft.MAX_CANDIDATES_PER_RUN
 
 
 def test_what_the_cap_left_out_is_counted_not_dropped_silently() -> None:
     """A pool missing most of the corpus reads as "no good first work here"."""
     metadata_store = _metadata_store()
     store = StubVectorStore()
-    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+    _many_issues(metadata_store, store, starter_work_draft.MAX_CANDIDATES_PER_RUN + 7)
 
     outcome = generate_starter_work_pool(
         _llm([]), store, metadata_store, project_ids=_PIDS
@@ -639,12 +639,12 @@ def test_the_capped_slice_is_stable_across_runs() -> None:
     """
     metadata_store = _metadata_store()
     store = StubVectorStore()
-    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+    _many_issues(metadata_store, store, starter_work_draft.MAX_CANDIDATES_PER_RUN + 7)
 
-    first, _, _ = starter_work._load_candidates(
+    first, _, _ = starter_work_draft.load_candidates(
         store, metadata_store, exclude_source_ids=set(), project_ids=_PIDS
     )
-    second, _, _ = starter_work._load_candidates(
+    second, _, _ = starter_work_draft.load_candidates(
         store, metadata_store, exclude_source_ids=set(), project_ids=_PIDS
     )
 
@@ -655,15 +655,15 @@ def test_issues_already_pooled_do_not_consume_the_cap() -> None:
     """Dedup happens before the cap, so a full pool does not starve the next run."""
     metadata_store = _metadata_store()
     store = StubVectorStore()
-    _many_issues(metadata_store, store, starter_work._MAX_CANDIDATES_PER_RUN + 7)
+    _many_issues(metadata_store, store, starter_work_draft.MAX_CANDIDATES_PER_RUN + 7)
     already = {f"github:org/repo:ISSUE:{i:03d}" for i in range(7)}
 
-    candidates, eligible_total, _ = starter_work._load_candidates(
+    candidates, eligible_total, _ = starter_work_draft.load_candidates(
         store, metadata_store, exclude_source_ids=already, project_ids=_PIDS
     )
 
-    assert eligible_total == starter_work._MAX_CANDIDATES_PER_RUN
-    assert len(candidates) == starter_work._MAX_CANDIDATES_PER_RUN
+    assert eligible_total == starter_work_draft.MAX_CANDIDATES_PER_RUN
+    assert len(candidates) == starter_work_draft.MAX_CANDIDATES_PER_RUN
     assert not any(c.source_id in already for c in candidates)
 
 
@@ -680,7 +680,7 @@ def test_chunkless_issues_do_not_block_cap_slots() -> None:
     )
     _add_issue_chunk(store, "a2", "Fix typo", "body")
 
-    candidates, eligible_total, skipped = starter_work._load_candidates(
+    candidates, eligible_total, skipped = starter_work_draft.load_candidates(
         store, metadata_store, exclude_source_ids=set(), project_ids=_PIDS
     )
 

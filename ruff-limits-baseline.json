@@ -191,32 +191,18 @@
       "count": 1
     }
   },
-  "src/onboarding/diagram.py::_resolve_nodes": {
-    "PLR0915": {
-      "count": 1
-    }
-  },
   "src/onboarding/diagram.py::assemble_diagram": {
     "PLR0913": {
       "count": 1
     }
   },
   "src/onboarding/diagram.py::stream_diagram": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
     "PLR0913": {
-      "count": 1
-    },
-    "PLR0915": {
       "count": 1
     }
   },
-  "src/onboarding/orientation.py::_build_prompt": {
-    "PLR0913": {
+  "src/onboarding/diagram_draft.py::resolve_nodes": {
+    "PLR0915": {
       "count": 1
     }
   },
@@ -230,7 +216,7 @@
       "count": 1
     }
   },
-  "src/onboarding/phase.py::_build_prompt": {
+  "src/onboarding/orientation_draft.py::build_prompt": {
     "PLR0913": {
       "count": 1
     }
@@ -241,20 +227,11 @@
     }
   },
   "src/onboarding/phase.py::stream_phase": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
     "PLR0913": {
-      "count": 1
-    },
-    "PLR0915": {
       "count": 1
     }
   },
-  "src/onboarding/starter_work.py::_load_candidates": {
+  "src/onboarding/phase_draft.py::build_prompt": {
     "PLR0913": {
       "count": 1
     }
@@ -267,8 +244,10 @@
   "src/onboarding/starter_work.py::stream_starter_work_pool": {
     "PLR0913": {
       "count": 1
-    },
-    "PLR0915": {
+    }
+  },
+  "src/onboarding/starter_work_draft.py::load_candidates": {
+    "PLR0913": {
       "count": 1
     }
   },

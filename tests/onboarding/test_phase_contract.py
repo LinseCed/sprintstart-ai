@@ -426,7 +426,7 @@ def test_each_dropped_step_is_logged_with_its_reason(
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="onboarding.phase"):
+    with caplog.at_level(logging.INFO, logger="onboarding.phase_draft"):
         _assemble(llm)
 
     assert [r.getMessage() for r in caplog.records] == [
