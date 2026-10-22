@@ -23,11 +23,8 @@ from api.schemas import (
 from api.sse import stream_progress
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from onboarding.starter_work import (
-    StarterWorkOutcome,
-    generate_starter_work_pool,
-    stream_starter_work_pool,
-)
+from onboarding.starter_work import generate_starter_work_pool, stream_starter_work_pool
+from onboarding.starter_work_models import StarterWorkOutcome
 from store.base import VectorStore
 from store.metadata_store import IngestionMetadataStore
 

@@ -16,30 +16,36 @@ Three mechanics carry that guarantee:
   asserts something about this project, so every section must cite.
 """
 
-import json
 import logging
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field, ValidationError
-
 from corpus.types import RetrievalFilters, ScoredChunk
-from llm.base import LLMClient, Message
-from llm.parsing import extract_json_object
+from llm.base import LLMClient
 from onboarding.assembly import (
     AssemblyError,
     Generation,
     Retrieval,
     Search,
     dump,
-    evidence_line,
     generate_payload,
     give_up,
     retrieve_evidence,
     sources_drawn_on,
 )
-from onboarding.citations import resolve_citations
 from onboarding.corpus import fingerprint_gate
+from onboarding.orientation_draft import (
+    STEP_LABEL,
+    STEP_QUERIES,
+    TOP_K_PER_STEP,
+    GenPayload,
+    build_prompt,
+    correction_prompt,
+    parse_payload,
+    resolve_sections,
+    task_query,
+)
 from onboarding.orientation_models import (
     STEP_ORDER,
     OrientationOutcome,
@@ -47,211 +53,197 @@ from onboarding.orientation_models import (
     OrientationProvenance,
     OrientationSection,
     OrientationSource,
-    OrientationStep,
 )
 from onboarding.progress import ProgressEvent, ProgressStream, drain
-from onboarding.similarity import OVERLAP_THRESHOLD, text_overlap
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)
 
-_TOP_K_PER_STEP = 6
-_MAX_TASK_TEXT = 4000
-
-# What each step's retrieval is looking for. These are *queries*, not prose the
-# hire ever sees — they exist so the evidence pool spans the whole path to a PR
-# instead of five rephrasings of the task's own subject.
-_STEP_QUERIES: dict[OrientationStep, str] = {
-    "SET_UP": (
-        "development environment setup prerequisites install dependencies "
-        "build and run the project locally configuration"
-    ),
-    "FIND_THE_CODE": (
-        "project structure where modules live architecture packages layout "
-        "which file is responsible for"
-    ),
-    "MAKE_THE_CHANGE": (
-        "coding conventions style guide patterns used in this codebase "
-        "how changes are usually implemented"
-    ),
-    "CHECK_LOCALLY": (
-        "run the tests lint format type check verification commands before "
-        "pushing definition of done"
-    ),
-    "OPEN_THE_PR": (
-        "contributing guide pull request process branch naming commit message "
-        "code review expectations"
-    ),
-}
-
-# Short human labels for the live progress stream — what the watcher sees a step
-# called while it is searched / grounded. Distinct from `_STEP_GUIDE` (prompt text)
-# and `_STEP_QUERIES` (retrieval text): this is display only.
-_STEP_LABEL: dict[OrientationStep, str] = {
-    "SET_UP": "setting up",
-    "FIND_THE_CODE": "finding the code",
-    "MAKE_THE_CHANGE": "making the change",
-    "CHECK_LOCALLY": "checking locally",
-    "OPEN_THE_PR": "opening the PR",
-}
-
-# What the model is told each step is *for*, in the packet the hire reads.
-_STEP_GUIDE = (
-    "  SET_UP          - what must be working before touching this task\n"
-    "  FIND_THE_CODE   - where in this repository the work lives\n"
-    "  MAKE_THE_CHANGE - the conventions that apply to a change like this\n"
-    "  CHECK_LOCALLY   - what to run, and what a good result looks like\n"
-    "  OPEN_THE_PR     - how a change gets proposed and reviewed here\n"
-)
+_DONE_EMPTY = "No orientation could be assembled"
 
 
-class _GenSection(BaseModel):
-    step: str = ""
-    title: str = ""
-    body: str = ""
-    chunk_ids: list[str] = Field(default_factory=list[str])
+@dataclass(frozen=True)
+class _Task:
+    """The task a packet is assembled for, and the projects it may draw on."""
+
+    title: str
+    body: str
+    labels: list[str]
+    touched_paths: list[str]
+    project_ids: frozenset[str]
 
 
-class _GenPayload(BaseModel):
-    summary: str = ""
-    sections: list[_GenSection] = Field(default_factory=list[_GenSection])
+@dataclass(frozen=True)
+class _Counts:
+    """How much evidence a run drew on and how many sections it dropped."""
+
+    chunks_retrieved: int = 0
+    chunks_collapsed: int = 0
+    sections_dropped: int = 0
 
 
-def _task_query(
-    task_title: str, task_body: str, labels: list[str], touched_paths: list[str]
-) -> str:
-    parts = [task_title, " ".join(labels), " ".join(touched_paths), task_body]
-    return " ".join(p for p in parts if p.strip())[:_MAX_TASK_TEXT]
+@dataclass(frozen=True)
+class _Grounded:
+    summary: str
+    sections: list[OrientationSection]
+    chunks: list[ScoredChunk]
+    counts: _Counts
 
 
-def _build_prompt(
-    task_title: str,
-    task_body: str,
-    labels: list[str],
-    touched_paths: list[str],
-    chunks: list[ScoredChunk],
-) -> list[Message]:
-    evidence = "\n".join(evidence_line(c) for c in chunks)
-    steps = "|".join(STEP_ORDER)
-
-    system = (
-        "You prepare a new team member to do one specific task in a codebase "
-        "they have never worked in. You do NOT write documentation: everything "
-        "you produce is a restatement of material this team already has, "
-        "reorganised around the task and the order somebody actually does "
-        "things in.\n\n"
-        "The packet is segmented by step:\n"
-        f"{_STEP_GUIDE}\n"
-        "Rules:\n"
-        "1. Write only what the evidence below supports. Every section MUST "
-        "list the evidence chunk ids it draws on; a section citing nothing is "
-        "dropped, however useful it sounds. If the evidence says nothing about "
-        "a step, omit that step -- an honest gap beats an invented answer.\n"
-        "2. Be concrete and specific to this task: exact paths, exact commands, "
-        "exact conventions. Generic software advice is worse than nothing "
-        "because it costs the reader attention.\n"
-        "3. Do not repeat yourself across sections. When two sources say the "
-        "same thing, say it once and cite both.\n"
-        "4. Keep each section short: a reader is doing the task, not studying.\n"
-        "5. You may emit more than one section for a step, or none at all.\n\n"
-        "Return STRICT JSON only (no prose, no markdown fences):\n"
-        '{"summary": str, "sections": [{"step": '
-        f"{steps}"
-        ', "title": str, "body": str (markdown), "chunk_ids": [str]}]}'
+def _skipped(note: str, counts: _Counts = _Counts()) -> OrientationOutcome:
+    return OrientationOutcome(
+        status="skipped",
+        chunks_retrieved=counts.chunks_retrieved,
+        chunks_collapsed=counts.chunks_collapsed,
+        sections_dropped=counts.sections_dropped,
+        notes=[note],
     )
-    label_line = f"Labels: {', '.join(labels)}\n" if labels else ""
-    paths_line = (
-        f"Paths this task is expected to touch: {', '.join(touched_paths)}\n"
-        if touched_paths
-        else ""
+
+
+def _gate(
+    progress: ProgressStream,
+    store: VectorStore,
+    last_fingerprint: str | None,
+    project_ids: frozenset[str],
+) -> tuple[str | None, list[ProgressEvent], OrientationOutcome | None]:
+    """Answer from the fingerprint alone when the corpus is empty or unchanged."""
+    return fingerprint_gate(
+        progress,
+        store,
+        last_fingerprint,
+        make_unchanged=lambda: OrientationOutcome(
+            status="unchanged", notes=["corpus unchanged since the cached packet"]
+        ),
+        make_empty=lambda: OrientationOutcome(
+            status="skipped", notes=["corpus is empty"]
+        ),
+        unchanged_label="Nothing changed — the cached packet is current",
+        empty_warning_label="The project has no indexed material yet",
+        empty_done_label=_DONE_EMPTY,
+        project_ids=project_ids,
     )
-    user = (
-        f"Task: {task_title}\n"
-        f"{label_line}"
-        f"{paths_line}"
-        f"\n{task_body[:_MAX_TASK_TEXT] or '(no description)'}\n\n"
-        f"Evidence:\n{evidence}"
-    )
-    return [
-        Message(role="system", content=system),
-        Message(role="user", content=user),
+
+
+def _stop(
+    progress: ProgressStream, outcome: OrientationOutcome, warning: str
+) -> Generator[ProgressEvent, None, OrientationOutcome]:
+    return (yield from give_up(progress, outcome, warning=warning, done=_DONE_EMPTY))
+
+
+def _gather(
+    progress: ProgressStream, llm: LLMClient, store: VectorStore, task: _Task
+) -> Generator[ProgressEvent, None, tuple[list[ScoredChunk], int]]:
+    """One search per step of the packet, pooled."""
+    query = task_query(task.title, task.body, task.labels, task.touched_paths)
+    searches = [
+        Search(
+            label=f"Searching the project: {STEP_LABEL[step]}",
+            question=f"{query} {STEP_QUERIES[step]}",
+        )
+        for step in STEP_ORDER
     ]
+    return (
+        yield from retrieve_evidence(
+            progress,
+            llm,
+            store,
+            Retrieval(
+                searches=searches,
+                top_k=TOP_K_PER_STEP,
+                filters=RetrievalFilters(project_ids=task.project_ids),
+            ),
+        )
+    )
 
 
-def _correction_prompt(
-    messages: list[Message], raw: str, error: AssemblyError
-) -> list[Message]:
-    """Ask once for the same packet with only its JSON corrected."""
-    return [
-        *messages,
-        Message(role="assistant", content=raw),
-        Message(
-            role="user",
-            content=(
-                f"That response could not be validated: {error}. Return the same "
-                "grounded packet again as one valid JSON object matching the schema "
-                "exactly. Return JSON only, with all quotes escaped and all commas "
-                "present."
+def _write(
+    progress: ProgressStream, llm: LLMClient, task: _Task, chunks: list[ScoredChunk]
+) -> Generator[ProgressEvent, None, GenPayload | AssemblyError]:
+    yield progress.stage(
+        "generating", f"Writing the packet from {len(chunks)} source(s)"
+    )
+    return (
+        yield from generate_payload(
+            progress,
+            llm,
+            build_prompt(
+                task.title, task.body, task.labels, task.touched_paths, chunks
+            ),
+            Generation(
+                parse=parse_payload,
+                correct=correction_prompt,
+                logger=logger,
+                failure="Orientation assembly attempt %d failed for task %r: %s",
+                subject=task.title,
+            ),
+        )
+    )
+
+
+def _ground(
+    progress: ProgressStream,
+    payload: GenPayload,
+    chunks: list[ScoredChunk],
+    collapsed: int,
+) -> Generator[ProgressEvent, None, _Grounded]:
+    """Keep the sections the evidence supports, announcing each survivor."""
+    yield progress.stage("grounding", "Checking every section cites its source")
+    sections, dropped = resolve_sections(payload, chunks)
+    for section in sections:
+        yield progress.item(
+            section.model_dump(mode="json"),
+            f"{STEP_LABEL[section.step]}: {section.title}",
+        )
+    # A dropped section is a gap the watcher should see, not a silent omission --
+    # unless every section went, which the caller states more directly.
+    if sections and dropped:
+        yield progress.warning(f"Dropped {dropped} section(s) with no source")
+    counts = _Counts(len(chunks), collapsed, dropped)
+    return _Grounded(payload.summary.strip(), sections, chunks, counts)
+
+
+def _notes(counts: _Counts) -> list[str]:
+    notes: list[str] = []
+    if counts.chunks_collapsed:
+        notes.append(f"collapsed {counts.chunks_collapsed} redundant source chunk(s)")
+    if counts.sections_dropped:
+        notes.append(
+            f"dropped {counts.sections_dropped} ungrounded or duplicate section(s)"
+        )
+    return notes
+
+
+def _assembled(
+    llm: LLMClient,
+    fingerprint: str | None,
+    task: _Task,
+    grounded: _Grounded,
+) -> OrientationOutcome:
+    counts = grounded.counts
+    notes = _notes(counts)
+    return OrientationOutcome(
+        status="assembled",
+        packet=OrientationPacket(
+            task_title=task.title,
+            summary=grounded.summary,
+            sections=grounded.sections,
+            sources=sources_drawn_on(
+                (c for s in grounded.sections for c in s.citations),
+                grounded.chunks,
+                OrientationSource,
             ),
         ),
-    ]
-
-
-def _parse_payload(raw: str) -> _GenPayload:
-    try:
-        return _GenPayload.model_validate_json(extract_json_object(raw))
-    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
-        raise AssemblyError(f"invalid orientation output: {exc}") from exc
-
-
-def _resolve_sections(
-    payload: _GenPayload, chunks: list[ScoredChunk]
-) -> tuple[list[OrientationSection], int]:
-    """Keep the usable sections in step order; return them with the count dropped.
-
-    A section goes when its step is not one of ours, when it has no body, when
-    it cites nothing real, or when it restates a section already kept for the
-    same step.
-    """
-    chunks_by_id = {c.id: c for c in chunks}
-    kept: list[OrientationSection] = []
-    dropped = 0
-
-    for item in payload.sections:
-        step = item.step.strip().upper()
-        if step not in STEP_ORDER:
-            logger.info("Dropped orientation section of unknown step %r", item.step)
-            dropped += 1
-            continue
-        if not item.body.strip():
-            dropped += 1
-            continue
-
-        citations = resolve_citations(item.chunk_ids, chunks_by_id)
-        if not citations:
-            logger.info("Dropped ungrounded orientation section %r", item.title)
-            dropped += 1
-            continue
-
-        if any(
-            s.step == step and text_overlap(s.body, item.body) > OVERLAP_THRESHOLD
-            for s in kept
-        ):
-            logger.info("Dropped orientation section restating %r", item.title)
-            dropped += 1
-            continue
-
-        kept.append(
-            OrientationSection(
-                step=step,  # type: ignore[arg-type]
-                title=item.title.strip() or step.replace("_", " ").title(),
-                body=item.body,
-                citations=citations,
-            )
-        )
-
-    kept.sort(key=lambda s: STEP_ORDER.index(s.step))
-    return kept, dropped
+        provenance=OrientationProvenance(
+            corpus_fingerprint=fingerprint,
+            generated_at=datetime.now(UTC).isoformat(),
+            model=llm.model_name,
+            notes=notes,
+        ),
+        chunks_retrieved=counts.chunks_retrieved,
+        chunks_collapsed=counts.chunks_collapsed,
+        sections_dropped=counts.sections_dropped,
+        notes=notes,
+    )
 
 
 def stream_orientation(
@@ -276,143 +268,46 @@ def stream_orientation(
     announced as a ``stage``. Sections are emitted as ``item`` events only after
     they clear the per-section grounding gate, so nothing ungrounded is ever shown.
     """
+    task = _Task(task_title, task_body, labels or [], touched_paths or [], project_ids)
     progress = ProgressStream("orientation")
-    fingerprint, early_events, early_outcome = fingerprint_gate(
-        progress,
-        store,
-        last_fingerprint,
-        make_unchanged=lambda: OrientationOutcome(
-            status="unchanged", notes=["corpus unchanged since the cached packet"]
-        ),
-        make_empty=lambda: OrientationOutcome(
-            status="skipped", notes=["corpus is empty"]
-        ),
-        unchanged_label="Nothing changed — the cached packet is current",
-        empty_warning_label="The project has no indexed material yet",
-        empty_done_label="No orientation could be assembled",
-        project_ids=project_ids,
+    fingerprint, early_events, early_outcome = _gate(
+        progress, store, last_fingerprint, project_ids
     )
     if early_outcome is not None:
         yield from early_events
         return early_outcome
 
-    task_query = _task_query(task_title, task_body, labels or [], touched_paths or [])
-    searches = [
-        Search(
-            label=f"Searching the project: {_STEP_LABEL[step]}",
-            question=f"{task_query} {_STEP_QUERIES[step]}",
-        )
-        for step in STEP_ORDER
-    ]
-    chunks, collapsed = yield from retrieve_evidence(
-        progress,
-        llm,
-        store,
-        Retrieval(
-            searches=searches,
-            top_k=_TOP_K_PER_STEP,
-            filters=RetrievalFilters(project_ids=project_ids),
-        ),
-    )
-
+    chunks, collapsed = yield from _gather(progress, llm, store, task)
     if not chunks:
         return (
-            yield from give_up(
+            yield from _stop(
                 progress,
-                OrientationOutcome(
-                    status="skipped",
-                    notes=["no grounding evidence retrieved for this task"],
-                ),
-                warning="Nothing in the project matched this task closely enough",
-                done="No orientation could be assembled",
+                _skipped("no grounding evidence retrieved for this task"),
+                "Nothing in the project matched this task closely enough",
             )
         )
 
-    yield progress.stage(
-        "generating", f"Writing the packet from {len(chunks)} source(s)"
-    )
-    payload = yield from generate_payload(
-        progress,
-        llm,
-        _build_prompt(task_title, task_body, labels or [], touched_paths or [], chunks),
-        Generation(
-            parse=_parse_payload,
-            correct=_correction_prompt,
-            logger=logger,
-            failure="Orientation assembly attempt %d failed for task %r: %s",
-            subject=task_title,
-        ),
-    )
+    payload = yield from _write(progress, llm, task, chunks)
     if isinstance(payload, AssemblyError):
+        skipped = _skipped(str(payload), _Counts(len(chunks), collapsed))
         return (
-            yield from give_up(
-                progress,
-                OrientationOutcome(
-                    status="skipped",
-                    chunks_retrieved=len(chunks),
-                    chunks_collapsed=collapsed,
-                    notes=[str(payload)],
-                ),
-                warning="The generated packet could not be read",
-                done="No orientation could be assembled",
+            yield from _stop(
+                progress, skipped, "The generated packet could not be read"
             )
         )
 
-    yield progress.stage("grounding", "Checking every section cites its source")
-    sections, dropped = _resolve_sections(payload, chunks)
-    for section in sections:
-        yield progress.item(
-            section.model_dump(mode="json"),
-            f"{_STEP_LABEL[section.step]}: {section.title}",
+    grounded = yield from _ground(progress, payload, chunks, collapsed)
+    if not grounded.sections:
+        skipped = _skipped(
+            "no grounded sections in the assembled packet", grounded.counts
         )
-    # A dropped section is a gap the watcher should see, not a silent omission --
-    # unless every section went, which the branch below states more directly.
-    if sections and dropped:
-        yield progress.warning(f"Dropped {dropped} section(s) with no source")
-
-    if not sections:
         return (
-            yield from give_up(
-                progress,
-                OrientationOutcome(
-                    status="skipped",
-                    chunks_retrieved=len(chunks),
-                    chunks_collapsed=collapsed,
-                    sections_dropped=dropped,
-                    notes=["no grounded sections in the assembled packet"],
-                ),
-                warning="Every section was dropped for lack of a source",
-                done="No orientation could be assembled",
+            yield from _stop(
+                progress, skipped, "Every section was dropped for lack of a source"
             )
         )
 
-    notes: list[str] = []
-    if collapsed:
-        notes.append(f"collapsed {collapsed} redundant source chunk(s)")
-    if dropped:
-        notes.append(f"dropped {dropped} ungrounded or duplicate section(s)")
-
-    outcome = OrientationOutcome(
-        status="assembled",
-        packet=OrientationPacket(
-            task_title=task_title,
-            summary=payload.summary.strip(),
-            sections=sections,
-            sources=sources_drawn_on(
-                (c for s in sections for c in s.citations), chunks, OrientationSource
-            ),
-        ),
-        provenance=OrientationProvenance(
-            corpus_fingerprint=fingerprint,
-            generated_at=datetime.now(UTC).isoformat(),
-            model=llm.model_name,
-            notes=notes,
-        ),
-        chunks_retrieved=len(chunks),
-        chunks_collapsed=collapsed,
-        sections_dropped=dropped,
-        notes=notes,
-    )
+    outcome = _assembled(llm, fingerprint, task, grounded)
     yield progress.done("Orientation ready", dump(outcome))
     return outcome
 

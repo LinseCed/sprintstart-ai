@@ -318,7 +318,7 @@ def test_each_dropped_box_is_logged_with_its_reason(
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="onboarding.diagram"):
+    with caplog.at_level(logging.INFO, logger="onboarding.diagram_draft"):
         _assemble(llm)
 
     assert [r.getMessage() for r in caplog.records] == [

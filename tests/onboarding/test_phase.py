@@ -361,9 +361,9 @@ def test_stream_emits_item_per_grounded_step_then_terminal_done() -> None:
 
 
 def test_phase_query_and_prompt_with_industry() -> None:
-    from onboarding.phase import _build_prompt, _phase_query
+    from onboarding.phase_draft import build_prompt, phase_query
 
-    query = _phase_query(
+    query = phase_query(
         title="Architecture",
         description="Core services",
         prompt="Explain backend structure",
@@ -376,7 +376,7 @@ def test_phase_query_and_prompt_with_industry() -> None:
     assert query == expected_query
 
     store = make_store("evidence text")
-    messages = _build_prompt(
+    messages = build_prompt(
         title="Architecture",
         description="Core services",
         prompt="Explain backend structure",
@@ -393,9 +393,9 @@ def test_phase_query_and_prompt_with_industry() -> None:
 
 
 def test_phase_query_and_prompt_backward_compat_when_industry_none() -> None:
-    from onboarding.phase import _build_prompt, _phase_query
+    from onboarding.phase_draft import build_prompt, phase_query
 
-    query = _phase_query(
+    query = phase_query(
         title="Architecture",
         description="Core services",
         prompt="Explain backend structure",
@@ -404,7 +404,7 @@ def test_phase_query_and_prompt_backward_compat_when_industry_none() -> None:
     assert query == "Architecture Core services Explain backend structure"
 
     store = make_store("evidence text")
-    messages = _build_prompt(
+    messages = build_prompt(
         title="Architecture",
         description="Core services",
         prompt="Explain backend structure",

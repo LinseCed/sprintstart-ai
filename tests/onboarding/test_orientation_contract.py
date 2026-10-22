@@ -11,11 +11,8 @@ from datetime import UTC, datetime
 import pytest
 
 from corpus.types import Chunk
-from onboarding.orientation import (
-    _task_query,
-    assemble_orientation,
-    stream_orientation,
-)
+from onboarding.orientation import assemble_orientation, stream_orientation
+from onboarding.orientation_draft import task_query
 from onboarding.orientation_models import OrientationSource
 from tests.onboarding.golden import assert_matches_golden
 from tests.onboarding.orientation_fixtures import PIDS, TITLE, payload, section
@@ -292,7 +289,7 @@ def test_each_dropped_section_is_logged_with_its_reason(
         )
     )
 
-    with caplog.at_level(logging.INFO, logger="onboarding.orientation"):
+    with caplog.at_level(logging.INFO, logger="onboarding.orientation_draft"):
         assemble_orientation(llm, _two_doc_store(), task_title=TITLE, project_ids=PIDS)
 
     assert [r.getMessage() for r in caplog.records] == [
@@ -363,13 +360,13 @@ def test_sources_are_listed_once_each_in_first_use_order() -> None:
 
 
 def test_the_task_query_joins_every_part_with_spaces() -> None:
-    query = _task_query("Fix it", "", ["bug", "api"], ["src/a.py", "src/b.py"])
+    query = task_query("Fix it", "", ["bug", "api"], ["src/a.py", "src/b.py"])
 
     assert query == "Fix it bug api src/a.py src/b.py"
 
 
 def test_the_task_query_is_cut_to_its_cap() -> None:
-    assert len(_task_query("T", "x" * 9000, [], [])) == 4000
+    assert len(task_query("T", "x" * 9000, [], [])) == 4000
 
 
 def test_every_step_searches_for_the_task_and_what_the_step_needs() -> None:

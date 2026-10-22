@@ -31,306 +31,55 @@ ground a proposal in, so mining them needs its own grounding strategy.
 Deferred rather than guessed at.
 """
 
-import json
 import logging
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
-
-from corpus.types import Chunk
-from llm.base import LLMClient, Message
-from llm.parsing import extract_json_object
+from llm.base import LLMClient
 from onboarding.corpus import fingerprint_gate
 from onboarding.models import CitationRef
 from onboarding.progress import ProgressEvent, ProgressStream, drain
+from onboarding.starter_work_draft import (
+    MAX_CANDIDATES_PER_RUN,
+    GenPayload,
+    build_prompt,
+    load_candidates,
+    mining_fingerprint_material,
+    parse_payload,
+)
+from onboarding.starter_work_models import (
+    GenerationError,
+    ProposedStarterTask,
+    StarterTaskCandidate,
+    StarterWorkOutcome,
+    StarterWorkProvenance,
+)
 from store.base import VectorStore
-from store.metadata_store import ArtifactRecord, IngestionMetadataStore
-
-ProposalStatus = Literal["proposed", "unchanged", "skipped"]
+from store.metadata_store import IngestionMetadataStore
 
 logger = logging.getLogger(__name__)
 
-_MAX_CHUNKS_PER_ISSUE = 20
-
-# How many issues one mining run may judge.
-#
-# Every candidate goes into a *single* prompt, so without a cap the prompt
-# grows linearly with the corpus: ingesting a whole organisation once produced
-# one call slow enough to block the person who triggered it. A crawl is not a
-# moment anybody is watching, and an unbounded loop is a bill nobody authorised.
-#
-# It also protects the judgement: a model asked to rank hundreds of issues in one
-# prompt reasons about each of them worse than one asked about twenty-five.
-#
-# What does not fit is not dropped silently -- see ``notes`` on the outcome.
-_MAX_CANDIDATES_PER_RUN = 25
+_DONE_EMPTY = "No starter tasks could be mined"
 
 
-class GenerationError(Exception):
-    """Raised when the LLM output for a starter-work proposal can't be parsed."""
+@dataclass(frozen=True)
+class _Scope:
+    """What the corpus fingerprint of a mining run is computed over."""
+
+    project_ids: frozenset[str]
+    extra_material: list[str]
+    last_fingerprint: str | None
 
 
-class StarterTaskCandidate(BaseModel):
-    """One open issue considered for the starter-work pool."""
-
-    source_id: str
-    title: str
-    text: str
-    source_url: str | None = None
-    labels: list[str] = Field(default_factory=list[str])
-
-
-class ProposedStarterTask(BaseModel):
-    """A candidate starter task grounded in one open issue, for PM curation."""
-
-    source_id: str
-    title: str
-    summary: str = ""
-    competency_keys: list[str] = Field(default_factory=list[str])
-    rationale: str = ""
-    citations: list[CitationRef] = Field(default_factory=list[CitationRef])
-
-
-class StarterWorkProvenance(BaseModel):
-    """Why a mining run looks the way it does; mirrors ``GraphProvenance``."""
-
-    corpus_fingerprint: str | None = None
-    generated_at: str | None = None
-    model: str | None = None
-    notes: list[str] = Field(default_factory=list[str])
-
-
-class StarterWorkOutcome(BaseModel):
-    """Result of one starter-work mining run."""
-
-    status: ProposalStatus
-    tasks: list[ProposedStarterTask] = Field(default_factory=list[ProposedStarterTask])
-    provenance: StarterWorkProvenance | None = None
-    candidates_considered: int = 0
-    notes: list[str] = Field(default_factory=list[str])
-
-
-class _GenTask(BaseModel):
-    source_id: str = ""
-    safely_scoped: bool = False
-    summary: str = ""
-    competency_keys: list[str] = Field(default_factory=list[str])
-    rationale: str = ""
-
-
-class _GenPayload(BaseModel):
-    tasks: list[_GenTask] = Field(default_factory=list[_GenTask])
-
-
-def _derive_title(text: str, fallback: str) -> str:
-    first_line = text.splitlines()[0].strip() if text else ""
-    if first_line.startswith("#"):
-        return first_line.lstrip("#").strip() or fallback
-    return fallback
-
-
-def _issue_block(candidate: StarterTaskCandidate) -> str:
-    label_note = f" [labels: {', '.join(candidate.labels)}]" if candidate.labels else ""
-    return f"[{candidate.source_id}]{label_note}\n{candidate.text}"
-
-
-def _build_prompt(
-    candidates: list[StarterTaskCandidate], known_competency_keys: list[str]
-) -> list[Message]:
-    issues = "\n\n---\n\n".join(_issue_block(c) for c in candidates)
-    known = ""
-    if known_competency_keys:
-        known = (
-            "\nKnown competency keys you may tag a task with (do not invent new "
-            f"ones): {', '.join(sorted(known_competency_keys))}\n"
-        )
-    system = (
-        "You review a software team's open GitHub issues to build a curated "
-        "pool of starter tasks for new hires. You are given each issue's full "
-        "text, prefixed with its source id in square brackets.\n\n"
-        "For each issue, decide whether it is safely scoped for a first-time "
-        "contributor:\n"
-        "- 'safely_scoped' is true only if the issue has a small, well-defined "
-        "surface (touches one module/area, not a cross-cutting change), a "
-        "clear description of what 'done' looks like, and no dependency on "
-        "context a new hire wouldn't have.\n"
-        "- Reject (safely_scoped=false) anything vague, large, architectural, "
-        "or that reads as blocked/needs-discussion.\n"
-        "- 'summary' is a one or two sentence restatement of the task for a "
-        "hire browsing the pool -- do not just repeat the issue title.\n"
-        "- 'competency_keys' tags the skills/concepts this task would "
-        "exercise, chosen only from the known keys below when a list is "
-        "given.\n"
-        "- 'rationale' is one sentence on why the task is (or isn't) safely "
-        "scoped.\n"
-        f"{known}\n"
-        "Return STRICT JSON only (no prose, no markdown fences), one entry "
-        "per issue you were given, correlated by 'source_id':\n"
-        '{"tasks": [{"source_id": str, "safely_scoped": bool, "summary": str, '
-        '"competency_keys": [str], "rationale": str}]}'
-    )
-    user = f"Open issues:\n\n{issues}"
-    return [
-        Message(role="system", content=system),
-        Message(role="user", content=user),
-    ]
-
-
-def _parse_payload(raw: str) -> _GenPayload:
-    try:
-        return _GenPayload.model_validate_json(extract_json_object(raw))
-    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
-        raise GenerationError(f"invalid starter-work output: {exc}") from exc
-
-
-def _issue_text(chunks: list[Chunk]) -> str:
-    ordered = sorted(chunks, key=lambda c: c.position or 0)
-    return "\n".join(c.text for c in ordered)
-
-
-def _eligible_artifacts(
-    metadata_store: IngestionMetadataStore,
-    *,
-    exclude_source_ids: set[str],
-    project_ids: frozenset[str],
-) -> list[ArtifactRecord]:
-    """Every artifact that could become a starter task, in a stable order.
-
-    Metadata only: no chunk reads, so capping happens before the expensive part.
-    Sorted by ``source_id`` because **a stable order is what makes the cap fair**
-    -- an arbitrary one would re-judge the same issues every run while others
-    were never reached at all.
-    """
-    eligible: list[ArtifactRecord] = []
-    for artifact in metadata_store.list_artifacts(
-        status="completed", project_ids=list(project_ids)
-    ):
-        if artifact.artifact_type != "ISSUE":
-            continue
-        if (artifact.state or "").upper() != "OPEN":
-            continue
-        # Only a *definite* True withholds it. Starter work is work a hire can
-        # take, and an issue somebody else is already on is not available however
-        # open it is -- a Jira board assigns its in-progress tickets, so without
-        # this the pool offered new hires work other people were doing. ``None``
-        # means the connector cannot tell (GitHub's assignees are not ingested)
-        # and must never be read as "nobody", or engineering behaviour would
-        # change on a fact nobody established.
-        if artifact.has_assignee is True:
-            continue
-        if artifact.source_id is None or artifact.source_id in exclude_source_ids:
-            continue
-
-        eligible.append(artifact)
-
-    return sorted(eligible, key=lambda a: a.source_id or "")
-
-
-def _load_candidates(
-    store: VectorStore,
-    metadata_store: IngestionMetadataStore,
-    *,
-    exclude_source_ids: set[str],
-    project_ids: frozenset[str],
-    limit: int = _MAX_CANDIDATES_PER_RUN,
-) -> tuple[list[StarterTaskCandidate], int, int]:
-    """The issues this run will judge, and how many eligible ones there were.
-
-    Chunks are read only for the capped slice, so an organisation-sized corpus
-    costs one metadata scan rather than a chunk lookup per issue.
-
-    Returns ``(candidates, eligible_total, skipped_no_chunks)``. ``eligible_total``
-    is what the caller reports as left over: a pool silently missing most of the
-    corpus reads as "there is no good first work here", which is a different claim
-    entirely.
-    """
-    eligible = _eligible_artifacts(
-        metadata_store, exclude_source_ids=exclude_source_ids, project_ids=project_ids
-    )
-
-    candidates: list[StarterTaskCandidate] = []
-    skipped_no_chunks = 0
-    for artifact in eligible:
-        if len(candidates) >= limit:
-            break
-        chunks = store.list_chunks_by_artifact(artifact.id, limit=_MAX_CHUNKS_PER_ISSUE)
-        if not chunks:
-            skipped_no_chunks += 1
-            continue
-
-        text = _issue_text(chunks)
-        if not text.strip():
-            skipped_no_chunks += 1
-            continue
-
-        candidates.append(
-            StarterTaskCandidate(
-                source_id=artifact.source_id or "",
-                title=_derive_title(text, artifact.filename),
-                text=text,
-                source_url=artifact.source_url,
-                labels=artifact.labels,
-            )
-        )
-    return candidates, len(eligible), skipped_no_chunks
-
-
-def _mining_fingerprint_material(
-    metadata_store: IngestionMetadataStore,
-    active_source_ids: list[str] | None = None,
-    *,
-    project_ids: frozenset[str],
-) -> list[str]:
-    """Derive fingerprint material from issue metadata and the active pool.
-
-    Includes the issue tracker metadata (state, has_assignee, labels) that
-    drives starter-work eligibility, plus the active pool source ids, so an
-    issue being closed, assigned, or added to the pool invalidates the cache
-    even if the chunk texts did not change.
-    """
-    parts: list[str] = []
-    for artifact in metadata_store.list_artifacts(
-        status="completed", project_ids=list(project_ids)
-    ):
-        if artifact.artifact_type == "ISSUE":
-            labels_str = ",".join(sorted(artifact.labels))
-            parts.append(
-                f"issue:{artifact.id}:{artifact.state}:{artifact.has_assignee}:{labels_str}"
-            )
-    for source_id in sorted(active_source_ids or []):
-        parts.append(f"pool:{source_id}")
-    return parts
-
-
-def stream_starter_work_pool(
-    llm: LLMClient,
-    store: VectorStore,
-    metadata_store: IngestionMetadataStore,
-    *,
-    project_ids: frozenset[str],
-    active_source_ids: list[str] | None = None,
-    active_competency_keys: list[str] | None = None,
-    last_fingerprint: str | None = None,
-) -> Generator[ProgressEvent, None, StarterWorkOutcome]:
-    """Mine the pool, yielding live progress and returning the final outcome.
-
-    This is the single implementation: :func:`generate_starter_work_pool` drives
-    it to completion for the non-streaming path, and the streaming route relays
-    its events — so a PM watching the pool fill sees exactly what the batch call
-    would have produced. Each task is emitted as an ``item`` the instant it clears
-    the scope-safety judgement, so nothing unsafe is ever shown, and an ``item``
-    is a promise the task is in the persisted pool.
-    """
-    extra_material = _mining_fingerprint_material(
-        metadata_store, active_source_ids, project_ids=project_ids
-    )
-    progress = ProgressStream("starter_work")
-    fingerprint, early_events, early_outcome = fingerprint_gate(
+def _gate(
+    progress: ProgressStream, store: VectorStore, scope: _Scope
+) -> tuple[str | None, list[ProgressEvent], StarterWorkOutcome | None]:
+    """Answer from the fingerprint alone when the corpus is empty or unchanged."""
+    return fingerprint_gate(
         progress,
         store,
-        last_fingerprint,
+        scope.last_fingerprint,
         make_unchanged=lambda: StarterWorkOutcome(
             status="unchanged", notes=["corpus unchanged since last mining run"]
         ),
@@ -339,68 +88,83 @@ def stream_starter_work_pool(
         ),
         unchanged_label="Nothing changed since the last mining run",
         empty_warning_label="The project has no indexed material yet",
-        empty_done_label="No starter tasks could be mined",
-        extra_fingerprint_material=extra_material,
-        project_ids=project_ids,
+        empty_done_label=_DONE_EMPTY,
+        extra_fingerprint_material=scope.extra_material,
+        project_ids=scope.project_ids,
     )
-    if early_outcome is not None:
-        yield from early_events
-        return early_outcome
 
-    yield progress.stage("retrieving", "Collecting open issues from the corpus")
-    candidates, eligible_total, skipped_no_chunks = _load_candidates(
-        store,
-        metadata_store,
-        exclude_source_ids=set(active_source_ids or []),
-        project_ids=project_ids,
+
+def _skipped(considered: int, *notes: str) -> StarterWorkOutcome:
+    return StarterWorkOutcome(
+        status="skipped", candidates_considered=considered, notes=list(notes)
     )
-    if not candidates:
-        outcome = StarterWorkOutcome(
-            status="skipped", notes=["no open, unpooled issues found"]
-        )
-        yield progress.warning("No open, unpooled issues to mine")
-        yield progress.done("No starter tasks could be mined", _dump(outcome))
-        return outcome
 
-    # What did not fit is counted, never silently dropped: the next run reaches it,
-    # and until then a PM can tell "capped" from "the corpus holds nothing else".
-    deferred = max(eligible_total - len(candidates) - skipped_no_chunks, 0)
-    cap_notes = (
+
+def _end(
+    progress: ProgressStream,
+    outcome: StarterWorkOutcome,
+    done: str,
+    warning: str | None = None,
+) -> Generator[ProgressEvent, None, StarterWorkOutcome]:
+    """Finish a run without a proposed pool: say why, then emit the outcome."""
+    if warning is not None:
+        yield progress.warning(warning)
+    yield progress.done(done, _dump(outcome))
+    return outcome
+
+
+def _judge(
+    progress: ProgressStream,
+    llm: LLMClient,
+    candidates: list[StarterTaskCandidate],
+    competency_keys: list[str],
+) -> Generator[ProgressEvent, None, GenPayload | GenerationError]:
+    yield progress.stage(
+        "grounding", f"Judging {len(candidates)} open issue(s) for scope safety"
+    )
+    raw = llm.generate(build_prompt(candidates, competency_keys))
+    try:
+        return parse_payload(raw)
+    except GenerationError as exc:
+        logger.warning("Starter-work mining generation failed: %s", exc)
+        return exc
+
+
+def _announce_cap(
+    progress: ProgressStream, judged: int, eligible_total: int, skipped_no_chunks: int
+) -> Generator[ProgressEvent, None, list[str]]:
+    """Say what this run does not judge, and return the notes that record it.
+
+    What did not fit is counted, never silently dropped: the next run reaches it,
+    and until then a PM can tell "capped" from "the corpus holds nothing else".
+    """
+    deferred = max(eligible_total - judged - skipped_no_chunks, 0)
+    notes = (
         [
             f"{deferred} more eligible issue(s) were not judged this run "
-            f"(cap is {_MAX_CANDIDATES_PER_RUN}); the next run picks them up"
+            f"(cap is {MAX_CANDIDATES_PER_RUN}); the next run picks them up"
         ]
         if deferred
         else []
     )
     if skipped_no_chunks:
-        cap_notes.append(f"{skipped_no_chunks} issue(s) had no chunks and were skipped")
+        notes.append(f"{skipped_no_chunks} issue(s) had no chunks and were skipped")
     if deferred:
         yield progress.warning(
-            f"Judging {len(candidates)} of {eligible_total} open issues this run; "
+            f"Judging {judged} of {eligible_total} open issues this run; "
             f"{deferred} wait for the next"
         )
+    return notes
 
-    yield progress.stage(
-        "grounding", f"Judging {len(candidates)} open issue(s) for scope safety"
-    )
-    raw = llm.generate(_build_prompt(candidates, active_competency_keys or []))
-    try:
-        payload = _parse_payload(raw)
-    except GenerationError as exc:
-        logger.warning("Starter-work mining generation failed: %s", exc)
-        outcome = StarterWorkOutcome(
-            status="skipped",
-            candidates_considered=len(candidates),
-            notes=[str(exc), *cap_notes],
-        )
-        yield progress.warning("The mined tasks could not be read")
-        yield progress.done("No starter tasks could be mined", _dump(outcome))
-        return outcome
 
+def _vet(
+    progress: ProgressStream,
+    payload: GenPayload,
+    candidates: list[StarterTaskCandidate],
+    known_keys: set[str] | None,
+) -> Generator[ProgressEvent, None, list[ProposedStarterTask]]:
+    """Keep the tasks judged safely scoped, each announced the instant it clears."""
     candidates_by_id = {c.source_id: c for c in candidates}
-    known_keys = set(active_competency_keys) if active_competency_keys else None
-
     tasks: list[ProposedStarterTask] = []
     seen: set[str] = set()
     for item in payload.tasks:
@@ -429,15 +193,73 @@ def stream_starter_work_pool(
         )
         tasks.append(task)
         yield progress.item(task.model_dump(mode="json"), f"Task: {task.title}")
+    return tasks
 
-    if not tasks:
-        outcome = StarterWorkOutcome(
-            status="skipped",
-            candidates_considered=len(candidates),
-            notes=["no candidate judged safely scoped", *cap_notes],
+
+def stream_starter_work_pool(
+    llm: LLMClient,
+    store: VectorStore,
+    metadata_store: IngestionMetadataStore,
+    *,
+    project_ids: frozenset[str],
+    active_source_ids: list[str] | None = None,
+    active_competency_keys: list[str] | None = None,
+    last_fingerprint: str | None = None,
+) -> Generator[ProgressEvent, None, StarterWorkOutcome]:
+    """Mine the pool, yielding live progress and returning the final outcome.
+
+    This is the single implementation: :func:`generate_starter_work_pool` drives
+    it to completion for the non-streaming path, and the streaming route relays
+    its events — so a PM watching the pool fill sees exactly what the batch call
+    would have produced. Each task is emitted as an ``item`` the instant it clears
+    the scope-safety judgement, so nothing unsafe is ever shown, and an ``item``
+    is a promise the task is in the persisted pool.
+    """
+    extra_material = mining_fingerprint_material(
+        metadata_store, active_source_ids, project_ids=project_ids
+    )
+    progress = ProgressStream("starter_work")
+    scope = _Scope(project_ids, extra_material, last_fingerprint)
+    fingerprint, early_events, early_outcome = _gate(progress, store, scope)
+    if early_outcome is not None:
+        yield from early_events
+        return early_outcome
+
+    yield progress.stage("retrieving", "Collecting open issues from the corpus")
+    candidates, eligible_total, skipped_no_chunks = load_candidates(
+        store,
+        metadata_store,
+        exclude_source_ids=set(active_source_ids or []),
+        project_ids=project_ids,
+    )
+    if not candidates:
+        outcome = _skipped(0, "no open, unpooled issues found")
+        return (
+            yield from _end(
+                progress, outcome, _DONE_EMPTY, "No open, unpooled issues to mine"
+            )
         )
-        yield progress.done("No issue was judged safely scoped", _dump(outcome))
-        return outcome
+
+    cap_notes = yield from _announce_cap(
+        progress, len(candidates), eligible_total, skipped_no_chunks
+    )
+
+    payload = yield from _judge(progress, llm, candidates, active_competency_keys or [])
+    if isinstance(payload, GenerationError):
+        outcome = _skipped(len(candidates), str(payload), *cap_notes)
+        return (
+            yield from _end(
+                progress, outcome, _DONE_EMPTY, "The mined tasks could not be read"
+            )
+        )
+
+    known_keys = set(active_competency_keys) if active_competency_keys else None
+    tasks = yield from _vet(progress, payload, candidates, known_keys)
+    if not tasks:
+        outcome = _skipped(
+            len(candidates), "no candidate judged safely scoped", *cap_notes
+        )
+        return (yield from _end(progress, outcome, "No issue was judged safely scoped"))
 
     outcome = StarterWorkOutcome(
         status="proposed",
