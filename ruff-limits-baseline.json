@@ -159,10 +159,12 @@
       "count": 1
     }
   },
-  "src/ingestion/parsing/pdf_parser.py::parse_pdf": {
+  "src/ingestion/parsing/pdf_parser.py::_page_texts": {
     "BLE001": {
       "count": 2
-    },
+    }
+  },
+  "src/ingestion/parsing/pdf_parser.py::parse_pdf": {
     "PLR0913": {
       "count": 1
     }
