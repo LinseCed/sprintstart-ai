@@ -139,9 +139,6 @@
   "src/ingestion/chunking/context_aware_chunker.py::chunk_text_context_aware": {
     "PLR0913": {
       "count": 1
-    },
-    "PLR0915": {
-      "count": 1
     }
   },
   "src/ingestion/mapper.py::to_chunk": {
