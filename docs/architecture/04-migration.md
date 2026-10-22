@@ -1,7 +1,7 @@
 # 4 Migration
 
-> **Status: in progress (updated 2026-10-22).** Stages A and B are done, stage C is open as #99, stage D
-> is half done and stage E has begun. From the [as-is](02-as-is.md) to the
+> **Status: in progress (updated 2026-10-22).** Stages A, B and C are done, the folder structure pass is
+> open as #101, stage D is half done and stage E has begun. From the [as-is](02-as-is.md) to the
 > [target](03-target.md) in small PRs. Every PR passes the full gate set (`ruff`, limits, `pyright`,
 > `pytest`, `lint-imports`, the ratchet, and mutation testing on the code it adds) and none changes
 > behaviour or an HTTP contract. Each stage has an exit measure, so progress shows up as numbers.
@@ -9,7 +9,7 @@
 ## 4.1 Tracked numbers
 
 *Before* is the as-is snapshot (`c188b82`, [§2](02-as-is.md)). *Now* is `main` at `0aa3429`, after
-PRs #88 to #97, measured with the same scripts. The package count includes stage C (#99), which is open.
+PRs #88 to #97, measured with the same scripts. The package count includes the folder structure pass (#101), which is open.
 
 | Number | Before | Now | Target | Source |
 |---|---:|---:|---:|---|
@@ -25,7 +25,7 @@ PRs #88 to #97, measured with the same scripts. The package count includes stage
 | Functions | 499 | 579 | — | AST |
 | Files over 400 lines | 15 | 10 | — | line count |
 | `*_id` parameters typed `str` | 50 | 49 | 0 | AST |
-| Packages named in the layers contract | 10 | 12 (with #99) | 12 | `.importlinter` |
+| Packages named in the layers contract | 10 | 12 (with #101) | 12 | `.importlinter` |
 | Duplicated lines | 119 | 82 | — | `metrics.sh` |
 | Dead-code findings | 15 | 15 | — | `metrics.sh` |
 | `ruff-limits` baseline | 56 entries, 93 violations | 53 entries, 74 violations | 0 | `ruff-limits-baseline.json` |
@@ -73,7 +73,7 @@ is: its handler is 36 lines and imports nothing it should not, so moving it woul
 And the `forbidden` contract allows indirect imports, because the ingest routes legitimately reach
 the parsers through the pipeline.
 
-### Stage C: one package per feature — open (#99)
+### Stage C: one package per feature — done (#99)
 
 Moves only. `onboarding` held two features with no import between them, so the split needed no new
 seam.
@@ -88,6 +88,22 @@ Two files were renamed to avoid confusion: `assembly.py` became `assembly/stages
 package. The planned separate PRs C1 to C3 were one, because the split is only checkable once both
 packages and the contract exist together.
 
+### Folder structure pass — open (#101)
+
+Renames only, after stage C. Three groupings, one commit each:
+
+- `assembly` (21 flat files) became four job packages, `phase/`, `orientation/`, `diagram/` and
+  `starter_work/`, each with `job.py`, `draft.py` and `models.py`.
+- `ingestion` (17 flat files) became `parsing/`, `chunking/` and `pipeline/` (`steps`, `upload`, `sync`).
+  The "routes adapt" contract now names two packages instead of eight modules.
+- `agents` was removed. It held the Buddy's tool kit and one unrelated file, so the tools became
+  `buddy/tools/` and `artifact_summary` became its own feature, `summaries/`. The layers contract lost
+  a layer and gained a feature.
+
+Left alone on purpose: `projects` (139 lines) and `skills` (303 lines) are small, but each is one
+cohesive feature, and merging them would weaken the independence contract. `store` still holds both
+the vector store and the SQLite stores, and `api/schemas.py` is still one 1,563-line file.
+
 ### Stage D: long functions (P7) — half done
 
 | PR | Change | Result |
@@ -99,9 +115,9 @@ The planned form of D1 ("a declared sequence of shared `assembly` stages") was n
 share the retrieval and generation stages that were already in `assembly.py`, but their grounding and
 outcome steps differ too much for one generic runner to read better than four short pipelines.
 
-Still over 100 lines: `chunk_text_context_aware` (143), `suggest_skills` (140),
-`buddy_open.stream_session` (121), `buddy_persona.build_persona` (120), `openai_client.chat_stream`
-(120), `chroma_store.query` (116) and `parse_pdf` (111).
+`suggest_skills` (140 → 36) is #100. Still over 100 lines: `chunk_text_context_aware` (143),
+`buddy.opening.stream_session` (121), `buddy.persona.build_persona` (120),
+`openai_client.chat_stream` (120), `chroma_store.query` (116) and `parse_pdf` (111).
 
 ### Stage E: typed identifiers (P8) — begun
 
@@ -127,7 +143,7 @@ The gates shaped the work, and three lessons repeat:
   PDF completes with zero chunks. The refactoring then kept both, on purpose.
 
 One side effect to know about: log messages emitted by moved code now come from the new module's
-logger (`onboarding.phase_draft`, not `onboarding.phase`).
+logger (`assembly.phase.draft`, not the module the code used to live in).
 
 ## 4.4 Open questions
 
@@ -135,9 +151,8 @@ logger (`onboarding.phase_draft`, not `onboarding.phase`).
    changes no structure, so it is left to a later pass.
 2. Whether the BM25 index should be per project. Nothing measures it today; track the index size
    before deciding.
-3. Whether `agents` stays a separate layer or becomes a sub-package of `buddy`. Only the Buddy uses it.
-4. What to call a domain `ProjectId` next to the wire alias of the same name.
-5. What to do about the files that stay over 400 lines and are not on this plan: `chroma_store.py`
+3. What to call a domain `ProjectId` next to the wire alias of the same name.
+4. What to do about the files that stay over 400 lines and are not on this plan: `chroma_store.py`
    (961), `metadata_store.py` (741), the three provider clients (653, 433, 428) and `buddy_persona.py`
    (645). They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
    `buddy/agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
