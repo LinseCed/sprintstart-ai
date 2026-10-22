@@ -1,7 +1,7 @@
 # 4 Migration
 
-> **Status: in progress (updated 2026-10-22).** Stages A and B are done, stage D is half done, stage C
-> has not started and stage E has begun. From the [as-is](02-as-is.md) to the
+> **Status: in progress (updated 2026-10-22).** Stages A and B are done, stage C is open as #99, stage D
+> is half done and stage E has begun. From the [as-is](02-as-is.md) to the
 > [target](03-target.md) in small PRs. Every PR passes the full gate set (`ruff`, limits, `pyright`,
 > `pytest`, `lint-imports`, the ratchet, and mutation testing on the code it adds) and none changes
 > behaviour or an HTTP contract. Each stage has an exit measure, so progress shows up as numbers.
@@ -9,7 +9,7 @@
 ## 4.1 Tracked numbers
 
 *Before* is the as-is snapshot (`c188b82`, [§2](02-as-is.md)). *Now* is `main` at `0aa3429`, after
-PRs #88 to #97, measured with the same scripts.
+PRs #88 to #97, measured with the same scripts. The package count includes stage C (#99), which is open.
 
 | Number | Before | Now | Target | Source |
 |---|---:|---:|---:|---|
@@ -25,7 +25,7 @@ PRs #88 to #97, measured with the same scripts.
 | Functions | 499 | 579 | — | AST |
 | Files over 400 lines | 15 | 10 | — | line count |
 | `*_id` parameters typed `str` | 50 | 49 | 0 | AST |
-| Packages named in the layers contract | 10 | 11 | 12 | `.importlinter` |
+| Packages named in the layers contract | 10 | 12 (with #99) | 12 | `.importlinter` |
 | Duplicated lines | 119 | 82 | — | `metrics.sh` |
 | Dead-code findings | 15 | 15 | — | `metrics.sh` |
 | `ruff-limits` baseline | 56 entries, 93 violations | 53 entries, 74 violations | 0 | `ruff-limits-baseline.json` |
@@ -73,17 +73,20 @@ is: its handler is 36 lines and imports nothing it should not, so moving it woul
 And the `forbidden` contract allows indirect imports, because the ingest routes legitimately reach
 the parsers through the pipeline.
 
-### Stage C: one package per feature — not started
+### Stage C: one package per feature — open (#99)
 
-Moves only. The Buddy and assembly files are already in separate modules (`buddy_*` and the
-`phase`, `orientation`, `diagram`, `starter_work` jobs), so this is now mostly renames plus the
-`independence` contract.
+Moves only. `onboarding` held two features with no import between them, so the split needed no new
+seam.
 
 | PR | Change |
 |---|---|
-| C1 | `onboarding` → `buddy` (agent, events, evidence, open, compact, persona, query fence, vocabulary). |
-| C2 | `onboarding` → `assembly` (assembly stages, the four jobs and their drafts and models, corpus fingerprint gate, citations, progress, similarity, grading, titles). |
-| C3 | Add the `independence` contract over `buddy`, `assembly`, `insights`, `projects`, `skills`. |
+| C1+C2 · #99 | `onboarding` → `buddy` (agent, events, evidence, opening, compact, persona, query fence, vocabulary) and `assembly` (the four jobs with their drafts and models, grading, titles, citations, progress, similarity, `stages`, `fingerprint`). Tests mirror the layout and the shared golden helper moves to `tests/support`. |
+| C3 · #99 | Both packages join the independent features in the layers contract. A planted `buddy` → `assembly` import fails it. |
+
+Two files were renamed to avoid confusion: `assembly.py` became `assembly/stages.py`, and
+`onboarding/corpus.py` became `assembly/fingerprint.py`, so it is not mistaken for the top-level `corpus`
+package. The planned separate PRs C1 to C3 were one, because the split is only checkable once both
+packages and the contract exist together.
 
 ### Stage D: long functions (P7) — half done
 
@@ -137,5 +140,5 @@ logger (`onboarding.phase_draft`, not `onboarding.phase`).
 5. What to do about the files that stay over 400 lines and are not on this plan: `chroma_store.py`
    (961), `metadata_store.py` (741), the three provider clients (653, 433, 428) and `buddy_persona.py`
    (645). They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
-   `buddy_agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
+   `buddy/agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
    covered by stage D.
