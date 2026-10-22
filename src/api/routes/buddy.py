@@ -18,21 +18,21 @@ from api.schemas import (
     ValidationErrorResponse,
 )
 from api.sse import stream_events
-from corpus.source_filter import SourceExclusions
-from corpus.types import RetrievalFilters
-from llm.base import LLMClient, Message, ToolCall, ToolSpec
-from llm.errors import LLMUnavailableError
-from onboarding.buddy_agent import run_agent_turn, stream_agent_turn
-from onboarding.buddy_compact import compact_memory
-from onboarding.buddy_events import (
+from buddy.agent import run_agent_turn, stream_agent_turn
+from buddy.compact import compact_memory
+from buddy.events import (
     AgentReasoning,
     AgentStreamEvent,
     AgentToken,
     AgentToolUse,
     AgentTurnResult,
 )
-from onboarding.buddy_open import stream_session
-from onboarding.vocabulary import Vocabulary
+from buddy.opening import stream_session
+from buddy.vocabulary import Vocabulary
+from corpus.source_filter import SourceExclusions
+from corpus.types import RetrievalFilters
+from llm.base import LLMClient, Message, ToolCall, ToolSpec
+from llm.errors import LLMUnavailableError
 from store.base import VectorStore
 from store.source_state_store import SourceStateStore
 

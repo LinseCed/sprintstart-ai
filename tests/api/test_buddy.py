@@ -55,7 +55,7 @@ def test_the_prior_summary_stands_in_for_the_conversation_older_than_the_window(
     assert body["messages"][0]["role"] == "system"
     assert "old notes" in body["messages"][0]["content"]
     contents = [m["content"] for m in body["messages"]]
-    # Fenced (`onboarding.query_fence`), so each is inside its marker lines.
+    # Fenced (`buddy.query_fence`), so each is inside its marker lines.
     assert any("\nm1\n" in c for c in contents)
     assert any("\nm2\n" in c for c in contents)
 

@@ -9,6 +9,115 @@
       "count": 1
     }
   },
+  "src/assembly/diagram.py::assemble_diagram": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/diagram.py::stream_diagram": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/diagram_draft.py::resolve_nodes": {
+    "PLR0915": {
+      "count": 1
+    }
+  },
+  "src/assembly/fingerprint.py::fingerprint_gate": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/orientation.py::assemble_orientation": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/orientation.py::stream_orientation": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/orientation_draft.py::build_prompt": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/phase.py::assemble_phase": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/phase.py::stream_phase": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/phase_draft.py::build_prompt": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/starter_work.py::generate_starter_work_pool": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/starter_work.py::stream_starter_work_pool": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/assembly/starter_work_draft.py::load_candidates": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/agent.py::_ensure_persona": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/agent.py::_persona_prompt": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/agent.py::run_agent_turn": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/agent.py::stream_agent_turn": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/evidence.py::local_tools": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/opening.py::stream_session": {
+    "PLR0913": {
+      "count": 1
+    },
+    "PLR0915": {
+      "count": 1
+    }
+  },
+  "src/buddy/persona.py::build_persona": {
+    "C901": {
+      "count": 1
+    },
+    "PLR0912": {
+      "count": 1
+    },
+    "PLR0915": {
+      "count": 1
+    }
+  },
   "src/corpus/filters.py::matches_retrieval_filters": {
     "C901": {
       "count": 1
@@ -130,115 +239,6 @@
       "count": 1
     },
     "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_agent.py::_ensure_persona": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_agent.py::_persona_prompt": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_agent.py::run_agent_turn": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_agent.py::stream_agent_turn": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_evidence.py::local_tools": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_open.py::stream_session": {
-    "PLR0913": {
-      "count": 1
-    },
-    "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/onboarding/buddy_persona.py::build_persona": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
-    "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/onboarding/corpus.py::fingerprint_gate": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/diagram.py::assemble_diagram": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/diagram.py::stream_diagram": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/diagram_draft.py::resolve_nodes": {
-    "PLR0915": {
-      "count": 1
-    }
-  },
-  "src/onboarding/orientation.py::assemble_orientation": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/orientation.py::stream_orientation": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/orientation_draft.py::build_prompt": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/phase.py::assemble_phase": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/phase.py::stream_phase": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/phase_draft.py::build_prompt": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/starter_work.py::generate_starter_work_pool": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/starter_work.py::stream_starter_work_pool": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/onboarding/starter_work_draft.py::load_candidates": {
-    "PLR0913": {
       "count": 1
     }
   },

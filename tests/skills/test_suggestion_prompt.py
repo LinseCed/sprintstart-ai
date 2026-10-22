@@ -1,7 +1,7 @@
 from corpus.types import ScoredChunk
 from skills.models import SkillCatalogEntry
 from skills.suggestion import _build_prompt, _format_catalog, _format_chunks
-from tests.onboarding.golden import assert_matches_golden
+from tests.support.golden import assert_matches_golden
 
 
 def _chunk(chunk_id: str, filename: str, text: str) -> ScoredChunk:
