@@ -31,7 +31,7 @@ Production Docker CMD (Dockerfile): `uvicorn api.app:app --app-dir src`.
 | Lint | `uv run ruff check .` |
 | Limits | `uv run python scripts/quality/ruff_limits.py` |
 | Quality ratchet | `bash scripts/quality/ratchet.sh` |
-| Architecture (layers) | `PYTHONPATH=src uv run lint-imports` |
+| Architecture (layers and boundaries) | `PYTHONPATH=src uv run lint-imports` |
 | Coverage gate | `uv run pytest --cov=src --cov-report=xml:coverage.xml && bash scripts/quality/coverage-gate.sh` |
 | Mutation gate (Linux/WSL) | `bash scripts/quality/mutation.sh` |
 | Quality report | `bash scripts/quality/report.sh` |

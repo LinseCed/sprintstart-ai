@@ -4,6 +4,7 @@
 # Run with `PYTHONPATH=src uv run lint-imports`.
 
 [importlinter]
+include_external_packages = True
 root_packages =
     api
     onboarding
@@ -28,3 +29,40 @@ layers =
     ingestion
     store
     llm | corpus
+
+
+[importlinter:contract:routes-adapt]
+name = Routes adapt: api.routes does not reach into parsing, chunking or the Chroma store
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    api.routes
+forbidden_modules =
+    ingestion.parser
+    ingestion.chunker
+    ingestion.context_aware_chunker
+    ingestion.code_parser
+    ingestion.pdf_parser
+    ingestion.text_parser
+    ingestion.image_parser
+    ingestion.tree_sitter_parser
+    store.chroma_store
+
+[importlinter:contract:http-only-in-api]
+name = Only api knows the web framework
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    onboarding
+    insights
+    projects
+    skills
+    agents
+    rag
+    ingestion
+    store
+    llm
+    corpus
+forbidden_modules =
+    fastapi
+    starlette
