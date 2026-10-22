@@ -319,7 +319,7 @@
       "count": 1
     }
   },
-  "src/rag/filters.py::where_filter_for_chroma": {
+  "src/store/chroma_where.py::where_filter_for_chroma": {
     "C901": {
       "count": 1
     },
