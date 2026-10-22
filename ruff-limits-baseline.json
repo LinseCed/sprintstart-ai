@@ -277,16 +277,7 @@
     }
   },
   "src/skills/suggestion.py::suggest_skills": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
     "PLR0913": {
-      "count": 1
-    },
-    "PLR0915": {
       "count": 1
     }
   },
