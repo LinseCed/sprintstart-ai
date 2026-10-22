@@ -8,9 +8,9 @@ from agents.artifact_summary import ArtifactSummaryAgent, SummaryStage
 from api.dependencies import get_llm, get_store
 from api.schemas import ArtifactSummaryRequest
 from api.sse import sse_event
+from corpus.types import Chunk
 from llm.base import LLMClient
 from llm.errors import LLMUnavailableError
-from rag.types import Chunk
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)

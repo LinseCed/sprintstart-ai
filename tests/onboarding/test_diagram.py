@@ -1,8 +1,8 @@
 import json
 
+from corpus.types import Chunk
 from onboarding.diagram import assemble_diagram, stream_diagram
 from onboarding.diagram_models import DiagramOutcome
-from rag.types import Chunk
 from tests.onboarding.diagram_fixtures import (
     PIDS,
     SUBJECT,

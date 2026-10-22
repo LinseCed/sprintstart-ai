@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, ValidationError
 
+from corpus.types import RetrievalFilters, ScoredChunk
 from llm.base import LLMClient, Message
 from llm.parsing import extract_json_object
 from onboarding.assembly import (
@@ -50,7 +51,6 @@ from onboarding.orientation_models import (
 )
 from onboarding.progress import ProgressEvent, ProgressStream, drain
 from onboarding.similarity import OVERLAP_THRESHOLD, text_overlap
-from rag.types import RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
 logger = logging.getLogger(__name__)

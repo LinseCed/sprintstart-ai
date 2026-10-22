@@ -1,6 +1,7 @@
 import pytest
 
 from agents.tools.base import ToolResult
+from corpus.types import ScoredChunk
 from llm.base import Message, ToolSpec
 from llm.errors import LLMUnavailableError
 from onboarding.buddy_agent import (
@@ -9,7 +10,6 @@ from onboarding.buddy_agent import (
     drop_test_material,
     run_agent_turn,
 )
-from rag.types import ScoredChunk
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 

@@ -11,10 +11,10 @@ from datetime import UTC, datetime
 
 import pytest
 
+from corpus.types import Chunk
 from onboarding.diagram import assemble_diagram, clamp_subject, stream_diagram
 from onboarding.diagram_models import DiagramEdge, DiagramOutcome, DiagramSource
 from onboarding.progress import ProgressEvent
-from rag.types import Chunk
 from tests.onboarding.diagram_fixtures import (
     PIDS,
     SUBJECT,

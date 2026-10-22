@@ -38,6 +38,9 @@ from agents.tools.base import ToolRegistry, ToolResult, run_tool_calls
 from agents.tools.evidence import format_evidence, limit_evidence
 from agents.tools.grep import GrepTool
 from agents.tools.retrieve import RetrieveTool
+from corpus.filters import NO_FILTERED_RESULTS_MESSAGE, has_narrowing_filters
+from corpus.source_filter import SourceExclusions
+from corpus.types import Citation, RetrievalFilters, ScoredChunk
 from llm.base import (
     ChatResult,
     LLMClient,
@@ -52,11 +55,8 @@ from onboarding.buddy_persona import build_persona
 from onboarding.query_fence import QUERY_FENCE_NOTE, fence_user_messages
 from onboarding.vocabulary import DEFAULT_VOCABULARY, Vocabulary
 from rag.citation import build_citations
-from rag.filters import NO_FILTERED_RESULTS_MESSAGE, has_narrowing_filters
 from rag.prompt import chunk_header
-from rag.source_filter import SourceExclusions
 from rag.source_kind import is_test_chunk
-from rag.types import Citation, RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
 # How the summary enters the model's context: appended to the persona in the system
@@ -419,7 +419,7 @@ def stream_agent_turn(
         # Scoped to the projects this hire is on, so the mentor cannot quote
         # another team's material as this team's -- and cannot hide the hire's
         # own second project either. Fail-closed, like every project scope:
-        # material belonging to no project matches none (`rag.filters`).
+        # material belonging to no project matches none (`corpus.filters`).
         project_ids=project_ids,
     )
     registry = _local_tools(

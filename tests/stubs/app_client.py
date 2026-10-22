@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api.dependencies import get_llm, get_source_state_store, get_store
+from corpus.types import Chunk
 from ingestion.source_state_store import SourceStateStore
-from rag.types import Chunk
 from tests.stubs.llm import ScriptedLLMClient
 from tests.stubs.store import StubVectorStore
 

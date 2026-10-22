@@ -13,7 +13,7 @@ from agents.tools.evidence import (
     limit_evidence,
     order_evidence_for_display,
 )
-from rag.types import ScoredChunk
+from corpus.types import ScoredChunk
 
 
 def _chunk(i: int, text: str = "x") -> ScoredChunk:

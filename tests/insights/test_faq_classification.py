@@ -3,6 +3,7 @@ from typing import cast
 
 import pytest
 
+from corpus.types import Chunk
 from ingestion.metadata_store import IngestionMetadataStore
 from insights.faq import NON_FAQ_KINDS, FaqDocument
 from insights.faq_classification import (
@@ -11,7 +12,6 @@ from insights.faq_classification import (
     merge_groups,
 )
 from llm.base import Message
-from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

@@ -3,9 +3,9 @@
 import json
 from collections.abc import Generator
 
+from corpus.types import Chunk
 from llm.base import Message
 from onboarding.progress import ProgressEvent
-from rag.types import Chunk
 from tests.stubs.llm import StubLLMClient
 from tests.stubs.store import StubVectorStore
 

@@ -1,6 +1,6 @@
 import pytest
 
-from ingestion.source_role import classify_source_role, is_source_role
+from corpus.source_role import classify_source_role, is_source_role
 
 
 @pytest.mark.parametrize(

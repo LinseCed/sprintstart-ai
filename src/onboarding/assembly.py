@@ -13,13 +13,13 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from ingestion.source_role import GROUNDING_EXCLUDED_ROLES
+from corpus.source_role import GROUNDING_EXCLUDED_ROLES
+from corpus.types import RetrievalFilters, ScoredChunk
 from llm.base import LLMClient, Message
 from onboarding.models import CitationRef
 from onboarding.progress import ProgressEvent, ProgressStream
 from onboarding.similarity import OVERLAP_THRESHOLD, text_overlap
 from rag.hybrid import BM25IndexCache, hybrid_retrieve
-from rag.types import RetrievalFilters, ScoredChunk
 from store.base import VectorStore
 
 _MIN_SCORE = 0.3

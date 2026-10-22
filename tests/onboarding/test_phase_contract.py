@@ -11,12 +11,12 @@ from datetime import UTC, datetime
 
 import pytest
 
+from corpus.types import Chunk
 from onboarding.corpus import corpus_fingerprint
 from onboarding.models import CheckOption, CheckQuestion
 from onboarding.phase import assemble_phase, stream_phase
 from onboarding.phase_models import PhaseOutcome, PhaseResource, PhaseTask
 from onboarding.progress import ProgressEvent
-from rag.types import Chunk
 from tests.onboarding.golden import assert_matches_golden
 from tests.onboarding.phase_fixtures import PROJECT, payload, question, step
 from tests.onboarding.pipeline_fixtures import (

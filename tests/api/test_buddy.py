@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api.dependencies import get_llm, get_source_state_store, get_store
+from corpus.filters import NO_FILTERED_RESULTS_MESSAGE
+from corpus.types import Chunk
 from ingestion.source_state_store import SourceStateStore
 from llm.errors import LLMUnavailableError
-from rag.filters import NO_FILTERED_RESULTS_MESSAGE
-from rag.types import Chunk
 from tests.conftest import parse_sse_events
 from tests.stubs.app_client import scripted_client
 from tests.stubs.llm import ScriptedLLMClient, StubLLMClient

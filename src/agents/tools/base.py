@@ -6,8 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
+from corpus.types import ScoredChunk
 from llm.base import ToolCall, ToolSpec
-from rag.types import ScoredChunk
 
 CapabilityKind = Literal["agent", "tool"]
 

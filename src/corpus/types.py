@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal, TypeGuard
 
-from ingestion.source_role import SourceRole
+from corpus.source_role import SourceRole
 
 ChunkKind = Literal["text", "code", "pdf", "image"]
 SourceSystem = Literal["GITHUB", "BITBUCKET", "JIRA", "CONFLUENCE", "NOTION", "UPLOAD"]
@@ -20,7 +20,7 @@ class RetrievalFilters:
     # The project the retrieval is scoped to. Chunks that don't belong to it —
     # including chunks with no project at all — are never returned. Retrieval
     # is deliberately fail-closed here: a missing project association makes
-    # content invisible rather than visible to everyone (see ``rag.filters``).
+    # content invisible rather than visible to everyone (see ``corpus.filters``).
     project_id: str | None = None
     #: The same rule as :attr:`project_id`, for a caller scoped to *several*
     #: projects at once -- a hire on two teams is the ordinary case. A chunk is
