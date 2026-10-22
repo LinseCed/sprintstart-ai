@@ -38,7 +38,7 @@ class _Payload(BaseModel):
 
 
 def _fallback_response() -> IndustryEvaluation:
-    return IndustryEvaluation(industry="", confidence="low", evidence=[])
+    return IndustryEvaluation(industry="", confidence="low")
 
 
 def _coerce_evidence(items: list[Any]) -> list[str]:

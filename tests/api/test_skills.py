@@ -225,3 +225,17 @@ def test_suggest_skills_api_422_missing_fields(
     # Missing required roleName
     response = http.post(f"{_BASE}/suggest", json={})
     assert response.status_code == 422
+
+
+def test_suggest_skills_api_marks_skills_missing_from_the_catalog_as_new(
+    client: tuple[TestClient, StubLLMClient, StubVectorStore],
+) -> None:
+    http, _, _ = client
+
+    response = http.post(
+        f"{_BASE}/suggest",
+        json={"projectId": _PROJECT, "roleName": "Frontend Developer"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert [s["isNew"] for s in response.json()["suggestions"]] == [True, True]
