@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 from pytest import LogCaptureFixture, MonkeyPatch
 
-import ingestion.pdf_parser as pdf_parser
-from ingestion.pdf_parser import parse_pdf
+import ingestion.parsing.pdf_parser as pdf_parser
+from ingestion.parsing.pdf_parser import parse_pdf
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 
 @pytest.fixture

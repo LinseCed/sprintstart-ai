@@ -616,7 +616,7 @@ _PDF_FIXTURE_PATH = (
 
 
 def test_assemble_content_skips_title_for_image_and_pdf() -> None:
-    from ingestion.sync_ingest import SyncedArtifact, assemble_content
+    from ingestion.pipeline.sync import SyncedArtifact, assemble_content
 
     image_req = SyncedArtifact(
         artifact_id="img-1",
@@ -650,7 +650,7 @@ def test_assemble_content_skips_title_for_image_and_pdf() -> None:
 
 
 def test_filename_for_uses_title_for_upload_file_artifacts() -> None:
-    from ingestion.sync_ingest import SyncedArtifact, filename_for
+    from ingestion.pipeline.sync import SyncedArtifact, filename_for
 
     upload_file = SyncedArtifact(
         artifact_id="uuid-upload",

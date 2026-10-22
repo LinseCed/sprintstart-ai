@@ -2,11 +2,11 @@ import logging
 import re
 from pathlib import Path
 
-from ingestion.chunker import chunk_code
-from ingestion.language_utils import PATTERNS
+from ingestion.chunking.chunker import chunk_code
 from ingestion.models import ParsedChunk
-from ingestion.text_parser import parse_text
-from ingestion.tree_sitter_parser import parse_with_tree_sitter
+from ingestion.parsing.language_utils import PATTERNS
+from ingestion.parsing.text_parser import parse_text
+from ingestion.parsing.tree_sitter_parser import parse_with_tree_sitter
 
 logger = logging.getLogger(__name__)
 

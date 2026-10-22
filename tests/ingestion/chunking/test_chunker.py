@@ -4,44 +4,47 @@ import sys
 import pytest
 from pytest import MonkeyPatch
 
-from ingestion.chunker import _paragraphs_with_start_lines, chunk_text  # type: ignore
-from ingestion.code_parser import chunk_code
-from ingestion.parser import parse
+from ingestion.chunking.chunker import (  # type: ignore
+    _paragraphs_with_start_lines,
+    chunk_text,
+)
+from ingestion.parsing.code_parser import chunk_code
+from ingestion.parsing.parser import parse
 
 
 def test_chunk_overlap_must_be_smaller_than_chunk_size(monkeypatch: MonkeyPatch):
     monkeypatch.setenv("CHUNK_SIZE", "100")
     monkeypatch.setenv("CHUNK_OVERLAP", "100")
 
-    sys.modules.pop("ingestion.chunker", None)
+    sys.modules.pop("ingestion.chunking.chunker", None)
 
     with pytest.raises(
         ValueError,
         match="chunk_overlap must be smaller than chunk_size",
     ):
-        importlib.import_module("ingestion.chunker")
+        importlib.import_module("ingestion.chunking.chunker")
 
 
 def test_chunk_overlap_larger_than_chunk_size_raises(monkeypatch: MonkeyPatch):
     monkeypatch.setenv("CHUNK_SIZE", "100")
     monkeypatch.setenv("CHUNK_OVERLAP", "200")
 
-    sys.modules.pop("ingestion.chunker", None)
+    sys.modules.pop("ingestion.chunking.chunker", None)
 
     with pytest.raises(
         ValueError,
         match="chunk_overlap must be smaller than chunk_size",
     ):
-        importlib.import_module("ingestion.chunker")
+        importlib.import_module("ingestion.chunking.chunker")
 
 
 def test_valid_chunk_configuration(monkeypatch: MonkeyPatch):
     monkeypatch.setenv("CHUNK_SIZE", "512")
     monkeypatch.setenv("CHUNK_OVERLAP", "64")
 
-    sys.modules.pop("ingestion.chunker", None)
+    sys.modules.pop("ingestion.chunking.chunker", None)
 
-    module = importlib.import_module("ingestion.chunker")
+    module = importlib.import_module("ingestion.chunking.chunker")
 
     assert module.chunk_size == 512
     assert module.chunk_overlap == 64

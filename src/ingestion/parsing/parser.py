@@ -1,12 +1,12 @@
 import logging
 from pathlib import Path
 
-from ingestion.code_parser import parse_code
-from ingestion.image_parser import parse_image
-from ingestion.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
 from ingestion.models import ParsedChunk
-from ingestion.pdf_parser import parse_pdf
-from ingestion.text_parser import parse_text
+from ingestion.parsing.code_parser import parse_code
+from ingestion.parsing.image_parser import parse_image
+from ingestion.parsing.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
+from ingestion.parsing.pdf_parser import parse_pdf
+from ingestion.parsing.text_parser import parse_text
 from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -40,8 +40,8 @@ def parse(
     plain-text parser rather than raising.
 
     ``llm``, ``semantic_boundaries``, and ``contextualize`` only affect the
-    plain-text and PDF paths (see :func:`ingestion.text_parser.parse_text`
-    and :func:`ingestion.pdf_parser.parse_pdf`); code and image parsing are
+    plain-text and PDF paths (see :func:`ingestion.parsing.text_parser.parse_text`
+    and :func:`ingestion.parsing.pdf_parser.parse_pdf`); code and image parsing are
     unaffected. Passing no ``llm`` preserves the exact prior behavior.
 
     Args:

@@ -1,7 +1,7 @@
 """LLM-based context-aware chunking strategy for text content.
 
 This is an opt-in, additive alternative to the paragraph-boundary
-``chunk_text`` strategy in :mod:`ingestion.chunker`. Instead of splitting on
+``chunk_text`` strategy in :mod:`ingestion.chunking.chunker`. Instead of splitting on
 character length alone, an LLM is given the full text (split into
 paragraphs) and asked to choose semantically coherent chunk boundaries and,
 optionally, a short situating "context block" for chunks that would benefit from one.
@@ -14,7 +14,7 @@ Both behaviors share a single LLM call but are independently toggleable:
   and prepend it to their content.
 
 If either the text is too large for the LLM, or the LLM output cannot be
-parsed, the whole call falls back to :func:`ingestion.chunker.chunk_text`.
+parsed, the whole call falls back to :func:`ingestion.chunking.chunker.chunk_text`.
 
 The LLM is asked to reason over small integer *indices*, not character
 offsets — LLMs are unreliable at counting characters, but reliably reproduce
@@ -37,13 +37,13 @@ import os
 
 from pydantic import BaseModel, Field, ValidationError
 
-from ingestion.chunker import (
+from ingestion.chunking.chunker import (
     chunk_overlap as default_chunk_overlap,
 )
-from ingestion.chunker import (
+from ingestion.chunking.chunker import (
     chunk_size as default_chunk_size,
 )
-from ingestion.chunker import (
+from ingestion.chunking.chunker import (
     chunk_text,
     group_paragraphs_into_chunks,
     split_into_paragraphs,
@@ -73,7 +73,7 @@ def exceeds_llm_limit(text: str, max_chars: int = max_chars) -> bool:
     This is a cheap character-count proxy for a token-count limit — used to
     decide upfront whether to attempt context-aware chunking at all, before
     spending an LLM call. Callers should fall back to
-    :func:`ingestion.chunker.chunk_text` when this returns ``True``.
+    :func:`ingestion.chunking.chunker.chunk_text` when this returns ``True``.
 
     Args:
         text (str):
@@ -249,7 +249,7 @@ def _hard_split_with_context(
     small and self-contained, so duplicating it preserves the situating
     context each sub-chunk would otherwise lose). The remaining budget
     (``chunk_size`` minus the context block) is then hard-split the same
-    way :func:`ingestion.chunker.group_paragraphs_into_chunks` hard-splits
+    way :func:`ingestion.chunking.chunker.group_paragraphs_into_chunks` hard-splits
     oversized paragraphs — overlapping character windows of ``chunk_size -
     chunk_overlap`` stride.
 
@@ -312,7 +312,7 @@ def chunk_text_context_aware(
     """Split text into chunks using an LLM for semantic boundaries and/or
     selective contextualization.
 
-    This is an opt-in alternative to :func:`ingestion.chunker.chunk_text`.
+    This is an opt-in alternative to :func:`ingestion.chunking.chunker.chunk_text`.
     Falls back to it when:
 
     - both ``semantic_boundaries`` and ``contextualize`` are ``False``

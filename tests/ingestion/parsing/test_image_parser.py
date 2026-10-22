@@ -1,4 +1,4 @@
-from ingestion.image_parser import parse_image
+from ingestion.parsing.image_parser import parse_image
 
 # Minimal 1×1 red PNG (base64-encoded)
 _TINY_PNG_B64 = (

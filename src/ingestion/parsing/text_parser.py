@@ -1,5 +1,5 @@
-from ingestion.chunker import chunk_text
-from ingestion.context_aware_chunker import chunk_text_context_aware
+from ingestion.chunking.chunker import chunk_text
+from ingestion.chunking.context_aware_chunker import chunk_text_context_aware
 from ingestion.models import ParsedChunk
 from llm.base import LLMClient
 
@@ -14,8 +14,8 @@ def parse_text(
     """Parse plain text-based files into paragraph-aware text chunks.
 
     When ``llm`` is provided, the LLM-based context-aware chunking strategy
-    (see :func:`ingestion.context_aware_chunker.chunk_text_context_aware`)
-    is used instead of the plain :func:`ingestion.chunker.chunk_text`. This
+    (see :func:`ingestion.chunking.context_aware_chunker.chunk_text_context_aware`)
+    is used instead of the plain :func:`ingestion.chunking.chunker.chunk_text`. This
     is opt-in: without an ``llm``, behavior is unchanged regardless of the
     ``semantic_boundaries``/``contextualize`` flags, since there is no LLM
     to call.

@@ -10,7 +10,7 @@ from tree_sitter_language_pack import (
     get_parser,
 )
 
-from ingestion.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
+from ingestion.parsing.language_utils import TOP_LEVEL_NODES_FOR_SUPPORTED_LANGUAGES
 
 
 @dataclass

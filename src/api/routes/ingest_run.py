@@ -14,8 +14,8 @@ from api.schemas import (
     RunArtifactsSyncResponse,
 )
 from corpus.ids import ArtifactId, SourceId
-from ingestion.pipeline import IngestDeps
-from ingestion.sync_ingest import (
+from ingestion.pipeline.steps import IngestDeps
+from ingestion.pipeline.sync import (
     DeindexOutcome,
     SyncedArtifact,
     SyncedResult,

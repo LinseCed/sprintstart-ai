@@ -1,5 +1,9 @@
-from ingestion.code_parser import PATTERNS, compute_boundaries, fallback_regex_parser
-from ingestion.parser import parse
+from ingestion.parsing.code_parser import (
+    PATTERNS,
+    compute_boundaries,
+    fallback_regex_parser,
+)
+from ingestion.parsing.parser import parse
 
 
 def test_parse_python_multiple_functions():

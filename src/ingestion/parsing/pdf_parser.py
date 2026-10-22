@@ -3,8 +3,8 @@ import logging
 
 from pypdf import PdfReader
 
-from ingestion.chunker import chunk_text
-from ingestion.context_aware_chunker import chunk_text_context_aware
+from ingestion.chunking.chunker import chunk_text
+from ingestion.chunking.context_aware_chunker import chunk_text_context_aware
 from ingestion.models import ParsedChunk
 from llm.base import LLMClient
 
@@ -24,7 +24,7 @@ def parse_pdf(
     Each PDF page is processed independently. Extracted text is split
     into fixed-size chunks using `chunk_text` (max 512 characters per chunk),
     or, when ``llm`` is provided, using the LLM-based context-aware chunker
-    (see :func:`ingestion.context_aware_chunker.chunk_text_context_aware`).
+    (see :func:`ingestion.chunking.context_aware_chunker.chunk_text_context_aware`).
 
     Each resulting chunk is enriched with PDF-specific metadata.
 

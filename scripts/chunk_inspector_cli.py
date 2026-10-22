@@ -18,7 +18,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from ingestion.models import ParsedChunk  # noqa: E402
-from ingestion.parser import parse  # noqa: E402
+from ingestion.parsing.parser import parse  # noqa: E402
 
 console = Console()
 

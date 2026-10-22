@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from ingestion.models import ParsedChunk
-from ingestion.parser import parse
+from ingestion.parsing.parser import parse
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 CHUNK_SIZE: int = 512
 

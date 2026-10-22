@@ -3,7 +3,7 @@ import json
 import pytest
 from pytest import MonkeyPatch
 
-from ingestion.context_aware_chunker import (
+from ingestion.chunking.context_aware_chunker import (
     chunk_text_context_aware,
     exceeds_llm_limit,
 )
@@ -46,7 +46,9 @@ def test_empty_text_falls_back_to_chunk_text():
 
 
 def test_text_exceeding_llm_limit_falls_back(monkeypatch: MonkeyPatch):
-    monkeypatch.setattr("ingestion.context_aware_chunker.max_chars", 10, raising=False)
+    monkeypatch.setattr(
+        "ingestion.chunking.context_aware_chunker.max_chars", 10, raising=False
+    )
     llm = StubLLMClient(generate_response="should never be used")
     text = "Paragraph A\n\nParagraph B\n\nParagraph C"
 

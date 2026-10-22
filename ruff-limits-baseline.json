@@ -126,22 +126,17 @@
       "count": 1
     }
   },
-  "src/ingestion/chunker.py::_group_paragraphs_into_chunks_with_lines": {
+  "src/ingestion/chunking/chunker.py::_group_paragraphs_into_chunks_with_lines": {
     "PLR0915": {
       "count": 1
     }
   },
-  "src/ingestion/chunker.py::to_parsed_chunk": {
+  "src/ingestion/chunking/chunker.py::to_parsed_chunk": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/code_parser.py::parse_code": {
-    "BLE001": {
-      "count": 1
-    }
-  },
-  "src/ingestion/context_aware_chunker.py::chunk_text_context_aware": {
+  "src/ingestion/chunking/context_aware_chunker.py::chunk_text_context_aware": {
     "PLR0913": {
       "count": 1
     },
@@ -154,12 +149,17 @@
       "count": 1
     }
   },
-  "src/ingestion/parser.py::parse": {
+  "src/ingestion/parsing/code_parser.py::parse_code": {
+    "BLE001": {
+      "count": 1
+    }
+  },
+  "src/ingestion/parsing/parser.py::parse": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/pdf_parser.py::parse_pdf": {
+  "src/ingestion/parsing/pdf_parser.py::parse_pdf": {
     "BLE001": {
       "count": 2
     },
@@ -167,12 +167,12 @@
       "count": 1
     }
   },
-  "src/ingestion/text_parser.py::parse_text": {
+  "src/ingestion/parsing/text_parser.py::parse_text": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/tree_sitter_parser.py::parse_with_tree_sitter": {
+  "src/ingestion/parsing/tree_sitter_parser.py::parse_with_tree_sitter": {
     "PLR0915": {
       "count": 1
     }

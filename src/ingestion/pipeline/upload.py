@@ -10,8 +10,8 @@ from corpus.source_role import SourceRole, classify_source_role
 from corpus.types import Chunk
 from ingestion.mapper import to_chunk
 from ingestion.models import ParsedChunk
-from ingestion.parser import parse
-from ingestion.pipeline import (
+from ingestion.parsing.parser import parse
+from ingestion.pipeline.steps import (
     ArtifactRef,
     IngestDeps,
     IngestError,

@@ -12,8 +12,8 @@ from api.schemas import (
 )
 from corpus.ids import ArtifactId
 from corpus.types import Chunk
-from ingestion.pipeline import IngestDeps, IngestError, IngestFailure
-from ingestion.upload_ingest import UploadedDocument, ingest_upload
+from ingestion.pipeline.steps import IngestDeps, IngestError, IngestFailure
+from ingestion.pipeline.upload import UploadedDocument, ingest_upload
 from llm.base import LLMClient
 from store.base import VectorStore
 from store.metadata_store import ArtifactRecord, IngestionMetadataStore
