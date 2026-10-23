@@ -260,13 +260,13 @@
       "count": 1
     }
   },
-  "src/store/chroma_store.py::_max_write_page": {
-    "BLE001": {
+  "src/store/chroma_membership.py::_rewrite": {
+    "PLR0913": {
       "count": 1
     }
   },
-  "src/store/chroma_store.py::_rewrite_membership": {
-    "PLR0913": {
+  "src/store/chroma_store.py::_max_write_page": {
+    "BLE001": {
       "count": 1
     }
   },

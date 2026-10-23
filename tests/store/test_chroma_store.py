@@ -11,7 +11,7 @@ from corpus.source_filter import SourceExclusions
 from corpus.source_role import SourceRole
 from corpus.types import Chunk, RetrievalFilters
 from rag.hybrid import BM25IndexCache
-from store import chroma_store as chroma_store_module
+from store import chroma_client, chroma_records
 from store.chroma_store import ChromaVectorStore
 from store.metadata_store import IngestionMetadataStore
 
@@ -38,10 +38,10 @@ def test_persistent_client_cold_cache_is_constructed_once_concurrently(
 
     def resolve() -> object:
         callers_ready.wait(timeout=2)
-        return chroma_store_module._get_persistent_client(path)
+        return chroma_client.get_persistent_client(path)
 
-    monkeypatch.setattr(chroma_store_module.chromadb, "PersistentClient", construct)
-    chroma_store_module._CLIENT_CACHE.pop(path, None)
+    monkeypatch.setattr(chroma_client.chromadb, "PersistentClient", construct)
+    chroma_client.CLIENT_CACHE.pop(path, None)
 
     try:
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -52,7 +52,7 @@ def test_persistent_client_cold_cache_is_constructed_once_concurrently(
             clients = [future.result(timeout=2) for future in futures]
     finally:
         release_constructor.set()
-        chroma_store_module._CLIENT_CACHE.pop(path, None)
+        chroma_client.CLIENT_CACHE.pop(path, None)
 
     assert construction_count == 1
     assert all(client is fake_client for client in clients)
@@ -74,18 +74,18 @@ def test_failed_persistent_client_construction_is_not_cached(
             raise RuntimeError("temporary Chroma failure")
         return fake_client
 
-    monkeypatch.setattr(chroma_store_module.chromadb, "PersistentClient", construct)
-    chroma_store_module._CLIENT_CACHE.pop(path, None)
+    monkeypatch.setattr(chroma_client.chromadb, "PersistentClient", construct)
+    chroma_client.CLIENT_CACHE.pop(path, None)
 
     try:
         with pytest.raises(RuntimeError, match="temporary Chroma failure"):
-            chroma_store_module._get_persistent_client(path)
+            chroma_client.get_persistent_client(path)
 
-        assert path not in chroma_store_module._CLIENT_CACHE
-        assert chroma_store_module._get_persistent_client(path) is fake_client
+        assert path not in chroma_client.CLIENT_CACHE
+        assert chroma_client.get_persistent_client(path) is fake_client
         assert attempts == 2
     finally:
-        chroma_store_module._CLIENT_CACHE.pop(path, None)
+        chroma_client.CLIENT_CACHE.pop(path, None)
 
 
 def test_chroma_query_returns_chunks_above_min_score() -> None:
@@ -450,7 +450,7 @@ def test_chroma_paged_reads_return_every_chunk_exactly_once(monkeypatch) -> None
             for index in range(5)
         ]
     )
-    monkeypatch.setattr(chroma_store_module, "_MAX_GET_PAGE", 2)
+    monkeypatch.setattr(chroma_records, "MAX_GET_PAGE", 2)
 
     chunks = list(store.iter_chunks_without_embeddings())
     chunk_ids = [chunk.id for chunk in chunks]
@@ -554,7 +554,7 @@ def test_chroma_position_read_fails_closed_if_revoked_during_read(
 
     def revoke_after_read(*args: object, **kwargs: object) -> object:
         result = original_get(*args, **kwargs)
-        store._begin_revocations(
+        store._ledger.begin(
             frozenset({"artifact-a"}),
             reason="delete",
             owner="test",
@@ -1123,7 +1123,7 @@ def test_chroma_project_ids_for_artifact_reads_indexed_membership(monkeypatch) -
         ]
     )
 
-    monkeypatch.setattr(chroma_store_module, "_MAX_GET_PAGE", 2)
+    monkeypatch.setattr(chroma_records, "MAX_GET_PAGE", 2)
     metadata_reads: list[dict[str, object]] = []
     original_get = store._collection.get
 
@@ -1489,7 +1489,7 @@ def test_remove_project_rewrites_a_corpus_larger_than_one_page(monkeypatch) -> N
         ]
     )
 
-    monkeypatch.setattr(chroma_store_module, "_MAX_GET_PAGE", 2)
+    monkeypatch.setattr(chroma_records, "MAX_GET_PAGE", 2)
     reads: list[dict[str, object]] = []
     original_get = store._collection.get
 
@@ -2006,7 +2006,7 @@ def test_remove_project_retry_clears_tombstones_for_already_rewritten_pages(
             _revocation_chunk("c2", "art-2", ("a", "b")),
         ]
     )
-    monkeypatch.setattr(chroma_store_module, "_MAX_GET_PAGE", 1)
+    monkeypatch.setattr(chroma_records, "MAX_GET_PAGE", 1)
     original_add = store.add
     calls = 0
 
@@ -2213,8 +2213,8 @@ def test_chroma_query_returns_nothing_when_revocations_never_settle(
 ) -> None:
     store = _store_with_two_chunks("test_chunks_query_unstable")
     revisions = iter(range(100))
-    monkeypatch.setattr(store, "_revocation_revision", lambda: next(revisions))
-    monkeypatch.setattr(store, "_revocation_snapshot", lambda: (-1, frozenset()))
+    monkeypatch.setattr(store._ledger, "revocation_revision", lambda: next(revisions))
+    monkeypatch.setattr(store._ledger, "snapshot", lambda: (-1, frozenset()))
 
     assert store.query(embedding=[1.0, 0.0], top_k=5, min_score=0.0) == []
 
@@ -2225,8 +2225,8 @@ def test_chroma_query_retries_once_when_revocations_change_mid_search(
     store = _store_with_two_chunks("test_chunks_query_retry")
     reads = iter([6, 6])
     snapshots = iter([(5, frozenset()), (6, frozenset({"artifact-1"}))])
-    monkeypatch.setattr(store, "_revocation_revision", lambda: next(reads))
-    monkeypatch.setattr(store, "_revocation_snapshot", lambda: next(snapshots))
+    monkeypatch.setattr(store._ledger, "revocation_revision", lambda: next(reads))
+    monkeypatch.setattr(store._ledger, "snapshot", lambda: next(snapshots))
 
     assert store.query(embedding=[1.0, 0.0], top_k=5, min_score=0.0) == []
 

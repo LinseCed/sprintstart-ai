@@ -80,8 +80,10 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 - **`ingestion/`** — `parsing/` (per-filetype parsers behind `parser.py`), `chunking/`
   (`chunker.py`, `context_aware_chunker.py`) and `pipeline/` (the shared steps and the
   upload and synced-artifact flows), plus `mapper.py` and `membership.py`.
-- **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py`, and the
-  SQLite stores for ingestion metadata (`metadata_store.py`) and source state
+- **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py` (with
+  `chroma_records.py` for turning Chroma records into chunks, `chroma_membership.py` for
+  rewriting project membership, `revocation_ledger.py` for what must be hidden right now and
+  `chroma_client.py` for the per-path client), and the SQLite stores for ingestion metadata (`metadata_store.py`) and source state
   (`source_state_store.py`).
 - **`corpus/`** — the vocabulary of the indexed material, with no I/O and no
   dependency on our other packages: `types.py` (`Chunk`, `ScoredChunk`,
