@@ -61,7 +61,8 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
   carry the retrieved text, so the loop that searched is the loop that answers.
   `tools/` holds the tool kit (`ToolRegistry`, retrieval, grep, evidence budget),
   `events.py` the stream events, `evidence.py` the local search tools and how their results
-  are shown, plus `opening.py`, `compact.py`, `persona.py`, `query_fence.py` and
+  are shown, plus `opening.py`, `compact.py`, `persona.py` (its wording in
+  `persona_clauses.py`, the manager's variant in `team_persona.py`), `query_fence.py` and
   `vocabulary.py`. `api/routes/buddy.py` serves it.
 - **`assembly/`** — Deterministic staged assembly jobs (not agentic). One package per job:
   `phase/`, `orientation/`, `diagram/` and `starter_work/`, each with `job.py` (the
