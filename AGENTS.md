@@ -88,7 +88,8 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
   `RetrievalFilters`), `source_role.py`, `source_filter.py`, and the pure
   filter predicates and project-id encoding in `filters.py`.
 - **`llm/`** — `LLMClient` protocol (`base.py`) with implementations:
-  `ollama_client.py`, `openai_client.py`, `anthropic_client.py`.
+  `ollama_client.py`, `openai_client.py` (its streamed tool turn in `openai_stream.py`),
+  `anthropic_client.py`.
   `SplitLLMClient` lets generation and embeddings use different backends
   (`LLM_BACKEND` vs `EMBED_BACKEND`). All three take a request timeout
   (`LLM_TIMEOUT_SECONDS`, default 600). The Anthropic client sets
