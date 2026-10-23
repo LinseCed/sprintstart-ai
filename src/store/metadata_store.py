@@ -13,7 +13,6 @@ from corpus.filters import (
     encode_project_ids,
     encoded_project_marker,
 )
-from store.revocation_tables import RevocationReason as RevocationReason
 from store.revocation_tables import RevocationTables
 
 IngestionStatus = Literal["processing", "completed", "failed", "deindexed"]
