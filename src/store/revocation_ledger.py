@@ -9,7 +9,8 @@ import threading
 from collections.abc import Mapping
 
 from corpus.ids import ArtifactId
-from store.metadata_store import IngestionMetadataStore, RevocationReason
+from store.metadata_store import IngestionMetadataStore
+from store.revocation_tables import RevocationReason
 
 _Key = tuple[str, RevocationReason, str]
 

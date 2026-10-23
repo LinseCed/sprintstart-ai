@@ -124,6 +124,8 @@ across fifteen reply shapes, four chunk sizes, five configurations and the failu
 membership rewrite to `store/chroma_membership.py`, the revocation bookkeeping to
 `store/revocation_ledger.py` and the client cache to `store/chroma_client.py`; the existing store tests
 pin the behaviour and the new modules have direct tests.
+`metadata_store.py` (741 → 396 lines) keeps the artifact records; the tombstone and revision tables moved
+to `store/revocation_tables.py`, mixed into `IngestionMetadataStore` so no caller changes.
 
 Still over 100 lines: `buddy.opening.stream_session` and `buddy.persona.build_persona`, each in its own PR.
 
@@ -160,8 +162,8 @@ logger (`assembly.phase.draft`, not the module the code used to live in).
 2. Whether the BM25 index should be per project. Nothing measures it today; track the index size
    before deciding.
 3. What to call a domain `ProjectId` next to the wire alias of the same name.
-4. What to do about the files that stay over 400 lines and are not on this plan: `metadata_store.py`
-   (741), the three provider clients (464, 433, 428).
+4. What to do about the files that stay over 400 lines and are not on this plan: the three provider
+   clients (464, 433, 428).
    They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
    `buddy/agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
    covered by stage D.
