@@ -56,7 +56,7 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 - **`api/`** — FastAPI app (`app.py`), DI (`dependencies.py`), `schemas.py`,
   SSE helpers (`sse.py`), and route modules under `routes/`.
 - **`buddy/`** — The Buddy. `agent.py` is the conversation engine (`run_agent_turn`
-  and the `_Turn` that drives it): one flat tool loop over a single message list — it
+  and the `Turn` in `turn.py` that drives it, over the message list `conversation.py` keeps): one flat tool loop over a single message list — it
   searches while the model asks, then answers from that same conversation. Tool results
   carry the retrieved text, so the loop that searched is the loop that answers.
   `tools/` holds the tool kit (`ToolRegistry`, retrieval, grep, evidence budget),
@@ -78,7 +78,7 @@ triggers Docker image publish to `ghcr.io/sprintstartproject/sprintstart-ai`.
 - **`rag/`** — `retriever.py`, `hybrid.py` (BM25 + vector hybrid retrieval
   with RRF fusion), `citation.py`, `prompt.py`.
 - **`ingestion/`** — `parsing/` (per-filetype parsers behind `parser.py`), `chunking/`
-  (`chunker.py`, `context_aware_chunker.py`) and `pipeline/` (the shared steps and the
+  (`chunker.py`, `context_aware_chunker.py`, `parsed_chunk.py`) and `pipeline/` (the shared steps and the
   upload and synced-artifact flows), plus `mapper.py` and `membership.py`.
 - **`store/`** — `VectorStore` protocol (`base.py`), `chroma_store.py` (with
   `chroma_records.py` for turning Chroma records into chunks, `chroma_membership.py` for

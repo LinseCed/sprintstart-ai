@@ -24,9 +24,6 @@ from store.chroma_where import where_filter_for_chroma
 from store.metadata_store import IngestionMetadataStore
 from store.revocation_ledger import RevocationLedger
 
-# Keep every Chroma ``get`` comfortably below SQLite's 32,766 bind-variable
-# ceiling. A page includes ids, documents, and metadata, so using the backend
-# ceiling itself would still be too large once Chroma hydrates those records.
 # Used only when the client cannot report its own write ceiling. Chroma's local
 # ceiling is 5,461 (the 32,766 bind-variable budget over the six columns a write
 # fills), so staying under that is safe for any backend we run against.

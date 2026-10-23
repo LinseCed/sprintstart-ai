@@ -1,6 +1,6 @@
 """Fitting LLM-planned chunks into the size budget as ``ParsedChunk``s."""
 
-from ingestion.chunking.chunker import to_parsed_chunk
+from ingestion.chunking.parsed_chunk import to_parsed_chunk
 from ingestion.models import ParsedChunk
 
 Piece = tuple[str, tuple[int, int] | None, bool, tuple[int, int] | None]

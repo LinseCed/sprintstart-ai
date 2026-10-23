@@ -120,6 +120,9 @@ chunker is already split. `OpenAIClient.chat_stream` (120 → 18 lines) hands th
 tool-decision turn to `ChatStreamAccumulator` in the new `llm/openai_stream.py`, together with the reasoning
 helpers it uses; `openai_client.py` fell from 653 to 464 lines. A golden pins the request body and the events
 across fifteen reply shapes, four chunk sizes, five configurations and the failure modes.
+`buddy/agent.py` (513 → 158 lines) keeps the two entry points; the turn itself moved to `buddy/turn.py` and the
+message list it carries to `buddy/conversation.py`. The chunker's `to_parsed_chunk` moved to
+`ingestion/chunking/parsed_chunk.py` (440 → 357 lines).
 `chroma_store.py` (960 → 399 lines) hands the record conversion to `store/chroma_records.py`, the
 membership rewrite to `store/chroma_membership.py`, the revocation bookkeeping to
 `store/revocation_ledger.py` and the client cache to `store/chroma_client.py`; the existing store tests
@@ -165,5 +168,3 @@ logger (`assembly.phase.draft`, not the module the code used to live in).
 4. What to do about the files that stay over 400 lines and are not on this plan: the three provider
    clients (464, 433, 428).
    They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
-   `buddy/agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
-   covered by stage D.
