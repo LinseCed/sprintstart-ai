@@ -115,9 +115,14 @@ The planned form of D1 ("a declared sequence of shared `assembly` stages") was n
 share the retrieval and generation stages that were already in `assembly.py`, but their grounding and
 outcome steps differ too much for one generic runner to read better than four short pipelines.
 
-`suggest_skills` (140 → 36) is #100. Still over 100 lines: `chunk_text_context_aware` (143),
-`buddy.opening.stream_session` (121), `buddy.persona.build_persona` (120),
-`openai_client.chat_stream` (120), `chroma_store.query` (116) and `parse_pdf` (111).
+`suggest_skills` (140 → 36) is #100 and `chroma_store.query` is #104. `buddy.persona.build_persona` (120 → 41, of which the docstring is 26)
+is split into one function per concern (path, tool routing, grounding, work); the wording moved to
+`persona_clauses.py` and the manager's persona to `team_persona.py`, with `persona.py` falling from 645 to
+239 lines. Its output is pinned byte for byte by a golden for the named toolsets and a digest file for every
+pair of tools plus 300 sampled subsets, in all four modes.
+
+Still over 100 lines: `chunk_text_context_aware` (143), `buddy.opening.stream_session` (121),
+`openai_client.chat_stream` (120) and `parse_pdf` (111).
 
 ### Stage E: typed identifiers (P8) — begun
 
@@ -153,7 +158,7 @@ logger (`assembly.phase.draft`, not the module the code used to live in).
    before deciding.
 3. What to call a domain `ProjectId` next to the wire alias of the same name.
 4. What to do about the files that stay over 400 lines and are not on this plan: `chroma_store.py`
-   (961), `metadata_store.py` (741), the three provider clients (653, 433, 428) and `buddy_persona.py`
-   (645). They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
+   (961), `metadata_store.py` (741), the three provider clients (653, 433, 428).
+   They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
    `buddy/agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
    covered by stage D.
