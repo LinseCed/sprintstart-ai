@@ -13,8 +13,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from buddy.opening import stream_session
-from llm.base import LLMClient, Message, TextDelta
+from llm.base import LLMClient, LLMStreamEvent, Message, ReasoningDelta, TextDelta
 from llm.errors import LLMUnavailableError
+from tests.stubs.llm import StubLLMClient
 from tests.support.golden import assert_matches_golden
 
 _EVENTS = Path(__file__).parent / "opening_events.txt"
@@ -37,45 +38,30 @@ _REPLIES = {
 }
 
 
-class _ChunkedLLM(LLMClient):
-    def __init__(self, items: list[object], then: Exception | None = None) -> None:
+class _ChunkedLLM(StubLLMClient):
+    """Replays scripted events, then optionally fails; remembers the prompt it got."""
+
+    def __init__(
+        self, items: list[LLMStreamEvent], then: Exception | None = None
+    ) -> None:
+        super().__init__()
         self._items = items
         self._then = then
+        self.prompt: list[Message] = []
 
-    def generate(self, messages, *, temperature=None):  # type: ignore[override]  # pragma: no cover
-        raise NotImplementedError
-
-    def chat(self, messages, tools=None):  # pragma: no cover - unused
-        raise NotImplementedError
-
-    def chat_stream(self, messages, tools=None):  # pragma: no cover - unused
-        raise NotImplementedError
-
-    def stream(self, messages) -> Iterator[object]:  # type: ignore[override]
+    def stream(self, messages: list[Message]) -> Iterator[LLMStreamEvent]:
+        self.prompt = list(messages)
         yield from self._items
         if self._then is not None:
             raise self._then
 
-    def embed(self, text):  # pragma: no cover - unused
-        raise NotImplementedError
 
-    def embed_batch(self, texts):  # pragma: no cover - unused
-        raise NotImplementedError
-
-    def caption_image(self, image_bytes):  # pragma: no cover - unused
-        raise NotImplementedError
-
-    @property
-    def model_name(self):  # pragma: no cover - unused
-        return "stub"
-
-
-def _cut(text: str, size: int) -> list[object]:
+def _cut(text: str, size: int) -> list[LLMStreamEvent]:
     return [TextDelta(text[i : i + size]) for i in range(0, len(text), size)]
 
 
-def _run(llm: LLMClient, **kwargs: object) -> str:
-    events = list(stream_session(None, [], "", llm, **kwargs))  # type: ignore[arg-type]
+def _run(llm: LLMClient, *, team_mode: bool = False) -> str:
+    events = list(stream_session(None, [], "", llm, team_mode=team_mode))
     return json.dumps(events, sort_keys=True)
 
 
@@ -88,11 +74,11 @@ def _lines() -> str:
                 lines.append(
                     f"{name} size={size} team={team} {_run(llm, team_mode=team)}\n"
                 )
-    noise: list[object] = [
+    noise: list[LLMStreamEvent] = [
         TextDelta(""),
-        object(),
+        ReasoningDelta("thinking"),
         TextDelta("Hi"),
-        object(),
+        ReasoningDelta("thinking"),
         TextDelta("!"),
     ]
     lines.append(f"noise {_run(_ChunkedLLM(noise))}\n")
@@ -111,22 +97,19 @@ def test_every_chunking_of_every_reply_matches_the_golden() -> None:
     assert actual == _EVENTS.read_text(encoding="utf-8")
 
 
-class _RecordingLLM(_ChunkedLLM):
-    def __init__(self) -> None:
-        super().__init__([])
-        self.prompt: list[Message] = []
-
-    def stream(self, messages):  # type: ignore[override]
-        self.prompt = list(messages)
-        return iter(())
-
-
-def _prompt_of(name: str, *args: object, **kwargs: object) -> list[Message]:
-    llm = _RecordingLLM()
-    list(stream_session(*args, llm, **kwargs))  # type: ignore[arg-type]
+def _prompt_of(
+    name: str,
+    memory: str | None,
+    recent: list[Message],
+    state: str,
+    *,
+    team_mode: bool = False,
+) -> list[Message]:
+    llm = _ChunkedLLM([])
+    list(stream_session(memory, recent, state, llm, team_mode=team_mode))
     return [
-        {"role": f"{name}:{m['role']}", "content": m["content"]}
-        for m in llm.prompt  # type: ignore[misc]
+        {"role": f"{name}:{m['role']}", "content": m.get("content") or ""}
+        for m in llm.prompt
     ]
 
 
