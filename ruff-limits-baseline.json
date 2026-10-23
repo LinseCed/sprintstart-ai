@@ -69,22 +69,22 @@
       "count": 1
     }
   },
-  "src/buddy/agent.py::_ensure_persona": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
-  "src/buddy/agent.py::_persona_prompt": {
-    "PLR0913": {
-      "count": 1
-    }
-  },
   "src/buddy/agent.py::run_agent_turn": {
     "PLR0913": {
       "count": 1
     }
   },
   "src/buddy/agent.py::stream_agent_turn": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/conversation.py::_persona_prompt": {
+    "PLR0913": {
+      "count": 1
+    }
+  },
+  "src/buddy/conversation.py::ensure_persona": {
     "PLR0913": {
       "count": 1
     }
@@ -117,12 +117,12 @@
       "count": 1
     }
   },
-  "src/ingestion/chunking/chunker.py::to_parsed_chunk": {
+  "src/ingestion/chunking/context_aware_chunker.py::chunk_text_context_aware": {
     "PLR0913": {
       "count": 1
     }
   },
-  "src/ingestion/chunking/context_aware_chunker.py::chunk_text_context_aware": {
+  "src/ingestion/chunking/parsed_chunk.py::to_parsed_chunk": {
     "PLR0913": {
       "count": 1
     }
