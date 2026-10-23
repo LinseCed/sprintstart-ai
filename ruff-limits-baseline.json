@@ -295,11 +295,13 @@
       "count": 1
     }
   },
-  "src/store/chroma_store.py::query": {
+  "src/store/chroma_store.py::_search_stable": {
     "PLR0913": {
       "count": 1
-    },
-    "PLR0915": {
+    }
+  },
+  "src/store/chroma_store.py::query": {
+    "PLR0913": {
       "count": 1
     }
   },

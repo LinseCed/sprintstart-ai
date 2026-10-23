@@ -16,6 +16,7 @@ from corpus.filters import (
     project_metadata_key,
     timestamp_from_iso,
 )
+from corpus.ids import ChunkId
 from corpus.source_filter import SourceExclusions
 from corpus.source_role import SourceRole
 from corpus.types import Chunk, RetrievalFilters, ScoredChunk, is_chunk_kind
@@ -357,38 +358,13 @@ class ChromaVectorStore:
         if self._collection.count() == 0 or top_k <= 0:
             return []
 
-        # Every constraint goes into the ``where`` clause, which Chroma applies
-        # before limiting to ``n_results``. Filtering the returned window
-        # instead would let higher-ranked ineligible chunks push every eligible
-        # one out of it.
-        raw_result: QueryResult | None = None
-        revoked_artifact_ids: frozenset[str] = frozenset()
-        for _attempt in range(2):
-            revocation_revision, revoked_artifact_ids = self._revocation_snapshot()
-            where_filter = where_filter_for_chroma(
-                filters,
-                exclude_roles,
-                exclusions,
-                revoked_artifact_ids,
-            )
-
-            raw_result = self._collection.query(
-                query_embeddings=[embedding],
-                n_results=top_k,
-                where=where_filter,
-                include=["documents", "metadatas", "distances"],
-            )
-            if self._revocation_revision() == revocation_revision:
-                break
-        else:
-            # Revocations changed throughout both searches. Returning no
-            # candidates is bounded and fail-closed; the next request retries
-            # against a stable snapshot.
+        searched = self._search_stable(
+            embedding, top_k, filters, exclude_roles, exclusions
+        )
+        if searched is None:
             return []
+        raw_result, revoked_artifact_ids = searched
 
-        assert raw_result is not None
-
-        ids = raw_result["ids"][0]
         documents = (raw_result["documents"] or [[]])[0]
         metadatas = cast(
             list[Mapping[str, object]],
@@ -397,70 +373,55 @@ class ChromaVectorStore:
         distances = (raw_result["distances"] or [[]])[0]
 
         results: list[ScoredChunk] = []
-
         for chunk_id, text, metadata, distance in zip(
-            ids,
-            documents,
-            metadatas,
-            distances,
-            strict=True,
+            raw_result["ids"][0], documents, metadatas, distances, strict=True
         ):
-            artifact_id = str(metadata["artifact_id"])
-            if artifact_id in revoked_artifact_ids:
-                # Defensive check for custom/older Chroma clients that do not
-                # enforce the metadata predicate exactly as expected.
+            if str(metadata["artifact_id"]) in revoked_artifact_ids:
+                # Defensive: custom/older Chroma clients may not enforce the predicate.
                 continue
-
             score = 1.0 - distance
-
-            if score < min_score:
-                continue
-
-            raw_position = metadata.get("position")
-            position = (
-                None
-                if not isinstance(raw_position, (int, float))
-                or raw_position == _NO_POSITION
-                else int(raw_position)
-            )
-
-            kind_str = str(metadata.get("kind", "text"))
-            if not is_chunk_kind(kind_str):
-                raise ValueError(f"Unknown chunk kind {kind_str!r}")
-
-            source_system = normalize_source_system(
-                _optional_str(metadata.get("source_system"))
-            )
-
-            results.append(
-                ScoredChunk(
-                    id=str(chunk_id),
-                    artifact_id=artifact_id,
-                    filename=str(metadata["filename"]),
-                    position=position,
-                    kind=kind_str,
-                    text=str(text),
-                    score=score,
-                    source_role=_source_role_from_metadata(metadata),
-                    source_url=_optional_str(metadata.get("source_url")),
-                    artifact_type=_optional_str(metadata.get("artifact_type")),
-                    language=_optional_str(metadata.get("language")),
-                    connector_id=_optional_str(metadata.get("connector_id")),
-                    connector_source_id=_optional_str(
-                        metadata.get("connector_source_id")
-                    ),
-                    source_system=source_system,
-                    created_at=_optional_str(metadata.get("created_at")),
-                    start_line=_optional_int(metadata.get("start_line")),
-                    start_page=_optional_int(metadata.get("start_page")),
-                    project_ids=decode_project_ids(
-                        metadata.get(PROJECT_IDS_METADATA_KEY)
-                    ),
+            if score >= min_score:
+                results.append(
+                    _scored_chunk(ChunkId(str(chunk_id)), str(text), metadata, score)
                 )
-            )
 
         results.sort(key=lambda c: c.score, reverse=True)
         return results
+
+    def _search_stable(
+        self,
+        embedding: list[float],
+        top_k: int,
+        filters: RetrievalFilters | None,
+        exclude_roles: frozenset[SourceRole],
+        exclusions: SourceExclusions,
+    ) -> tuple[QueryResult, frozenset[str]] | None:
+        """Search against a revocation snapshot that did not change meanwhile.
+
+        Every constraint goes into the ``where`` clause, which Chroma applies
+        before limiting to ``n_results``; filtering the returned window instead
+        would let higher-ranked ineligible chunks push every eligible one out.
+
+        Returns ``None`` when revocations changed throughout both attempts:
+        no candidates is bounded and fail-closed, and the next request retries.
+        """
+        for _attempt in range(2):
+            revocation_revision, revoked_artifact_ids = self._revocation_snapshot()
+            where_filter = where_filter_for_chroma(
+                filters,
+                exclude_roles,
+                exclusions,
+                revoked_artifact_ids,
+            )
+            raw_result = self._collection.query(
+                query_embeddings=[embedding],
+                n_results=top_k,
+                where=where_filter,
+                include=["documents", "metadatas", "distances"],
+            )
+            if self._revocation_revision() == revocation_revision:
+                return raw_result, revoked_artifact_ids
+        return None
 
     def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> int:
         tombstone = frozenset({artifact_id})
@@ -934,6 +895,44 @@ def _chunks_without_embeddings_from_get_result(raw_result: Any) -> list[Chunk]:
         )
 
     return chunks
+
+
+def _scored_chunk(
+    chunk_id: ChunkId, text: str, metadata: Mapping[str, object], score: float
+) -> ScoredChunk:
+    raw_position = metadata.get("position")
+    position = (
+        None
+        if not isinstance(raw_position, (int, float)) or raw_position == _NO_POSITION
+        else int(raw_position)
+    )
+
+    kind_str = str(metadata.get("kind", "text"))
+    if not is_chunk_kind(kind_str):
+        raise ValueError(f"Unknown chunk kind {kind_str!r}")
+
+    return ScoredChunk(
+        id=chunk_id,
+        artifact_id=str(metadata["artifact_id"]),
+        filename=str(metadata["filename"]),
+        position=position,
+        kind=kind_str,
+        text=text,
+        score=score,
+        source_role=_source_role_from_metadata(metadata),
+        source_url=_optional_str(metadata.get("source_url")),
+        artifact_type=_optional_str(metadata.get("artifact_type")),
+        language=_optional_str(metadata.get("language")),
+        connector_id=_optional_str(metadata.get("connector_id")),
+        connector_source_id=_optional_str(metadata.get("connector_source_id")),
+        source_system=normalize_source_system(
+            _optional_str(metadata.get("source_system"))
+        ),
+        created_at=_optional_str(metadata.get("created_at")),
+        start_line=_optional_int(metadata.get("start_line")),
+        start_page=_optional_int(metadata.get("start_page")),
+        project_ids=decode_project_ids(metadata.get(PROJECT_IDS_METADATA_KEY)),
+    )
 
 
 def _source_role_from_metadata(metadata: Mapping[str, object]) -> SourceRole:

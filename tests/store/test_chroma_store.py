@@ -2162,3 +2162,92 @@ def test_reingest_clears_membership_tombstones_that_predate_replacement(
         assert store.project_ids_for_artifact("art-1") == frozenset({"b"})
     finally:
         metadata.close()
+
+
+def _store_with_two_chunks(name: str) -> ChromaVectorStore:
+    store = ChromaVectorStore(collection_name=name, client=chromadb.EphemeralClient())
+    store.add(
+        [
+            Chunk(
+                id="far",
+                artifact_id="artifact-1",
+                filename="doc.md",
+                position=1,
+                kind="text",
+                text="Far",
+                embedding=[0.6, 0.8],
+            ),
+            Chunk(
+                id="near",
+                artifact_id="artifact-1",
+                filename="doc.md",
+                position=2,
+                kind="text",
+                text="Near",
+                embedding=[1.0, 0.0],
+            ),
+        ]
+    )
+    return store
+
+
+def test_chroma_query_orders_results_by_descending_score() -> None:
+    store = _store_with_two_chunks("test_chunks_query_order")
+
+    result = store.query(embedding=[1.0, 0.0], top_k=5, min_score=0.0)
+
+    assert [chunk.id for chunk in result] == ["near", "far"]
+    assert result[0].score > result[1].score
+
+
+def test_chroma_query_keeps_a_chunk_scoring_exactly_min_score() -> None:
+    store = _store_with_two_chunks("test_chunks_query_boundary")
+
+    result = store.query(embedding=[1.0, 0.0], top_k=5, min_score=1.0)
+
+    assert [chunk.id for chunk in result] == ["near"]
+
+
+def test_chroma_query_returns_nothing_when_revocations_never_settle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store_with_two_chunks("test_chunks_query_unstable")
+    revisions = iter(range(100))
+    monkeypatch.setattr(store, "_revocation_revision", lambda: next(revisions))
+    monkeypatch.setattr(store, "_revocation_snapshot", lambda: (-1, frozenset()))
+
+    assert store.query(embedding=[1.0, 0.0], top_k=5, min_score=0.0) == []
+
+
+def test_chroma_query_retries_once_when_revocations_change_mid_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store_with_two_chunks("test_chunks_query_retry")
+    reads = iter([6, 6])
+    snapshots = iter([(5, frozenset()), (6, frozenset({"artifact-1"}))])
+    monkeypatch.setattr(store, "_revocation_revision", lambda: next(reads))
+    monkeypatch.setattr(store, "_revocation_snapshot", lambda: next(snapshots))
+
+    assert store.query(embedding=[1.0, 0.0], top_k=5, min_score=0.0) == []
+
+
+def test_chroma_query_rejects_an_unknown_chunk_kind() -> None:
+    client = chromadb.EphemeralClient()
+    store = ChromaVectorStore(collection_name="test_chunks_query_kind", client=client)
+    store.add(
+        [
+            Chunk(
+                id="c",
+                artifact_id="a",
+                filename="doc.md",
+                position=1,
+                kind="text",
+                text="x",
+                embedding=[1.0, 0.0],
+            )
+        ]
+    )
+    store._collection.update(ids=["c"], metadatas=[{"kind": "bogus"}])
+
+    with pytest.raises(ValueError, match="Unknown chunk kind 'bogus'"):
+        store.query(embedding=[1.0, 0.0], top_k=1, min_score=0.0)
