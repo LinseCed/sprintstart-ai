@@ -165,6 +165,6 @@ logger (`assembly.phase.draft`, not the module the code used to live in).
 2. Whether the BM25 index should be per project. Nothing measures it today; track the index size
    before deciding.
 3. What to call a domain `ProjectId` next to the wire alias of the same name.
-4. What to do about the files that stay over 400 lines and are not on this plan: the three provider
-   clients (464, 433, 428).
+4. What to do about the files that stay over 400 lines and are not on this plan: `buddy/agent.py` (513)
+   and the two chunkers (445, 440), which are partly covered by stage D.
    They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.

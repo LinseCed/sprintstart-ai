@@ -1,18 +1,11 @@
 import base64
-import json
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import Any
 
 from openai import NOT_GIVEN, OpenAI, OpenAIError, Stream, omit
 from openai.types.chat import (
-    ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
-    ChatCompletionMessage,
     ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionToolMessageParam,
-    ChatCompletionToolParam,
-    ChatCompletionUserMessageParam,
 )
 from openai.types.chat.chat_completion_chunk import ChoiceDelta
 
@@ -33,148 +26,17 @@ from llm.openai_stream import (
     loads_arguments,
     reasoning_text,
 )
+from llm.openai_wire import (
+    detect_image_mime_type,
+    normalize_base_url,
+    response_reasoning,
+    to_openai_messages,
+    to_openai_tools,
+)
 from llm.tool_call_recovery import (
     guard_event_stream,
     recover_tool_calls,
 )
-
-
-def _to_openai_tools(tools: list[ToolSpec]) -> list[ChatCompletionToolParam]:
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool["description"],
-                "parameters": tool["parameters"],
-            },
-        }
-        for tool in tools
-    ]
-
-
-def _normalize_base_url(base_url: str) -> str:
-    normalized = base_url.rstrip("/")
-
-    if not normalized.endswith("/v1"):
-        normalized = f"{normalized}/v1"
-
-    return normalized
-
-
-def _to_openai_messages(messages: list[Message]) -> list[ChatCompletionMessageParam]:
-    openai_messages: list[ChatCompletionMessageParam] = []
-
-    for message in messages:
-        role = message["role"]
-        content = message["content"]
-
-        if role == "system":
-            system_message: ChatCompletionSystemMessageParam = {
-                "role": "system",
-                "content": content,
-            }
-            openai_messages.append(system_message)
-        elif role == "tool":
-            tool_message: ChatCompletionToolMessageParam = {
-                "role": "tool",
-                "tool_call_id": message.get("tool_call_id", ""),
-                "content": content,
-            }
-            openai_messages.append(tool_message)
-        elif role == "assistant":
-            assistant_message: ChatCompletionAssistantMessageParam = {
-                "role": "assistant",
-                "content": content,
-            }
-            tool_calls = message.get("tool_calls")
-            if tool_calls:
-                assistant_message["tool_calls"] = [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.name,
-                            "arguments": json.dumps(call.arguments),
-                        },
-                    }
-                    for call in tool_calls
-                ]
-            # OpenRouter documents reasoning and reasoning_details as
-            # alternative preservation formats and requires the structured
-            # sequence for signed/encrypted blocks. Prefer it verbatim and fall
-            # back to plaintext only when no structured details are present.
-            reasoning_details = message.get("reasoning_details")
-            if reasoning_details:
-                cast("Any", assistant_message)["reasoning_details"] = reasoning_details
-            else:
-                reasoning = message.get("reasoning")
-                if reasoning:
-                    cast("Any", assistant_message)["reasoning"] = reasoning
-            openai_messages.append(assistant_message)
-        else:
-            user_message: ChatCompletionUserMessageParam = {
-                "role": "user",
-                "content": content,
-            }
-            openai_messages.append(user_message)
-
-    return openai_messages
-
-
-def _detect_image_mime_type(image_bytes: bytes) -> str:
-    image_type = _sniff_image_type(image_bytes)
-
-    if image_type is None:
-        raise LLMUnavailableError("Could not detect image MIME type")
-
-    return f"image/{image_type}"
-
-
-def _sniff_image_type(image_bytes: bytes) -> str | None:
-    """Detect an image format from its magic bytes.
-
-    Replaces the deprecated stdlib ``imghdr`` (removed in Python 3.13). Covers
-    the formats accepted by the ingest API (png, jpeg, gif, webp, bmp).
-    """
-    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "png"
-    if image_bytes.startswith(b"\xff\xd8\xff"):
-        return "jpeg"
-    if image_bytes.startswith((b"GIF87a", b"GIF89a")):
-        return "gif"
-    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
-        return "webp"
-    if image_bytes.startswith(b"BM"):
-        return "bmp"
-    return None
-
-
-def _response_reasoning(
-    message: ChatCompletionMessage,
-) -> tuple[str | None, list[dict[str, object]]]:
-    """Extract the exact reasoning context OpenRouter requires after tool use."""
-    message_fields = cast("dict[str, object]", message.model_dump())
-    raw_reasoning = message_fields.get("reasoning")
-    if not isinstance(raw_reasoning, str) or not raw_reasoning.strip():
-        # Legacy OpenAI-compatible backends (DeepSeek-R1, Qwen) expose the
-        # channel as reasoning_content, mirroring the streaming normalization.
-        raw_reasoning = message_fields.get("reasoning_content")
-    reasoning = (
-        raw_reasoning
-        if isinstance(raw_reasoning, str) and raw_reasoning.strip()
-        else None
-    )
-
-    raw_details = message_fields.get("reasoning_details")
-    if not isinstance(raw_details, list):
-        return reasoning, []
-
-    details: list[dict[str, object]] = []
-    for detail in cast("list[object]", raw_details):
-        if isinstance(detail, dict):
-            details.append(cast("dict[str, object]", detail))
-    return reasoning, details
 
 
 class OpenAIClient(LLMClient):
@@ -204,7 +66,7 @@ class OpenAIClient(LLMClient):
                 "OpenAI-compatible reasoning_max_tokens must be lower than max_tokens"
             )
 
-        self.base_url = _normalize_base_url(base_url)
+        self.base_url = normalize_base_url(base_url)
         self.chat_model = chat_model
         self.embed_model = embed_model
         self.vision_model = vision_model
@@ -242,13 +104,13 @@ class OpenAIClient(LLMClient):
             reasoning_enabled = bool(tools) and self.reasoning_max_tokens is not None
             response = self.client.chat.completions.create(
                 model=self.chat_model,
-                messages=_to_openai_messages(messages),
+                messages=to_openai_messages(messages),
                 max_tokens=(
                     self.max_tokens
                     if reasoning_enabled and self.max_tokens is not None
                     else omit
                 ),
-                tools=_to_openai_tools(tools) if tools else omit,
+                tools=to_openai_tools(tools) if tools else omit,
                 extra_body=self._reasoning_extra_body() if reasoning_enabled else None,
             )
         except OpenAIError as exc:
@@ -258,7 +120,7 @@ class OpenAIClient(LLMClient):
             ) from exc
 
         message = response.choices[0].message
-        reasoning, reasoning_details = _response_reasoning(message)
+        reasoning, reasoning_details = response_reasoning(message)
         calls: list[ToolCall] = []
         for call in message.tool_calls or []:
             if call.type != "function":
@@ -320,13 +182,13 @@ class OpenAIClient(LLMClient):
         try:
             return self.client.chat.completions.create(
                 model=self.chat_model,
-                messages=_to_openai_messages(messages),
+                messages=to_openai_messages(messages),
                 max_tokens=(
                     self.max_tokens
                     if reasoning_enabled and self.max_tokens is not None
                     else omit
                 ),
-                tools=_to_openai_tools(tools) if tools else omit,
+                tools=to_openai_tools(tools) if tools else omit,
                 stream=True,
                 stream_options={"include_usage": True},
                 extra_body=self._reasoning_extra_body() if reasoning_enabled else None,
@@ -346,7 +208,7 @@ class OpenAIClient(LLMClient):
         try:
             response = self.client.chat.completions.create(
                 model=self.chat_model,
-                messages=_to_openai_messages(messages),
+                messages=to_openai_messages(messages),
                 temperature=temperature if temperature is not None else omit,
             )
 
@@ -370,7 +232,7 @@ class OpenAIClient(LLMClient):
         try:
             stream: Iterator[ChatCompletionChunk] = self.client.chat.completions.create(
                 model=self.chat_model,
-                messages=_to_openai_messages(messages),
+                messages=to_openai_messages(messages),
                 max_tokens=self.max_tokens if self.max_tokens is not None else omit,
                 stream=True,
                 extra_body=self._reasoning_extra_body(),
@@ -429,7 +291,7 @@ class OpenAIClient(LLMClient):
 
         try:
             encoded = base64.b64encode(image_bytes).decode("ascii")
-            mime_type = _detect_image_mime_type(image_bytes)
+            mime_type = detect_image_mime_type(image_bytes)
 
             messages: list[ChatCompletionMessageParam] = [
                 {

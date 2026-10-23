@@ -187,19 +187,19 @@
       "count": 1
     }
   },
-  "src/llm/anthropic_client.py::_to_anthropic_messages": {
+  "src/llm/anthropic_client.py::chat_stream": {
     "C901": {
+      "count": 1
+    },
+    "PLR0912": {
       "count": 1
     },
     "PLR0915": {
       "count": 1
     }
   },
-  "src/llm/anthropic_client.py::chat_stream": {
+  "src/llm/anthropic_wire.py::to_anthropic_messages": {
     "C901": {
-      "count": 1
-    },
-    "PLR0912": {
       "count": 1
     },
     "PLR0915": {
