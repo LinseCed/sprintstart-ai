@@ -230,17 +230,6 @@
       "count": 1
     }
   },
-  "src/llm/openai_client.py::chat_stream": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
-    "PLR0915": {
-      "count": 1
-    }
-  },
   "src/rag/context_window.py::expand_context_window": {
     "C901": {
       "count": 1
