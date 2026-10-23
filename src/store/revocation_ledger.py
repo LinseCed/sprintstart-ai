@@ -8,6 +8,7 @@ local tools) it keeps the same bookkeeping in memory, so caches stay correct in-
 import threading
 from collections.abc import Mapping
 
+from corpus.ids import ArtifactId
 from store.metadata_store import IngestionMetadataStore, RevocationReason
 
 _Key = tuple[str, RevocationReason, str]
@@ -163,12 +164,12 @@ class RevocationLedger:
 
     def failed_operations_for_artifact(
         self,
-        artifact_id: str,
+        artifact: ArtifactId,
         reason: RevocationReason,
     ) -> dict[str, int]:
         if self._revision_store is not None:
             return self._revision_store.revocation_operations_for_artifact(
-                artifact_id,
+                artifact,
                 reason,
             )
 
@@ -178,7 +179,7 @@ class RevocationLedger:
                 for (stored_id, stored_reason, owner), generation in (
                     self._local_revocations.items()
                 )
-                if stored_id == artifact_id
+                if stored_id == artifact
                 and stored_reason == reason
                 and (stored_id, stored_reason, owner) in self._local_failed_revocations
             }

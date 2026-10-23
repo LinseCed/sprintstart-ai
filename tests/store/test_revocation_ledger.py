@@ -1,3 +1,4 @@
+from corpus.ids import ArtifactId
 from store.revocation_ledger import RevocationLedger
 
 
@@ -65,12 +66,16 @@ def test_a_failed_membership_revocation_is_offered_for_recovery() -> None:
     ledger = _ledger()
     generations = ledger.begin(frozenset({"a1"}), reason="membership", owner="o")
 
-    assert ledger.failed_operations_for_artifact("a1", "membership") == {}
+    assert ledger.failed_operations_for_artifact(ArtifactId("a1"), "membership") == {}
     ledger.fail(generations, reason="membership", owner="o")
 
-    assert ledger.failed_operations_for_artifact("a1", "membership") == {"o": 1}
-    assert ledger.failed_operations_for_artifact("a1", "delete") == {}
-    assert ledger.failed_operations_for_artifact("other", "membership") == {}
+    assert ledger.failed_operations_for_artifact(ArtifactId("a1"), "membership") == {
+        "o": 1
+    }
+    assert ledger.failed_operations_for_artifact(ArtifactId("a1"), "delete") == {}
+    assert (
+        ledger.failed_operations_for_artifact(ArtifactId("other"), "membership") == {}
+    )
     assert ledger.snapshot()[1] == frozenset({"a1"})
 
 
@@ -81,7 +86,7 @@ def test_failing_a_stale_generation_marks_nothing() -> None:
 
     ledger.fail(stale, reason="membership", owner="o")
 
-    assert ledger.failed_operations_for_artifact("a1", "membership") == {}
+    assert ledger.failed_operations_for_artifact(ArtifactId("a1"), "membership") == {}
 
 
 def test_beginning_again_clears_the_failed_mark() -> None:
@@ -91,7 +96,7 @@ def test_beginning_again_clears_the_failed_mark() -> None:
 
     ledger.begin(frozenset({"a1"}), reason="membership", owner="o")
 
-    assert ledger.failed_operations_for_artifact("a1", "membership") == {}
+    assert ledger.failed_operations_for_artifact(ArtifactId("a1"), "membership") == {}
 
 
 def test_artifacts_lists_those_held_by_one_reason_and_owner() -> None:

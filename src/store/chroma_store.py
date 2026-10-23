@@ -5,7 +5,7 @@ import chromadb
 import chromadb.api
 from chromadb.api.types import Metadata, PyEmbeddings, QueryResult, Where
 
-from corpus.ids import ChunkId
+from corpus.ids import ArtifactId, ChunkId
 from corpus.source_filter import SourceExclusions
 from corpus.source_role import SourceRole
 from corpus.types import Chunk, RetrievalFilters, ScoredChunk
@@ -204,7 +204,7 @@ class ChromaVectorStore:
     def delete(self, artifact_id: str, exclude_ids: list[str] | None = None) -> int:
         tombstone = frozenset({artifact_id})
         membership_recoveries = self._ledger.failed_operations_for_artifact(
-            artifact_id,
+            ArtifactId(artifact_id),
             reason="membership",
         )
         # Commit the revocation before the first Chroma read. If that read, the
@@ -377,20 +377,22 @@ class ChromaVectorStore:
     def retrieval_fingerprints(self) -> frozenset[str]:
         _, revoked = self._ledger.snapshot()
         return frozenset(
-            retrieval_fingerprint(chunk_id, metadata)
+            retrieval_fingerprint(ChunkId(chunk_id), metadata)
             for chunk_id, metadata in iter_metadata_records(self._collection)
             if str(metadata["artifact_id"]) not in revoked
         )
 
     def project_ids_for_artifact(self, artifact_id: str) -> frozenset[str]:
-        return self._membership.project_ids_for_artifact(artifact_id)
+        return self._membership.project_ids_for_artifact(ArtifactId(artifact_id))
 
     def set_project_ids_for_artifact(
         self,
         artifact_id: str,
         project_ids: tuple[str, ...],
     ) -> int:
-        return self._membership.set_project_ids_for_artifact(artifact_id, project_ids)
+        return self._membership.set_project_ids_for_artifact(
+            ArtifactId(artifact_id), project_ids
+        )
 
     def remove_project(self, project_id: str) -> int:
         return self._membership.remove_project(project_id)

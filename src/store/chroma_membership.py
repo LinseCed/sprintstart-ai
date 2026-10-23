@@ -19,6 +19,7 @@ from corpus.filters import (
     decode_project_ids,
     project_metadata_key,
 )
+from corpus.ids import ArtifactId
 from corpus.types import Chunk
 from store import chroma_records
 from store.chroma_records import chunks_from_get_result
@@ -65,47 +66,47 @@ class ChromaMembership:
         self._revision_store = revision_store
         self._write = write
 
-    def project_ids_for_artifact(self, artifact_id: str) -> frozenset[str]:
+    def project_ids_for_artifact(self, artifact: ArtifactId) -> frozenset[str]:
         return frozenset(
             project_id
             for _, metadata in iter_metadata_records(
-                self._collection, where={"artifact_id": artifact_id}
+                self._collection, where={"artifact_id": artifact}
             )
             for project_id in decode_project_ids(metadata.get(PROJECT_IDS_METADATA_KEY))
         )
 
     def set_project_ids_for_artifact(
         self,
-        artifact_id: str,
+        artifact: ArtifactId,
         project_ids: tuple[str, ...],
     ) -> int:
         normalized = tuple(dict.fromkeys(pid for pid in project_ids if pid))
-        revocation_owner = f"artifact:{artifact_id}"
+        revocation_owner = f"artifact:{artifact}"
         recovery_operations = self._ledger.failed_operations_for_artifact(
-            artifact_id,
+            artifact,
             reason="membership",
         )
-        own_recovery = artifact_id in self._ledger.artifacts(
+        own_recovery = artifact in self._ledger.artifacts(
             reason="membership",
             owner=revocation_owner,
         )
         return self._rewrite(
-            {"artifact_id": artifact_id},
+            {"artifact_id": artifact},
             lambda _chunk: normalized,
             recovery_artifact_ids=(
-                frozenset({artifact_id})
+                frozenset({artifact})
                 if recovery_operations or own_recovery
                 else frozenset()
             ),
             revocation_owner=revocation_owner,
-            recovery_operations={artifact_id: recovery_operations},
+            recovery_operations={artifact: recovery_operations},
         )
 
-    def remove_project(self, project_id: str) -> int:
+    def remove_project(self, project: str) -> int:
         # Selected by the boolean marker rather than the delimited string,
         # because the marker is what retrieval filters on -- a chunk that still
         # carries it is still reachable, whatever the string says.
-        revocation_owner = f"project:{project_id}"
+        revocation_owner = f"project:{project}"
         recovery_artifact_ids = self._ledger.artifacts(
             reason="membership",
             owner=revocation_owner,
@@ -115,12 +116,12 @@ class ChromaMembership:
                 artifact.id
                 for artifact in self._revision_store.list_artifacts(
                     status=None,
-                    project_id=project_id,
+                    project_id=project,
                 )
             )
         return self._rewrite(
-            {project_metadata_key(project_id): {"$eq": True}},
-            lambda project_ids: tuple(pid for pid in project_ids if pid != project_id),
+            {project_metadata_key(project): {"$eq": True}},
+            lambda projects: tuple(pid for pid in projects if pid != project),
             recovery_artifact_ids=recovery_artifact_ids,
             revocation_owner=revocation_owner,
         )

@@ -58,8 +58,8 @@ _FILTER_METADATA_KEYS = (
 )
 
 
-def retrieval_fingerprint(chunk_id: str, metadata: Mapping[str, object]) -> str:
-    parts = [chunk_id]
+def retrieval_fingerprint(chunk: ChunkId, metadata: Mapping[str, object]) -> str:
+    parts: list[str] = [chunk]
     parts.extend(str(metadata.get(key, "")) for key in _FILTER_METADATA_KEYS)
     return "\x00".join(parts)
 
