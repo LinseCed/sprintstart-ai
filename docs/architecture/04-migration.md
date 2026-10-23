@@ -115,14 +115,14 @@ The planned form of D1 ("a declared sequence of shared `assembly` stages") was n
 share the retrieval and generation stages that were already in `assembly.py`, but their grounding and
 outcome steps differ too much for one generic runner to read better than four short pipelines.
 
-`suggest_skills` (140 → 36) is #100 and `chroma_store.query` is #104. `buddy.persona.build_persona` (120 → 41, of which the docstring is 26)
-is split into one function per concern (path, tool routing, grounding, work); the wording moved to
-`persona_clauses.py` and the manager's persona to `team_persona.py`, with `persona.py` falling from 645 to
-239 lines. Its output is pinned byte for byte by a golden for the named toolsets and a digest file for every
-pair of tools plus 300 sampled subsets, in all four modes.
+`suggest_skills` (140 → 36) is #100, `chroma_store.query` and `parse_pdf` are done, and the context-aware
+chunker is already split. `buddy.opening.stream_session` (121 → 73, of which the docstring is 38) keeps the stream loop; the marker
+handling moved into a `_GreetingSplitter` and the prompt into `_opening_prompt`. It is pinned by a golden over
+every chunking (sizes 1 to 13 and whole) of fourteen replies in hire and team mode, plus mid-stream failure
+and the prompts.
 
-Still over 100 lines: `chunk_text_context_aware` (143), `buddy.opening.stream_session` (121),
-`openai_client.chat_stream` (120) and `parse_pdf` (111).
+Still over 100 lines: `buddy.persona.build_persona` (120, split in its own PR) and
+`openai_client.chat_stream` (120).
 
 ### Stage E: typed identifiers (P8) — begun
 
