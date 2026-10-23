@@ -115,9 +115,13 @@ The planned form of D1 ("a declared sequence of shared `assembly` stages") was n
 share the retrieval and generation stages that were already in `assembly.py`, but their grounding and
 outcome steps differ too much for one generic runner to read better than four short pipelines.
 
-`suggest_skills` (140 → 36) is #100. Still over 100 lines: `chunk_text_context_aware` (143),
-`buddy.opening.stream_session` (121), `buddy.persona.build_persona` (120),
-`openai_client.chat_stream` (120), `chroma_store.query` (116) and `parse_pdf` (111).
+`suggest_skills` (140 → 36) is #100, `chroma_store.query` and `parse_pdf` are done, and the context-aware
+chunker is already split. `OpenAIClient.chat_stream` (120 → 18 lines) hands the fold of a streamed
+tool-decision turn to `ChatStreamAccumulator` in the new `llm/openai_stream.py`, together with the reasoning
+helpers it uses; `openai_client.py` fell from 653 to 464 lines. A golden pins the request body and the events
+across fifteen reply shapes, four chunk sizes, five configurations and the failure modes.
+
+Still over 100 lines: `buddy.opening.stream_session` and `buddy.persona.build_persona`, each in its own PR.
 
 ### Stage E: typed identifiers (P8) — begun
 
