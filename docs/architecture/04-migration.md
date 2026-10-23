@@ -157,7 +157,7 @@ logger (`assembly.phase.draft`, not the module the code used to live in).
    before deciding.
 3. What to call a domain `ProjectId` next to the wire alias of the same name.
 4. What to do about the files that stay over 400 lines and are not on this plan: `chroma_store.py`
-   (961), `metadata_store.py` (741), the three provider clients (653, 433, 428) and `buddy_persona.py`
-   (645). They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
+   (961), `metadata_store.py` (741), the three provider clients (653, 433, 428).
+   They are grandfathered by the ratchet and not covered by any stage; a stage F would own them.
    `buddy/agent.py` (513) and the two chunkers (445, 440) are also over, but smaller and partly
    covered by stage D.
