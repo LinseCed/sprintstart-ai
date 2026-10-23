@@ -99,17 +99,6 @@
       "count": 1
     }
   },
-  "src/buddy/persona.py::build_persona": {
-    "C901": {
-      "count": 1
-    },
-    "PLR0912": {
-      "count": 1
-    },
-    "PLR0915": {
-      "count": 1
-    }
-  },
   "src/buddy/tools/retrieve.py::__init__": {
     "PLR0913": {
       "count": 1
